@@ -211,9 +211,12 @@ Not ProbPipe, but tracked the same way: **EK-01**, EnsKit switches JAX to 64-bit
 - **What happens.** For a law, "unnormalized" means up to an additive constant. For a kernel the
   constant could depend on the given values, and then the joint's density, and so the posterior, is
   not determined. Inference reads a kernel's unnormalized density as exact in the given values
-  (`likelihood_flat`: "up to a constant in the parameters"). Sampling an unnormalized kernel,
-  however, normalizes it separately at each given value. The two readings disagree whenever the
-  normalizer depends on the given. The tempered factor of PG-03 is exactly such an object.
+  (`likelihood_flat`: "up to a constant in the parameters"). Binding an unnormalized kernel's given
+  values, however, normalizes it separately at each given value. The two readings disagree whenever
+  the normalizer depends on the given. The tempered factor of PG-03 is exactly such an object.
+  Verified while testing it: `condition_on(tempered_likelihood, given)` treats the factor as an
+  unnormalized law of y and runs an inference method to normalize it (about 50 s on the six-point
+  test model), where conditioning the *model* on y uses the factor as a likelihood term.
 - **Ideal ProbPipe.** State that a kernel's unnormalized density is exact up to a constant that does
   not depend on the given; or add a separate "factor" (potential) kind, a function of the given and
   the event that enters only conditioning and claims no law. PG-03's learning rate removes our need

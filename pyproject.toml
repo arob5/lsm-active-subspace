@@ -37,6 +37,8 @@ markers = [
 ]
 filterwarnings = [
     "ignore:Explicitly requested dtype:UserWarning",
+    "ignore:shape requires ndarray or scalar arguments:DeprecationWarning",
+    "ignore:jax.core.pytype_aval_mappings is deprecated:DeprecationWarning",
 ]
 
 [tool.ruff]
