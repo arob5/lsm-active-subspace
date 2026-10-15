@@ -3,3 +3,5 @@
 # EnsKit turns on JAX's 64-bit mode when it is imported. Importing it before anything builds a JAX
 # array keeps every array in the package at one precision.
 import enskit  # noqa: F401  # isort: skip
+
+from lsmas import inference  # noqa: F401  (registers the EnsKit inference methods)

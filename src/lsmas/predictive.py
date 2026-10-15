@@ -45,7 +45,7 @@ def prior_predictive(problem: InverseProblem, n_draws: int) -> NumericRecordBatc
     likelihood = problem.likelihood
     parameters = sample(problem.prior, sample_shape=(n_draws,))
     theta = problem.coordinates.array_from_draws(parameters)
-    predicted = np.asarray(problem.forward(problem.coordinates.record_batch(theta)).raw())
+    predicted = np.asarray(problem.forward(problem.coordinates.bijection.record_batch(theta)).raw())
     variances = likelihood.noise_variances(
         {slot: np.asarray(parameters[slot].raw()) for slot in likelihood.random_scale_slots}
     )

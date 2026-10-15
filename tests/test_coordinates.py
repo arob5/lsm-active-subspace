@@ -40,8 +40,8 @@ def test_unconstrained_coordinates_apply_each_support_bijector(coordinates):
     theta = np.array([[2.0, 0.3, 21.0], [0.5, 0.9, -3.0]])
     expected = np.column_stack([np.log(theta[:, 0]), logit(theta[:, 1]), theta[:, 2]])
     assert coordinates.names == ("a", "r", "t")
-    np.testing.assert_allclose(coordinates.to_unconstrained(theta), expected, rtol=1e-12)
-    np.testing.assert_allclose(coordinates.to_constrained(expected), theta, rtol=1e-12)
+    np.testing.assert_allclose(coordinates.bijection.to_unconstrained(theta), expected, rtol=1e-12)
+    np.testing.assert_allclose(coordinates.bijection.to_constrained(expected), theta, rtol=1e-12)
 
 
 def test_whitening_matches_the_prior_moments(coordinates):
@@ -75,7 +75,7 @@ def test_draws_and_batches_round_trip(prior, coordinates):
     def total(theta):
         return theta["a"] + theta["r"] + theta["t"]
 
-    totals = np.asarray(total(coordinates.record_batch(theta)).raw())
+    totals = np.asarray(total(coordinates.bijection.record_batch(theta)).raw())
     np.testing.assert_allclose(totals, theta.sum(axis=1))
 
 

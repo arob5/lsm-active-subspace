@@ -19,7 +19,7 @@ PRIOR_SD = np.array([1.0, 2.0])
 THETA_SPEC = NumericRecordSpec(a=NumericArraySpec(()), b=NumericArraySpec(()))
 
 
-@function(dispatch="sequential", label="linear_forward")
+@function(dispatch="jax", label="linear_forward")
 def linear_forward(theta):
     return jnp.asarray(FORWARD_MATRIX @ jnp.stack([theta["a"], theta["b"]]))
 
