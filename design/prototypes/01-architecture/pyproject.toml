@@ -1,0 +1,12 @@
+[project]
+name = "proto"
+version = "0"
+requires-python = ">=3.12"
+dependencies = [
+  "probpipe-core @ git+https://github.com/TARPS-group/prob-pipe.git@638f56bc89e0264c1543f723b1d2addd58df1c56",
+  "enskit @ git+https://github.com/TARPS-group/EnsKit.git@f7dc7eea0575b4d3b2fce91eee1eb69afb1c9341",
+  "pysipnet @ git+https://github.com/TARPS-group/pySIPNET.git@08bab7b04cf281b4c4b5e41ca18bbd604d30e46f",
+  "matplotlib", "pandas", "xarray",
+]
+[tool.uv]
+package = false
