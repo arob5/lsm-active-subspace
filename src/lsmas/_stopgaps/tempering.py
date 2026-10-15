@@ -142,7 +142,7 @@ class _TemperedFactor(Distribution):
 
 
 def _produces_any(factor: Any, components: Mapping[str, Any]) -> bool:
-    """Whether *factor* produces one of *components*."""
+    """Whether *factor* produces at least one of *components*."""
     return bool(set(factor.event_spec.components) & set(components))
 
 

@@ -132,18 +132,36 @@ def feature_map(
     Function
         ``theta -> array of shape (n,)``.
     """
-    n_features = operator.shape[0]
+    evaluator = _FeatureEvaluator(simulator, operator, to_sipnet)
+    return Function(evaluator.features, label=label, dispatch="thread", max_workers=max_workers)
 
-    def features(theta: Mapping[str, Any]) -> Any:
-        sipnet_parameters = to_sipnet(theta)
+
+class _FeatureEvaluator:
+    r"""Evaluates $A\, x(\theta)$ at one parameter record; ``feature_map`` wraps its method.
+
+    A bound method rather than a closure, so that ProbPipe's provenance can identify the function
+    without walking the observation operator.
+    """
+
+    def __init__(
+        self,
+        simulator: SIPNETSimulator,
+        operator: sp.csr_matrix,
+        to_sipnet: Callable[[Mapping[str, Any]], Mapping[str, float]],
+    ) -> None:
+        self.simulator = simulator
+        self.operator = operator
+        self.to_sipnet = to_sipnet
+
+    def features(self, theta: Mapping[str, Any]) -> Any:
+        """The predicted features at *theta*, or a row of NaN if SIPNET produced no output."""
+        sipnet_parameters = self.to_sipnet(theta)
         try:
-            rate = simulator.nee_rate(sipnet_parameters)
+            rate = self.simulator.nee_rate(sipnet_parameters)
         except SIMULATION_FAILURES as failure:
             _log_failure(sipnet_parameters, failure)
-            return jnp.full(n_features, jnp.nan)
-        return jnp.asarray(operator @ rate)
-
-    return Function(features, label=label, dispatch="thread", max_workers=max_workers)
+            return jnp.full(self.operator.shape[0], jnp.nan)
+        return jnp.asarray(self.operator @ rate)
 
 
 def _log_failure(sipnet_parameters: Mapping[str, float], failure: Exception) -> None:

@@ -30,6 +30,8 @@ commit. "Verified" means a script in [`prototypes/`](prototypes/) reproduces the
 | [PG-10](#pg-10) | `dispatch="auto"` re-runs the body; empirical lifts thin silently | Low (footguns) | #580 G2, defect 6 | planned |
 | [PG-11](#pg-11) | A normalized density needs both method names to be claimed | Low (footgun) | to file | open |
 | [PG-12](#pg-12) | "Unnormalized conditional density" does not say what may depend on the given | Medium (semantics) | to file | open |
+| [PG-13](#pg-13) | A renamed factor taken from a joint loses its path names in `log_prob` | Medium (bug) | to file | open |
+| [PG-14](#pg-14) | Fingerprinting a closure that captures a sparse matrix recurses without end | Low (bug) | to file | open |
 
 Not ProbPipe, but tracked the same way: **EK-01**, EnsKit switches JAX to 64-bit floats on import
 (below).
@@ -222,6 +224,43 @@ Not ProbPipe, but tracked the same way: **EK-01**, EnsKit switches JAX to 64-bit
   the event that enters only conditioning and claims no law. PG-03's learning rate removes our need
   for either.
 - **Stopgap.** The tempered factor is private to `tempered_condition_on` and claims no sampling.
+
+## PG-13
+
+**A renamed factor taken from a joint loses its path names in `log_prob`.**
+
+- **What happens.** Build `theta = (Normal("a", …) * Normal("b", …)).with_path_names({"a":
+  "theta/a", "b": "theta/b"})` and `model = likelihood * theta`. The factor of `model.factors` that
+  corresponds to `theta` is a new object whose `event_spec` declares the component `theta`, but
+  `log_prob(factor, {"theta": {"a": …, "b": …}})` raises `ApplicabilityError: … missing ['a',
+  'b'], unexpected ['theta']`; it only accepts the flat `{"a": …, "b": …}`. `log_prob(theta, …)`
+  on the original object works. Verified on the six-point test model and the development problem.
+- **Effect here.** A model's prior cannot be recovered from its factors and then scored.
+- **Ideal ProbPipe.** A factor taken from a joint keeps the renaming, so its declaration and its
+  density agree.
+- **Stopgap.** `InverseProblem` stores the likelihood and the prior it was built from and derives
+  the model from them, rather than splitting the model. (`tempered_condition_on` does rebuild a
+  joint from `model.factors`; its tests confirm the resulting target density is correct.)
+- **Removal.** Nothing to remove; storing the parts is the simpler design anyway. Recorded so the
+  bug gets fixed.
+
+## PG-14
+
+**Fingerprinting a closure that captures a sparse matrix recurses without end.**
+
+- **What happens.** `fingerprint(Function(body))`, where `body` is a closure over a
+  `scipy.sparse.csr_matrix`, raises `RecursionError`. Provenance catches it and logs
+  "fingerprint() failed … maximum recursion depth exceeded" on every call, and the result's
+  fingerprint is missing. A closure over an int, a dict or an arbitrary object is fine. Verified in
+  a minimal reproduction. The traversal of a `Function` (`core/_fingerprint.py`, `_update_function`)
+  also does not pass the recursion depth on, so the depth guard does not stop it.
+- **Effect here.** The forward map's provenance was weaker, with a warning per SIPNET run.
+- **Ideal ProbPipe.** Sparse matrices hash by content or fall back to identity, and nested function
+  traversal respects the depth guard.
+- **Stopgap.** The forward map is a bound method of a small class (`lsmas.sipnet._FeatureEvaluator`),
+  the pattern ProbPipe's documentation recommends for functions that use an object's state; a
+  bound method is fingerprinted without walking the operator.
+- **Removal.** Nothing to remove; recorded so the bug gets fixed.
 
 ---
 
