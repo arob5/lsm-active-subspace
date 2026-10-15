@@ -175,7 +175,8 @@ def _run(
         max_steps=int(options.get("max_steps", 1000)),
     )
     state, records = initial, []
-    for state, history_entry, evaluation in steps:  # noqa: B007  (the last state is the result)
+    for step in steps:
+        state, history_entry, evaluation = step
         record = _step_record(problem, history_entry, evaluation)
         for callback in callbacks:
             callback(record)

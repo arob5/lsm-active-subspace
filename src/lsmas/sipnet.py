@@ -136,12 +136,10 @@ def feature_map(
     return Function(evaluator.features, label=label, dispatch="thread", max_workers=max_workers)
 
 
+# STOPGAP(PG-14): a class with a method, not a closure, because ProbPipe's provenance recurses
+# without end on a closure that captures a sparse matrix.
 class _FeatureEvaluator:
-    r"""Evaluates $A\, x(\theta)$ at one parameter record; ``feature_map`` wraps its method.
-
-    A bound method rather than a closure, so that ProbPipe's provenance can identify the function
-    without walking the observation operator.
-    """
+    r"""Evaluates $A\, x(\theta)$ at one parameter record; ``feature_map`` wraps its method."""
 
     def __init__(
         self,

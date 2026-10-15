@@ -1,6 +1,7 @@
 # Design 01 — Architecture: how the pieces fit together
 
-*Draft 2, 2026-10-15. Status: for discussion.*
+*Draft 2, 2026-10-15, updated after the first implementation round (see
+[`01b-implementation-report.md`](01b-implementation-report.md)).*
 
 **Changes from draft 1.** The decisions in §11 are settled. "Blocks" became **tools**, "recipes"
 became **algorithms**, "observers" became **callbacks**, and `methods/` became `inference/`. Two
@@ -212,9 +213,10 @@ prior = (
 )
 ```
 
-ProbPipe's coordinate helpers are private and refuse views such as `prior["theta"]` (**PG-05**). The
-stopgap is one class, `Coordinates.from_prior(prior, block="theta")`, with `names`,
-`to_unconstrained`, `to_constrained`, `whiten` and `unwhiten`.
+ProbPipe's coordinate helpers are private and refuse views such as `prior["theta"]` (**PG-05**).
+The stopgap has two parts: `ParameterBijection.from_prior(prior, "theta")` maps between θ and z
+using each parameter's declared support, and `Coordinates.from_prior(prior, "theta")` adds the
+whitening (`whiten`, `unwhiten`). The problem's `coordinates` are the single source of whitening.
 
 ### 4.2 The forward map
 
@@ -339,7 +341,7 @@ class EnsKitEKI(InferenceMethod):
         ...
 
     def execute(self, target, /, **options):
-        # 1. draw the initial ensemble from the prior; move it to whitened coordinates
+        # 1. draw the initial ensemble from the prior; move it to unconstrained coordinates
         # 2. run EnsKit's tempered EKI, evaluating the forward Function on the whole ensemble at once
         # 3. call each callback after every evaluation
         # 4. return make_posterior(...): an EmpiricalDistribution over theta and the scales,
@@ -388,11 +390,17 @@ class StepRecord:
     step: int                 # 0, 1, 2, …
     beta: float               # tempering level before this step's update
     increment: float | None   # Δβ the schedule chose; None after the last evaluation
-    xi: Array                 # (J, d) particles, whitened coordinates
+    parameter_names: tuple    # the order of theta's last axis
+    theta: Array              # (J, d) particles, constrained coordinates
     predictions: Array        # (J, n) G at the particles
-    noise_variance: Array     # (n,) the step's noise variances (diagonal)
-    scales: dict[str, Array]  # each scale slot's (J,) values
+    noise_variance: Array     # (n,) the diagonal of the noise covariance at β = 1
 ```
+
+The record carries θ rather than whitened ξ. Ensemble Kalman updates are unchanged by an affine
+change of coordinates, so the method works in unconstrained coordinates, and a tool whitens with
+`problem.coordinates.whiten(problem.coordinates.bijection.to_unconstrained(record.theta))`. That
+keeps one source of whitening, the problem's. Noise-scale fields join the record when EKI infers
+the scales (design 03).
 
 Every callback reads the same record, so tools stay decoupled from the methods that feed them. A
 statistical-linearization accumulator, for example:
@@ -400,7 +408,8 @@ statistical-linearization accumulator, for example:
 ```python
 class LinearizationAccumulator:
     def __call__(self, record):
-        A_t = statistical_linearization(record.xi, record.predictions)   # EnsKit, via a thin wrapper
+        xi = self.coordinates.whiten(self.coordinates.bijection.to_unconstrained(record.theta))
+        A_t = statistical_linearization(xi, record.predictions)          # EnsKit, via a thin wrapper
         self.H += weight(record) * A_t.T @ (A_t / record.noise_variance[:, None])
 
     def subspace(self, rank):
@@ -575,12 +584,14 @@ posteriors by MCMC are the expensive part, which is why baselines are precompute
 
 ## 9. ProbPipe gaps
 
-The register is [`probpipe-gaps.md`](probpipe-gaps.md). It has twelve entries (PG-01 to PG-12) plus
-one for EnsKit (EK-01). Each entry gives what happens (with evidence), the effect here, the ideal
-ProbPipe support, the stopgap, how to remove it, and the upstream issue. Seven are covered by open upstream
-issues (#580, #521, #522, #352). Five are not: the simulator-Gaussian family (PG-02), the learning
-rate on conditioning (PG-03), public coordinates (PG-05, only partly covered by #522), the protocol
-footgun (PG-11), and the semantics of an unnormalized conditional density (PG-12).
+The register is [`probpipe-gaps.md`](probpipe-gaps.md). It has fourteen entries (PG-01 to PG-14)
+plus one for EnsKit (EK-01). Each entry gives what happens (with evidence), the effect here, the ideal
+ProbPipe support, the stopgap, how to remove it, and the upstream issue. Seven are covered by open
+upstream issues (#580, #521, #522, #352). Seven are not: the simulator-Gaussian family (PG-02), the
+learning rate on conditioning (PG-03), public coordinates (PG-05, only partly covered by #522), the
+protocol footgun (PG-11), the semantics of an unnormalized conditional density (PG-12), and two bugs
+found while implementing: renamed factors losing their path names (PG-13) and fingerprinting
+recursing on sparse matrices (PG-14).
 
 ---
 

@@ -127,9 +127,15 @@ Not ProbPipe, but tracked the same way: **EK-01**, EnsKit switches JAX to 64-bit
 - **Ideal ProbPipe.** A public `coordinates(law)` giving names, the flat layout, and the maps to and
   from unconstrained coordinates with their log-Jacobian, accepting views. #522's flat-vector law
   covers part of this.
-- **Stopgap.** `lsmas._stopgaps.coordinates.Coordinates.from_prior(prior, block="theta")`, with
-  `names`, `to_unconstrained`, `to_constrained`, `whiten`, `unwhiten`.
-- **Removal.** Build `Coordinates` on the public function; the whitening stays ours.
+- **Also verified.** The private helper refuses some priors that ProbPipe re-expresses internally:
+  the prior that `model_factors` returns for two independent `Normal`s is a fused
+  `FactoredMultivariateGaussian`, and `unconstrained_coordinates` raises `TypeError` on it.
+- **Stopgap.** `lsmas._stopgaps.coordinates.ParameterBijection.from_prior(prior, block)` builds the
+  map from the block's *declared* supports, using the public `bijector_for` (and the bijector's
+  `_inverse`, since ProbPipe's `inverse` operation is not implemented). It works whatever internal
+  form the prior takes. `Coordinates.from_prior` adds whitening, from prior draws made with
+  `prior._sample` and a fixed key, so they never touch the caller's `workflow_run`.
+- **Removal.** Build `ParameterBijection` on the public function; the whitening stays ours.
 
 ## PG-06
 
@@ -190,8 +196,8 @@ Not ProbPipe, but tracked the same way: **EK-01**, EnsKit switches JAX to 64-bit
   call). Lifting a `Function` over an `EmpiricalDistribution` with more atoms than
   `n_broadcast_samples` (default 256) samples instead of enumerating, without warning.
 - **Ideal ProbPipe.** #580 G2 and defect 6.
-- **Stopgap.** Always set `dispatch` and `n_broadcast_samples` explicitly; a lint test checks every
-  `@function` in `lsmas` sets `dispatch`.
+- **Stopgap.** Always set `dispatch` and `n_broadcast_samples` explicitly. A repository test
+  (`tests/test_repository.py`) checks that every `Function` built in `lsmas` sets `dispatch`.
 
 ## PG-11
 
@@ -234,12 +240,15 @@ Not ProbPipe, but tracked the same way: **EK-01**, EnsKit switches JAX to 64-bit
   corresponds to `theta` is a new object whose `event_spec` declares the component `theta`, but
   `log_prob(factor, {"theta": {"a": …, "b": …}})` raises `ApplicabilityError: … missing ['a',
   'b'], unexpected ['theta']`; it only accepts the flat `{"a": …, "b": …}`. `log_prob(theta, …)`
-  on the original object works. Verified on the six-point test model and the development problem.
+  on the original object works. The same happens to draws: the prior that `model_factors` returns
+  for such a model declares `theta`, but both `sample` and `_sample` return the fields ungrouped
+  (`{"a": …, "b": …}`). Verified on the six-point test model and the development problem.
 - **Effect here.** A model's prior cannot be recovered from its factors and then scored.
 - **Ideal ProbPipe.** A factor taken from a joint keeps the renaming, so its declaration and its
   density agree.
 - **Stopgap.** `InverseProblem` stores the likelihood and the prior it was built from and derives
-  the model from them, rather than splitting the model. (`tempered_condition_on` does rebuild a
+  the model from them, rather than splitting the model. `lsmas._stopgaps.coordinates.block_values`
+  reads a block's values from draws in either layout. (`tempered_condition_on` does rebuild a
   joint from `model.factors`; its tests confirm the resulting target density is correct.)
 - **Removal.** Nothing to remove; storing the parts is the simpler design anyway. Recorded so the
   bug gets fixed.

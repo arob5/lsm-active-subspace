@@ -24,7 +24,6 @@ def linear_problem():
         prior=prior,
         data={"y": np.zeros(6)},
         learning_rate={"y": np.ones(6)},
-        forward=likelihood.forward,
         coordinates=Coordinates.from_prior(prior, "theta", n_moment_draws=1000),
     )
 

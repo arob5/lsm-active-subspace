@@ -43,8 +43,6 @@ class InverseProblem:
         The observed value of each observed component.
     learning_rate : dict of str to numpy.ndarray
         $\eta$ for each observed component, one rate per element.
-    forward : Function
-        The forward map $G$ from the parameter record ``theta`` to the predicted observations.
     coordinates : Coordinates
         Constrained, unconstrained and whitened coordinates of ``theta``.
     """
@@ -55,8 +53,12 @@ class InverseProblem:
     prior: Distribution
     data: dict[str, np.ndarray]
     learning_rate: dict[str, np.ndarray]
-    forward: Function
     coordinates: Coordinates
+
+    @property
+    def forward(self) -> Function:
+        """The forward map $G$ from the parameter record ``theta`` to the predicted observations."""
+        return self.likelihood.forward
 
     @functools.cached_property
     def model(self) -> Distribution:

@@ -104,11 +104,12 @@ def harvard_forest_dev(
         How many SIPNET runs the forward map runs at a time.
     """
     data = load_harvard_forest() if data is None else data
-    simulator = SIPNETSimulator(
-        data.driver_path, data.fixed_sipnet_parameters | _REPRESENTATIVE_SIPNET_VALUES
-    )
+    fixed_sipnet_values = data.fixed_sipnet_parameters | _REPRESENTATIVE_SIPNET_VALUES
     forward = feature_map(
-        simulator, data.operator, _sipnet_parameters_from(data), max_workers=max_workers
+        SIPNETSimulator(data.driver_path, fixed_sipnet_values),
+        data.operator,
+        _sipnet_parameters_from(fixed_sipnet_values),
+        max_workers=max_workers,
     )
     scale_values = _scale_values(scales)
     likelihood = GaussianSimulatorLikelihood(
@@ -131,7 +132,6 @@ def harvard_forest_dev(
         prior=prior,
         data={"nee": data.observations},
         learning_rate={"nee": _learning_rate(data)},
-        forward=forward,
         coordinates=Coordinates.from_prior(prior, "theta"),
     )
 
@@ -174,9 +174,9 @@ def _learning_rate(data: HarvardForestData) -> np.ndarray:
     )
 
 
-def _sipnet_parameters_from(data: HarvardForestData) -> Any:
-    """The map from this problem's calibration parameters to SIPNET parameters."""
-    fixed = data.fixed_sipnet_parameters | _REPRESENTATIVE_SIPNET_VALUES
+def _sipnet_parameters_from(fixed: Mapping[str, float]) -> Any:
+    """The map from this problem's calibration parameters to SIPNET parameters, given the fixed
+    SIPNET values it reads."""
 
     def to_sipnet(theta: Mapping[str, Any]) -> dict[str, float]:
         optimum_temperature = float(theta["optimum_photosynthesis_temperature"])
