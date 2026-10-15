@@ -1,0 +1,49 @@
+[project]
+name = "lsmas"
+version = "0.1.0"
+description = "Parameter reduction for calibrating the SIPNET land-surface model at Harvard Forest"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    # Pinned to commits: these packages are in active development. See the README for how to upgrade.
+    "probpipe-core @ git+https://github.com/TARPS-group/prob-pipe.git@638f56bc89e0264c1543f723b1d2addd58df1c56",
+    "enskit @ git+https://github.com/TARPS-group/EnsKit.git@f7dc7eea0575b4d3b2fce91eee1eb69afb1c9341",
+    "pysipnet @ git+https://github.com/TARPS-group/pySIPNET.git@08bab7b04cf281b4c4b5e41ca18bbd604d30e46f",
+    "numpy>=2.0",
+    "scipy>=1.11",
+    "pandas>=2.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "ruff>=0.6",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/lsmas"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "smoke: end-to-end checks that run SIPNET (a few minutes in total)",
+]
+filterwarnings = [
+    "ignore:Explicitly requested dtype:UserWarning",
+]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+extend-exclude = ["design/prototypes"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "N", "SIM", "RUF"]
+ignore = ["RUF001", "RUF002", "RUF003"]  # Greek letters and math symbols in docstrings are intended
