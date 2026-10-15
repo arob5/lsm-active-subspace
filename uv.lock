@@ -300,8 +300,10 @@ dependencies = [
     { name = "numpy" },
     { name = "pandas" },
     { name = "probpipe-core" },
+    { name = "pydantic" },
     { name = "pysipnet" },
     { name = "scipy" },
+    { name = "xarray" },
 ]
 
 [package.dev-dependencies]
@@ -316,8 +318,10 @@ requires-dist = [
     { name = "numpy", specifier = ">=2.0" },
     { name = "pandas", specifier = ">=2.0" },
     { name = "probpipe-core", git = "https://github.com/TARPS-group/prob-pipe.git?rev=638f56bc89e0264c1543f723b1d2addd58df1c56" },
+    { name = "pydantic", specifier = ">=2" },
     { name = "pysipnet", git = "https://github.com/TARPS-group/pySIPNET.git?rev=08bab7b04cf281b4c4b5e41ca18bbd604d30e46f" },
     { name = "scipy", specifier = ">=1.11" },
+    { name = "xarray", specifier = ">=2024.1" },
 ]
 
 [package.metadata.requires-dev]
