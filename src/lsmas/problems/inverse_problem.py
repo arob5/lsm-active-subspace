@@ -31,7 +31,7 @@ class InverseProblem:
     Attributes
     ----------
     name : str
-        A short identifier, such as ``"harvard_forest_dev"``.
+        A short identifier, such as ``"harvard_forest_small"``.
     description : str
         A paragraph saying what the problem is.
     likelihood : ConditionalDistribution

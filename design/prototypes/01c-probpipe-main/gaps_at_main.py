@@ -30,6 +30,7 @@ from probpipe import (  # noqa: E402  (after JAX, before EnsKit: EK-01 needs 32-
     NumericArraySpec,
     NumericRecordSpec,
     OutputSpec,
+    ResolutionError,
     SupportsLogProb,
     bijector_for,
     condition_on,
@@ -37,6 +38,7 @@ from probpipe import (  # noqa: E402  (after JAX, before EnsKit: EK-01 needs 32-
     inverse,
     log_prob,
     positive,
+    quantile,
     sample,
     workflow_run,
 )
@@ -330,4 +332,22 @@ except TypeError as error:
     report(
         "PG-08",
         f"still open: automatic selection picks {selected}, which fails: {first_line(error)}",
+    )
+
+
+# ---------------------------------------------------------------- PG-16, transformed quantiles
+from lsmas.priors import logit_normal_from_interval  # noqa: E402
+
+logit_normal = logit_normal_from_interval("share", 0.04, 0.20)
+exact = float(logit_normal.bijector(quantile(logit_normal.base, 0.5)).raw)
+try:
+    stated = float(quantile.using(exact_only=True)(logit_normal, 0.5).raw)
+    report("PG-16", f"fixed: the exact median is stated, {stated:.4f} (exact {exact:.4f})")
+except ResolutionError as error:
+    with workflow_run(seed=0):
+        estimate = float(quantile(logit_normal, 0.5).raw)
+    report(
+        "PG-16",
+        f"still open: {estimate:.4f} by Monte Carlo against the exact {exact:.4f}; "
+        f"under exact_only, {first_line(error)}",
     )

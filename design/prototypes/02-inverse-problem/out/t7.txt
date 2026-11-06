@@ -1,0 +1,54 @@
+eigenvalues of C: [ 7.798e+01  2.954e+01  1.839e+01  1.395e+01  1.277e+01  4.781e+00  3.339e+00  2.653e+00  1.671e+00
+  1.422e+00  1.292e+00  1.008e+00  7.889e-01  4.335e-01  4.012e-01  2.624e-01  2.186e-01  1.945e-01
+  1.635e-01  1.459e-01  1.338e-01  1.233e-01  1.069e-01  7.798e-02  6.665e-02  6.035e-02  4.167e-02
+  3.000e-02  2.358e-02  1.674e-02  1.287e-02  8.414e-03  7.882e-03  5.198e-03  4.946e-03  4.522e-03
+  2.446e-03  1.727e-03  9.393e-04  4.249e-04  3.939e-04  3.227e-04  8.420e-05  7.257e-06  1.673e-06
+ -3.970e-20]
+activity (diag C), largest first:
+  photosynthetic_capacity                       42.8
+  soil_water_holding_capacity                   23.3
+  leaf_on_growing_degree_days                   17.3
+  half_saturation_light                         14.4
+  leaf_off_day                                  13.5
+  respiration_share                             9.61
+  leaf_on_growth                                8.34
+  water_use_efficiency                          7.96
+  vapor_pressure_deficit_slope                  6.21
+  vapor_pressure_deficit_exponent               5.64
+  soil_respiration_flux_at_10c                  3.87
+  water_removal_fraction                        3.45
+  optimum_photosynthesis_temperature            3.29
+  light_extinction_coefficient                   3.2
+  soil_respiration_q10                          1.43
+  fine_root_respiration_rate_at_10c            0.982
+  soil_respiration_moisture_exponent           0.974
+  wood_respiration_rate_at_10c                 0.858
+  interception_evaporation_fraction            0.701
+  fine_root_turnover_rate                      0.628
+  photosynthesis_temperature_range             0.535
+  initial_fine_root_carbon                     0.448
+  soil_resistance_intercept                    0.406
+  wood_respiration_q10                         0.391
+  fast_flow_fraction                           0.362
+  soil_resistance_slope                        0.338
+  initial_wood_carbon                          0.258
+  leaf_allocation                              0.225
+  fine_root_respiration_q10                    0.206
+  coarse_root_respiration_rate_at_10c          0.135
+  initial_soil_wetness                        0.0896
+  coarse_root_respiration_q10                 0.0615
+  initial_coarse_root_carbon                   0.061
+  aerodynamic_resistance_constant             0.0544
+  fine_root_share_of_root_allocation          0.0369
+  initial_soil_carbon                         0.0256
+  leaf_turnover_rate                           0.025
+  wood_share_of_nonleaf_allocation            0.0167
+  snow_melt_rate                             0.00747
+  coarse_root_turnover_rate                  0.00403
+  leaf_off_fall_fraction                     0.00284
+  initial_snow_water_equivalent              0.00111
+  wood_turnover_rate                        0.000271
+  frozen_soil_foliar_respiration_factor     6.81e-06
+  frozen_soil_threshold                     2.54e-06
+  frozen_soil_water_fraction                       0
+regime-inert parameters that moved the features, out of 30 draws: {'leaf_on_reallocation_fraction': 0, 'leaf_on_day': 0, 'leaf_on_soil_temperature': 0, 'growth_respiration_fraction': 0, 'litter_carbon': 0, 'litter_breakdown_rate': 0, 'litter_respired_fraction': 0, 'leaf_water_pool_depth': 0}

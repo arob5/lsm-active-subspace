@@ -1,4 +1,4 @@
-"""The shipped Harvard Forest inputs: driver, NEE observations, observation operator, fixed values.
+"""The shipped Harvard Forest inputs: driver, observations, operator, fixed values and prior.
 
 The files live in ``data/harvard_forest/`` at the root of the repository; its ``PROVENANCE.md`` says
 where each one came from. :func:`load_harvard_forest` reads them and checks that they agree.
@@ -39,6 +39,12 @@ class HarvardForestData:
         (µmol CO₂ m⁻² s⁻¹).
     fixed_sipnet_parameters : dict of str to float
         Values of SIPNET parameters that are not calibrated, keyed by pySIPNET's names.
+    prior_table : pandas.DataFrame
+        The prior of each calibration parameter, indexed by ``parameter``, with its ``units``, its
+        ``family`` and the family's numbers, and its ``source``. The families are ``log_normal``
+        and ``logit_normal``, whose central 95% interval is [``lower``, ``upper``]; ``normal``,
+        with ``mean`` and standard deviation ``sd``; and ``uniform`` on [``lower``, ``upper``].
+        A number a family does not use is NaN.
     """
 
     driver_path: Path
@@ -46,6 +52,7 @@ class HarvardForestData:
     operator: sp.csr_matrix
     features: pd.DataFrame
     fixed_sipnet_parameters: dict[str, float]
+    prior_table: pd.DataFrame
 
     @property
     def observations(self) -> np.ndarray:
@@ -73,7 +80,8 @@ def load_harvard_forest(directory: Path | None = None) -> HarvardForestData:
     Raises
     ------
     ValueError
-        If the operator's shape, the step axis and the feature table disagree.
+        If the operator's shape, the step axis and the feature table disagree, or the prior table
+        names a parameter twice.
     """
     directory = DEFAULT_DATA_DIRECTORY if directory is None else Path(directory)
     data = HarvardForestData(
@@ -85,6 +93,7 @@ def load_harvard_forest(directory: Path | None = None) -> HarvardForestData:
             parse_dates=["first_step_end_utc", "last_step_end_utc"],
         ),
         fixed_sipnet_parameters=_read_fixed_values(directory / "sipnet_fixed.csv"),
+        prior_table=_read_prior_table(directory / "prior.csv"),
     )
     _check_consistent(data)
     return data
@@ -108,6 +117,14 @@ def _read_fixed_values(path: Path) -> dict[str, float]:
     """The fixed SIPNET values in ``sipnet_fixed.csv``, keyed by pySIPNET's names."""
     table = pd.read_csv(path)
     return dict(zip(table["sipnet_parameter_name"], table["value"].astype(float), strict=True))
+
+
+def _read_prior_table(path: Path) -> pd.DataFrame:
+    """The prior table in ``prior.csv``, indexed by parameter."""
+    table = pd.read_csv(path, index_col="parameter")
+    if repeated := sorted(table.index[table.index.duplicated()]):
+        raise ValueError(f"{path.name} names these parameters more than once: {repeated}")
+    return table
 
 
 def _check_consistent(data: HarvardForestData) -> None:

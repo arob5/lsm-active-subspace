@@ -6,7 +6,8 @@ import pytest
 from probpipe import NumericRecordBatch
 
 from lsmas.data import load_harvard_forest
-from lsmas.parameters import photosynthesis_to_sipnet
+from lsmas.parameters import calibration_to_sipnet, photosynthesis_to_sipnet
+from lsmas.priors import prior_medians
 from lsmas.sipnet import SIPNETSimulator, feature_map
 
 pytestmark = pytest.mark.smoke
@@ -19,12 +20,22 @@ def data():
 
 @pytest.fixture(scope="module")
 def simulator(data):
-    return SIPNETSimulator(data.driver_path, data.fixed_sipnet_parameters)
+    """SIPNET with every calibration parameter at its prior median."""
+    at_medians = calibration_to_sipnet(
+        prior_medians(data.prior_table), data.fixed_sipnet_parameters
+    )
+    return SIPNETSimulator(data.driver_path, at_medians)
 
 
 def test_output_steps_are_the_observation_operators_columns(data, simulator):
     totals = simulator.run_nee({})
     assert pd.DatetimeIndex(totals["time"].values).equals(data.step_ends)
+
+
+def test_a_parameter_left_unset_is_refused(data):
+    partial = SIPNETSimulator(data.driver_path, data.fixed_sipnet_parameters)
+    with pytest.raises(ValueError, match=r"not set: .*'leaf_off_day'"):
+        partial.run_nee({})
 
 
 def test_rate_is_the_step_total_per_second_in_micromoles(simulator):

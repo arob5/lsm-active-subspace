@@ -1,7 +1,8 @@
 import numpy as np
 import pandas as pd
+import pytest
 
-from lsmas.data import load_harvard_forest
+from lsmas.data import DEFAULT_DATA_DIRECTORY, load_harvard_forest
 
 
 def test_shipped_files_are_consistent():
@@ -31,5 +32,25 @@ def test_each_feature_lies_inside_its_recorded_windows():
 
 def test_fixed_values_are_keyed_by_pysipnet_names():
     fixed = load_harvard_forest().fixed_sipnet_parameters
+    assert len(fixed) == 12
     assert fixed["leaf_carbon_fraction"] == 0.466075
     assert all(isinstance(value, float) for value in fixed.values())
+
+
+def test_prior_table_gives_every_parameter_its_units_and_source():
+    table = load_harvard_forest().prior_table
+    assert len(table) == 46
+    assert table[["units", "family", "source"]].notna().all(axis=None)
+
+
+def test_a_parameter_named_twice_in_the_prior_table_is_refused(tmp_path):
+    for path in DEFAULT_DATA_DIRECTORY.rglob("*"):
+        if path.is_file():
+            target = tmp_path / path.relative_to(DEFAULT_DATA_DIRECTORY)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(path.read_bytes())
+    prior = tmp_path / "prior.csv"
+    lines = prior.read_text().splitlines()
+    prior.write_text("\n".join([*lines, lines[1]]) + "\n")
+    with pytest.raises(ValueError, match="photosynthetic_capacity"):
+        load_harvard_forest(tmp_path)

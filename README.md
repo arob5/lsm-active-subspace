@@ -33,7 +33,7 @@ from probpipe import sample, workflow_run
 
 from lsmas.problems import load
 
-problem = load("harvard_forest_dev")
+problem = load("harvard_forest_small")
 print(problem.describe())
 
 with workflow_run(seed=1):
@@ -41,18 +41,23 @@ with workflow_run(seed=1):
     posterior = problem.condition(method="enskit_eki", method_options={"n_particles": 40})
 ```
 
+Two problems ship. `harvard_forest` calibrates all 46 parameters. `harvard_forest_small`
+calibrates ten of them and holds the rest at their prior medians, so that a long MCMC run, and with
+it a trustworthy reference posterior, is affordable. [Design 02](design/02-inverse-problem.md)
+explains how both were chosen.
+
 `condition` requires an inference method: ProbPipe's automatic choice assumes gradients, which
 SIPNET does not have.
 
 ## Layout
 
 ```
-data/harvard_forest/   the shipped inputs: driver, NEE features, observation operator, fixed SIPNET values
+data/harvard_forest/   the shipped inputs: driver, NEE features, observation operator, fixed SIPNET values, prior
 src/lsmas/
     data.py            loads the shipped inputs
     sipnet.py          runs SIPNET and builds the forward map
     parameters.py      maps calibration parameters to SIPNET parameters
-    priors.py          prior families specified by intervals
+    priors.py          prior families specified by intervals; the prior from a table
     learning_rate.py   the likelihood's learning rate
     problems/          inverse problems, ready to condition
     inference/         ensemble Kalman inversion, registered with ProbPipe

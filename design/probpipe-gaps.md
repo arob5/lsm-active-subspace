@@ -37,9 +37,10 @@ stopgap removed).
 | [PG-13](#pg-13) | A renamed factor taken from a joint loses its path names | Medium (bug) | to file | open |
 | [PG-14](#pg-14) | Fingerprinting a closure that captures a sparse matrix recurses without end | Low (bug) | to file | open |
 | [PG-15](#pg-15) | No public operation draws from a law with a given key | Low | to file | open |
+| [PG-16](#pg-16) | A transformed law's quantiles fall back to Monte Carlo | Low | to file | open |
 
-Not ProbPipe, but tracked the same way: **EK-01**, EnsKit switches JAX to 64-bit floats on import
-(below).
+Not ProbPipe, but tracked the same way (below): **EK-01**, EnsKit switches JAX to 64-bit floats on
+import; **SP-01**, SIPNET writes NEE to three decimals.
 
 ---
 
@@ -321,6 +322,24 @@ Not ProbPipe, but tracked the same way: **EK-01**, EnsKit switches JAX to 64-bit
   that calls `_sample`. Both uses go through it.
 - **Removal.** Replace its calls with the public operation; delete the module.
 
+## PG-16
+
+**A transformed law's quantiles fall back to Monte Carlo.**
+
+- **What happens.** `quantile(law, 0.5)` of a `BijectorTransformedDistribution`, such as the
+  logit-normal that `lsmas.priors.logit_normal_from_interval` builds, takes the Monte Carlo route:
+  for the logit-normal with 95% in [0.04, 0.20] it returned 0.0910 and 0.0897 in two runs against
+  the exact 0.0926, and under `exact_only` it is refused, because the law does not implement
+  `SupportsQuantile` (verified). Yet a quantile passes exactly through a strictly monotone map: for $Y = g(X)$ with
+  $g$ increasing, $q_Y(p) = g(q_X(p))$, and with $g$ decreasing, $q_Y(p) = g(q_X(1 - p))$.
+- **Effect here.** The small Harvard Forest problem holds 36 calibration parameters at their prior
+  medians, which must be exact and the same in every run.
+- **Ideal ProbPipe.** A scalar `BijectorTransformedDistribution` of a base with closed-form
+  quantiles states its own, through the bijector, whenever the bijector is monotone.
+- **Stopgap.** `lsmas._stopgaps.quantiles.median(law)`: the base's exact median pushed through
+  the bijector, or `quantile(law, 0.5)` under `exact_only` for any other law.
+- **Removal.** Replace its calls with `quantile(law, 0.5)` under `exact_only`; delete the module.
+
 ---
 
 ## EK-01
@@ -334,3 +353,21 @@ Not ProbPipe, but tracked the same way: **EK-01**, EnsKit switches JAX to 64-bit
 - **Stopgap.** `lsmas/__init__.py` imports EnsKit before anything else, so 64-bit is on everywhere.
   The forward map's declared float64 output needs this too: ProbPipe requires 64-bit mode for a
   declared float64 output.
+
+## SP-01
+
+**SIPNET writes NEE to three decimals.**
+
+- **What happens.** SIPNET's output file prints its fluxes with `%8.3f` (`sipnet.c:461-466` at
+  `v2.2.0-alpha.1`), and pySIPNET reads that file. NEE is therefore quantized at 0.001 g C m⁻² per
+  3-hour step, 0.0077 µmol m⁻² s⁻¹, about 0.4% of a typical value (verified).
+- **Effect here.** Negligible for the likelihood: a feature's rounding error has sd about
+  5 × 10⁻⁴ µmol m⁻² s⁻¹, against noise sds of 1.2–2.8. Not negligible for numerical derivatives:
+  a central difference of width 2h in a whitened coordinate carries rounding noise of about 0.002/h
+  in information-weighted units, so finite differences with h below about 0.05 resolve nothing in
+  the weak directions, and an exact degeneracy that is not a ratio shows at that floor instead of
+  at round-off (design 02, §1.2).
+- **Ideal.** SIPNET writes full precision (`%.9g`, say), or pySIPNET reads SIPNET's state another
+  way.
+- **Stopgap.** None in code. Algorithms that difference SIPNET use h ≥ 0.1 in whitened
+  coordinates; ensemble linearizations, whose spread is the prior's, are unaffected.

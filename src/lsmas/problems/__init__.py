@@ -1,6 +1,6 @@
 """Inverse problems, ready to condition.
 
->>> problem = load("harvard_forest_dev")          # doctest: +SKIP
+>>> problem = load("harvard_forest_small")        # doctest: +SKIP
 >>> print(problem.describe())                      # doctest: +SKIP
 """
 
@@ -9,13 +9,27 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from lsmas.problems.harvard_forest_dev import harvard_forest_dev
+from lsmas.problems.harvard_forest import (
+    SMALL_PROBLEM_PARAMETERS,
+    harvard_forest,
+    harvard_forest_small,
+)
 from lsmas.problems.inverse_problem import InverseProblem
 
-__all__ = ["PROBLEMS", "InverseProblem", "harvard_forest_dev", "load"]
+__all__ = [
+    "PROBLEMS",
+    "SMALL_PROBLEM_PARAMETERS",
+    "InverseProblem",
+    "harvard_forest",
+    "harvard_forest_small",
+    "load",
+]
 
 #: Every available problem, by name.
-PROBLEMS: dict[str, Callable[..., InverseProblem]] = {"harvard_forest_dev": harvard_forest_dev}
+PROBLEMS: dict[str, Callable[..., InverseProblem]] = {
+    "harvard_forest": harvard_forest,
+    "harvard_forest_small": harvard_forest_small,
+}
 
 
 def load(name: str, **options: Any) -> InverseProblem:
