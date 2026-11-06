@@ -32,7 +32,10 @@ import jax
 import numpy as np
 from probpipe import InverseGamma
 
-__all__ = ["NoiseScaleConditionals"]
+__all__ = ["MIN_INCREMENT", "NoiseScaleConditionals"]
+
+#: The smallest tempering increment a step may take, EnsKit's default.
+MIN_INCREMENT = 1e-3
 
 
 @dataclass(frozen=True, eq=False)
@@ -160,13 +163,19 @@ class NoiseScaleConditionals:
         return np.sum(np.where(self.inferred, inferred_terms, fixed_terms), axis=1)
 
     def largest_increment(
-        self, quadratic_forms: np.ndarray, beta: float, ess_fraction: float
+        self,
+        quadratic_forms: np.ndarray,
+        beta: float,
+        ess_fraction: float,
+        min_increment: float = MIN_INCREMENT,
     ) -> float:
         r"""The largest $\Delta\beta \le 1 - \beta$ whose weights keep an effective sample size of
-        at least ``ess_fraction`` $\times J$, found by bisection.
+        at least ``ess_fraction`` $\times J$, found by bisection, and at least *min_increment*.
 
         The effective sample size of weights $w$ is $(\sum_j w_j)^2 / \sum_j w_j^2$; it falls from
-        $J$ as $\Delta\beta$ grows.
+        $J$ as $\Delta\beta$ grows. The floor *min_increment* (EnsKit's default) bounds the number
+        of steps a ladder can take, at the cost of a lower effective sample size on a step that
+        needs it.
         """
         n_particles = quadratic_forms.shape[0]
 
@@ -181,7 +190,7 @@ class NoiseScaleConditionals:
         for _ in range(60):
             middle = (low + high) / 2
             low, high = (middle, high) if keeps_enough(middle) else (low, middle)
-        return low
+        return min(max(low, min_increment), 1.0 - beta)
 
     def noise_variance(self, class_scales: np.ndarray) -> np.ndarray:
         r"""The diagonal of $\Gamma = \operatorname{diag}(s^2_{k(i)} v_i / \eta_i)$, shape $(n,)$.

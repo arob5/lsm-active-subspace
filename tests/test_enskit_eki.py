@@ -1,17 +1,28 @@
 import itertools
 
+import jax.numpy as jnp
 import numpy as np
 import pytest
-from probpipe import InverseGamma, LogNormal, condition_on, workflow_run
+from probpipe import (
+    Function,
+    InverseGamma,
+    LogNormal,
+    NumericArraySpec,
+    condition_on,
+    workflow_run,
+)
 
 from conftest import (
     CLASSES,
+    FORWARD_MATRIX,
     REFERENCE_VARIANCE,
+    THETA_SPEC,
     exact_linear_posterior,
     linear_likelihood,
     linear_theta_prior,
     posterior_moments,
 )
+from lsmas._stopgaps.likelihood import GaussianSimulatorLikelihood
 from lsmas._stopgaps.tempering import tempered_condition_on
 from lsmas.inference import EnsKitEKI
 
@@ -146,3 +157,35 @@ def test_eki_runs_on_the_small_harvard_forest_problem():
     assert theta.shape == (1, 16, 10)
     assert records[0].predictions.shape == (16, 400)
     assert sum(record.n_failed for record in records) == 0
+
+
+def failing_linear_forward(theta):
+    """The linear forward map, failing (NaN) wherever a > 1.5."""
+    a, b = float(np.asarray(theta["a"])), float(np.asarray(theta["b"]))
+    values = FORWARD_MATRIX @ np.array([a, b])
+    return np.full(6, np.nan) if a > 1.5 else values
+
+
+def test_failed_runs_are_counted_and_repaired(observations):
+    forward = Function(
+        failing_linear_forward,
+        label="failing_linear",
+        output_spec=NumericArraySpec((6,), jnp.float64),
+        traceable=False,
+    )
+    likelihood = GaussianSimulatorLikelihood(
+        forward,
+        output_name="y",
+        theta_spec=THETA_SPEC,
+        reference_variance=REFERENCE_VARIANCE,
+        classes=CLASSES,
+        scales=FIXED_SCALES,
+    )
+    records = []
+    with workflow_run(seed=7):
+        posterior = condition_on.using(
+            method="enskit_eki", method_options={"n_particles": 50, "callbacks": [records.append]}
+        )(likelihood & linear_theta_prior(), {"y": observations})
+    assert records[0].n_failed > 0
+    assert np.all(np.isfinite(records[0].predictions))
+    assert np.all(np.isfinite(posterior_moments(posterior)[0]))

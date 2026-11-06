@@ -104,3 +104,10 @@ def test_noise_variance_is_the_tempered_covariance():
     model = conditionals(0.7)
     expected = np.where(CLASSES == "day", 2.0, 0.7) * REFERENCE_VARIANCE / LEARNING_RATE
     np.testing.assert_allclose(model.noise_variance(np.array([2.0, 0.7])), expected)
+
+
+def test_increment_never_falls_below_the_floor():
+    model = conditionals(None)
+    forms = model.quadratic_forms(np.random.default_rng(1).normal(size=(50, 6)) * 1e4)
+    assert model.largest_increment(forms, 0.0, 0.5) == pytest.approx(1e-3)
+    assert model.largest_increment(forms, 0.9995, 0.5) == pytest.approx(0.0005)

@@ -8,7 +8,7 @@ combines such laws into the prior of a block of calibration parameters.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 
 import numpy as np
 import pandas as pd
@@ -27,6 +27,7 @@ from scipy import stats
 from lsmas._stopgaps.quantiles import median
 
 __all__ = [
+    "factors_over",
     "independent_prior",
     "laws_from_table",
     "log_normal_from_interval",
@@ -100,6 +101,29 @@ def independent_prior(laws: Mapping[str, Distribution], group: str = "theta") ->
         raise ValueError("an independent prior needs at least one law")
     product = FactoredDistribution(list(laws.values()))
     return product.rename({name: f"{group}/{name}" for name in laws})
+
+
+def factors_over(prior: Distribution, outputs: Iterable[str]) -> dict[str, Distribution]:
+    """The factors of a product prior that are laws of exactly one of *outputs*, by that output.
+
+    A prior built with ``&``, such as ``theta_prior & InverseGamma("s2_day", 2.0, 1.678)``, is a
+    product of factors; this finds, for instance, the prior of each noise scale. An output with no
+    factor of its own is left out.
+
+    Parameters
+    ----------
+    prior : Distribution
+        A product of factors, such as an inverse problem's prior.
+    outputs : iterable of str
+        The outputs to look for, such as ``("s2_day", "s2_night")``.
+    """
+    wanted = set(outputs)
+    found = {}
+    for factor in getattr(prior, "factors", ()):
+        factor_outputs = set(factor.event_spec.outputs)
+        if len(factor_outputs) == 1 and factor_outputs <= wanted:
+            found[factor_outputs.pop()] = factor
+    return found
 
 
 def log_normal_from_interval(

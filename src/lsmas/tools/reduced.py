@@ -40,7 +40,7 @@ from lsmas._stopgaps.coordinates import Coordinates, block_values
 from lsmas._stopgaps.functions import declares_traceable
 from lsmas._stopgaps.likelihood import GaussianSimulatorLikelihood
 from lsmas._stopgaps.sampling import draw_with_key
-from lsmas.priors import independent_prior
+from lsmas.priors import factors_over, independent_prior
 from lsmas.problems.inverse_problem import InverseProblem
 from lsmas.tools.subspace import Subspace
 
@@ -76,7 +76,7 @@ def reduced_problem(problem: InverseProblem, subspace: Subspace) -> ReducedProbl
     names = tuple(f"active_{i + 1}" for i in range(subspace.rank))
     likelihood = _reduced_likelihood(problem, subspace, names)
     prior = independent_prior({name: Normal(name, 0.0, 1.0) for name in names})
-    for scale_prior in _scale_priors(problem):
+    for scale_prior in factors_over(problem.prior, problem.likelihood.random_scale_slots).values():
         prior = prior & scale_prior
     return ReducedProblem(
         name=f"{problem.name}_reduced",
@@ -192,13 +192,3 @@ def _reduced_likelihood(
 def _record_spec(names: tuple[str, ...]) -> NumericRecordSpec:
     """The spec of a record of scalar parameters *names*."""
     return NumericRecordSpec(**{name: NumericArraySpec(()) for name in names})
-
-
-def _scale_priors(problem: InverseProblem) -> list[Any]:
-    """The factors of *problem*'s prior over its inferred noise scales."""
-    slots = set(problem.likelihood.random_scale_slots)
-    return [
-        factor
-        for factor in getattr(problem.prior, "factors", ())
-        if set(factor.event_spec.outputs) <= slots
-    ]

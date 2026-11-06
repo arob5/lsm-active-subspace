@@ -28,6 +28,7 @@ from lsmas._stopgaps.sampling import draw_with_key
 from lsmas._stopgaps.tempering import TemperedLikelihood
 from lsmas.inference.noise_scales import NoiseScaleConditionals
 from lsmas.inference.step_record import StepCallback, StepRecord, history_dataset
+from lsmas.priors import factors_over
 
 __all__ = ["EnsKitEKI"]
 
@@ -85,7 +86,8 @@ class EnsKitEKI(InferenceMethod):
     - ``ess_fraction`` (float, default 0.5): the fraction of $J$ the effective sample size keeps.
     - ``callbacks`` (sequence of callables, default none): each is called with a
       :class:`~lsmas.inference.StepRecord` after every step's increment is chosen.
-    - ``max_steps`` (int, default 1000): the most steps to take before giving up.
+    - ``max_steps`` (int, default 1000): the most steps to take before giving up; each increment is
+      at least 0.001, so 1000 steps always reach $\beta = 1$.
 
     The result is the empirical law of the final particles, with their scales when inferred. Its
     annotations hold the run's history as the group ``arviz/eki_history`` (see
@@ -160,7 +162,10 @@ class _GaussianInverseProblem:
             prior=factors.prior,
             bijection=ParameterBijection.from_prior(factors.prior, _PARAMETER_BLOCK),
             scale_conditionals=NoiseScaleConditionals.from_problem(
-                likelihood, _scale_priors(factors.prior), observations, learning_rate
+                likelihood,
+                _scale_priors(factors.prior, likelihood.random_scale_slots),
+                observations,
+                learning_rate,
             ),
         )
 
@@ -233,7 +238,19 @@ def _climb_ladder(
         if float(state.beta) < 1.0 or conditionals.inferred.any():
             evaluation = _evaluate(problem, state, scales)
             scales = _draw_scales(problem, evaluation, state, scales, key_scales)
-    return _Particles(z=np.asarray(state.ensemble["u"]), scales=scales), records
+    return _Particles(z=_final_particles(state, evaluation), scales=scales), records
+
+
+def _final_particles(state: Any, evaluation: Any) -> np.ndarray:
+    r"""The final particles, as repaired by their evaluation if they were evaluated at $\beta = 1$.
+
+    With inferred scales the final ensemble is evaluated, so that its scales can be drawn, and any
+    particle at which the forward map failed was moved to the valid particles' centre; returning
+    the evaluated particles keeps each one paired with the scales drawn for it.
+    """
+    if int(evaluation.step) == int(state.step):
+        return np.asarray(evaluation.ensemble["u"])
+    return np.asarray(state.ensemble["u"])
 
 
 def _evaluate(problem: _GaussianInverseProblem, state: Any, scales: np.ndarray) -> Any:
@@ -301,12 +318,11 @@ def _untempered(likelihood: Any) -> tuple[Any, np.ndarray]:
     return likelihood, np.asarray(1.0)
 
 
-def _scale_priors(prior: Any) -> dict[str, InverseGamma]:
-    """The inverse-gamma factors of *prior*, by the name of the scale each one is over."""
-    factors = getattr(prior, "factors", ())
+def _scale_priors(prior: Any, slots: Sequence[str]) -> dict[str, InverseGamma]:
+    """The inverse-gamma priors of the inferred scales *slots*, by slot; others are left out."""
     return {
-        next(iter(factor.event_spec.outputs)): factor
-        for factor in factors
+        slot: factor
+        for slot, factor in factors_over(prior, slots).items()
         if isinstance(factor, InverseGamma)
     }
 
@@ -342,6 +358,6 @@ def _infeasibility_reason(target: InferenceTarget) -> str | None:
             f"the prior must be over the parameter record {_PARAMETER_BLOCK!r} and the inferred "
             f"noise scales {sorted(slots)}, and nothing else"
         )
-    if missing := sorted(slots - _scale_priors(factors.prior).keys()):
+    if missing := sorted(slots - _scale_priors(factors.prior, sorted(slots)).keys()):
         return f"each inferred noise scale needs an inverse-gamma prior; these have none: {missing}"
     return None
