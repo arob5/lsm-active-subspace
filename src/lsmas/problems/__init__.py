@@ -15,6 +15,7 @@ from lsmas.problems.harvard_forest import (
     harvard_forest_small,
 )
 from lsmas.problems.inverse_problem import InverseProblem
+from lsmas.problems.toy import toy
 
 __all__ = [
     "PROBLEMS",
@@ -23,12 +24,14 @@ __all__ = [
     "harvard_forest",
     "harvard_forest_small",
     "load",
+    "toy",
 ]
 
 #: Every available problem, by name.
 PROBLEMS: dict[str, Callable[..., InverseProblem]] = {
     "harvard_forest": harvard_forest,
     "harvard_forest_small": harvard_forest_small,
+    "toy": toy,
 }
 
 
