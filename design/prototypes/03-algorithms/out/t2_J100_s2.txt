@@ -1,0 +1,9 @@
+prior matrices: 16 s
+EKI: 6 steps, 3 s; betas [0.0, 0.036, 0.119, 0.25, 0.471, 0.783]
+H_prior          eigenvalues [53.02 20.02 11.17  4.82  3.06  2.32  1.64  1.07]
+Hbar_prior       eigenvalues [43.18 16.44  4.13  2.37  1.24  0.72  0.2   0.09]
+Hslr_prior_100   eigenvalues [32.09 15.5   3.93  1.97  1.13  0.65  0.17  0.09]
+H_ladder         eigenvalues [71.84 13.21 12.96  4.32  3.21  2.21  1.82  1.1 ]
+Hslr_ladder      eigenvalues [36.98  9.55  8.11  3.01  1.72  0.83  0.24  0.16]
+H_eki_final      eigenvalues [75.28 13.55 13.16  4.11  3.12  2.64  1.17  0.82]
+Hslr_eki_final   eigenvalues [15.99  9.52  6.97  2.9   2.38  0.55  0.18  0.12]

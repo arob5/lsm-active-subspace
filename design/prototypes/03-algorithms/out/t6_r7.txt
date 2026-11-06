@@ -1,0 +1,4 @@
+blackjax_rwmh on the reduced toy (r = 7): 14 s
+draws: (4000, 7)
+mean |mean error| / sd: 0.143
+mean |log sd ratio|: 0.056

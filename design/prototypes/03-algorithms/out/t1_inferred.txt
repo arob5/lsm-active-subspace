@@ -1,0 +1,22 @@
+NUTS (observed, scales inferred): 885 s
+annotations: ['arviz']
+draws shape (4, 1000, 14)
+parameter                                  median  post median  post sd/prior sd   rhat
+photosynthetic_capacity                       251        287.4             0.671  1.000
+respiration_share                         0.09261      0.07295             0.808  1.001
+optimum_photosynthesis_temperature             22        25.84             0.794  1.000
+photosynthesis_temperature_range            22.96        22.03             0.957  1.001
+half_saturation_light                          11        10.28             0.844  1.000
+vapor_pressure_deficit_slope              0.04899      0.03672             0.869  1.000
+vapor_pressure_deficit_exponent             1.732        1.416             0.845  1.000
+light_extinction_coefficient                0.497       0.4929             0.969  1.000
+leaf_on_growing_degree_days                 741.6        779.2             0.430  1.000
+leaf_off_day                                  285        287.3             0.670  1.000
+leaf_on_growth                              94.87        105.5             0.751  1.000
+wood_respiration_rate_at_10c              0.01549      0.01666             0.987  1.000
+soil_respiration_flux_at_10c                424.3        580.1             0.637  1.000
+soil_respiration_q10                         2.04        1.506             0.756  1.000
+s2_day [0.59160103 0.92745018 1.54507365]
+s2_night [0.89277932 1.41739032 2.40779299]
+eigenvalues of the whitened posterior covariance: [0.0254 0.1327 0.1719 0.3078 0.4993 0.576  0.6147 0.6915 0.8322 0.9297
+ 0.9523 1.0149 1.0702 1.1038]
