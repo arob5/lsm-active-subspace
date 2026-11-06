@@ -21,7 +21,7 @@ from common import forward_xi, problem, top_eigenvectors
 from lsmas._stopgaps.coordinates import Coordinates
 from lsmas._stopgaps.likelihood import GaussianSimulatorLikelihood
 from lsmas.priors import independent_prior
-from lsmas.problems.harvard_forest import _prior, _scale_values
+from lsmas.problems.nee_likelihood import _prior, _scale_values
 from lsmas.problems.inverse_problem import InverseProblem
 from toy import DATA, N_FEATURES
 

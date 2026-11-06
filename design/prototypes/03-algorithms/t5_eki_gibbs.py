@@ -31,7 +31,7 @@ from enskit.distribution import Ensemble
 
 from common import coordinates, forward_batch, problem, whitened
 from lsmas._stopgaps.sampling import draw_with_key
-from lsmas.problems.harvard_forest import NOISE_SCALE_PRIOR, REFERENCE_VARIANCE
+from lsmas.problems.nee_likelihood import NOISE_SCALE_PRIOR, REFERENCE_VARIANCE
 from toy import DATA
 
 J = int(sys.argv[1]) if len(sys.argv) > 1 else 100

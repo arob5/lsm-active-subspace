@@ -14,7 +14,7 @@ from probpipe import Function, NumericArraySpec, NumericRecordSpec
 from lsmas._stopgaps.coordinates import Coordinates
 from lsmas._stopgaps.likelihood import GaussianSimulatorLikelihood
 from lsmas.priors import independent_prior
-from lsmas.problems.harvard_forest import REFERENCE_VARIANCE, _learning_rate, _scale_values, _prior
+from lsmas.problems.nee_likelihood import REFERENCE_VARIANCE, _learning_rate, _scale_values, _prior
 from lsmas.problems.inverse_problem import InverseProblem
 from toy import DATA, LAWS, N_FEATURES, TOY_PARAMETERS, features
 
