@@ -52,6 +52,7 @@ def test_callbacks_see_every_step_up_the_ladder(observations):
     assert records[0].parameter_names == ("a", "b")
     assert records[0].theta.shape == (50, 2)
     assert records[0].predictions.shape == (50, 6)
+    assert isinstance(records[0].noise_variance, np.ndarray)
     history = posterior.annotations["arviz/eki_history"]
     np.testing.assert_allclose(history["beta"].values, betas)
 

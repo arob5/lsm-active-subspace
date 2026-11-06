@@ -142,7 +142,7 @@ class _GaussianInverseProblem:
     @property
     def noise_variance(self) -> np.ndarray:
         r"""The diagonal of $\Gamma$: each observation's noise variance over its learning rate."""
-        return self.likelihood.noise_variances() / self.learning_rate
+        return np.asarray(self.likelihood.noise_variances()) / self.learning_rate
 
     def prior_draws(self, key: Any, n_particles: int) -> np.ndarray:
         """*n_particles* prior draws in unconstrained coordinates, shape $(J, d)$."""
