@@ -41,7 +41,7 @@ with workflow_run(seed=1):
     posterior = problem.condition(method="enskit_eki", method_options={"n_particles": 40})
 ```
 
-Conditioning names its inference method: ProbPipe's automatic choice assumes gradients, which
+`condition` requires an inference method: ProbPipe's automatic choice assumes gradients, which
 SIPNET does not have.
 
 ## Layout

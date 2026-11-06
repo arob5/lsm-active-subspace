@@ -197,7 +197,8 @@ Not ProbPipe, but tracked the same way: **EK-01**, EnsKit switches JAX to 64-bit
 - **Ideal ProbPipe.** The claim and a Jacobian operation, proposed in
   `plans/deferred/differentiability.md` (not yet approved).
 - **Stopgap.** The toy problem will compute Jacobians with `jax.jacfwd` directly, in one function.
-  Every conditioning call in this repo names its method, and `InverseProblem.condition` says so.
+  `InverseProblem.condition` requires its `method` argument, so a forgotten method fails at the
+  call with a plain `TypeError` rather than inside NUTS.
 
 ## PG-09
 

@@ -57,8 +57,7 @@ Each was corrected where it was made.
    likelihood became JAX code, ProbPipe's automatic selection picks NUTS for every SIPNET problem,
    and NUTS fails at once: "gradients cannot pass through 'nee_features'". This is a regression
    from the first round, where selection picked RWMH. It is recorded under PG-08, and
-   `InverseProblem.condition`'s docstring tells users to name the method. Every call in the repo
-   already does.
+   `InverseProblem.condition` now requires its `method` argument.
 2. **`StepRecord.increment` "0 for the final evaluation".** EnsKit makes such a record only when a
    stopping rule ends a run early. A run that reaches β = 1 ends with its last update, so every
    record has a positive increment and the final particles are in none. A test now checks this.

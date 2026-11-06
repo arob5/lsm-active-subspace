@@ -64,6 +64,11 @@ def test_model_draws_run_sipnet(inferred):
     assert np.all(np.isfinite(nee))
 
 
+def test_conditioning_requires_a_method(fixed):
+    with pytest.raises(TypeError, match="method"):
+        fixed.condition(method_options={"n_particles": 4})
+
+
 def test_unknown_problem_is_refused():
     with pytest.raises(KeyError, match="no problem called"):
         load("mars")

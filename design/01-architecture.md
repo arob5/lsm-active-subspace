@@ -326,7 +326,7 @@ kernel, "unnormalized" could allow a normalizer that depends on the given values
 such a normalizer while sampling respects it, so an object like this would mean different things to
 different operations.
 
-`InverseProblem.condition(**using)` (§4.9) calls `tempered_condition_on` with the problem's η, so
+`InverseProblem.condition(method=..., **using)` (§4.9) calls `tempered_condition_on` with the problem's η, so
 algorithms never handle η themselves.
 
 **Why one likelihood factor, not one per class.** A factor per class (`nee_day`, `nee_night`) would
@@ -339,7 +339,7 @@ separately, doubling the cost. So η is an array over the one factor's 400 featu
 - **Name the method.** `condition_on.check(model, data).method` is `'blackjax_nuts'`: the density
   is JAX code that traces, with SIPNET running through a host callback, and ProbPipe's selection
   does not ask whether gradients exist. NUTS then fails, because gradients cannot pass through
-  SIPNET (verified; **PG-08**). Every call in this repo therefore names its method.
+  SIPNET (verified; **PG-08**). `InverseProblem.condition` therefore requires a method.
 - **RWMH runs, one point per chain at a time.** 2 chains × 30 steps: 67 runs, 24 s, whether or not
   the call names the thread executor (verified; PG-07). A 100,000-run reference chain would take
   about 8 hours. Design 04 decides how reference posteriors are produced.
@@ -516,9 +516,10 @@ class InverseProblem:
     forward = property(...)          # the likelihood's forward Function, θ -> features
     model = cached_property(...)     # likelihood & prior: a proper generative model (ProbPipe)
 
-    def condition(self, **using) -> Distribution:
-        """The (generalized) posterior, by the inference method `using` names."""
-        return tempered_condition_on(self.model, self.data, learning_rate=self.learning_rate, **using)
+    def condition(self, *, method, **using) -> Distribution:
+        """The (generalized) posterior, by the named inference method (required: PG-08)."""
+        return tempered_condition_on(self.model, self.data, learning_rate=self.learning_rate,
+                                     method=method, **using)
 ```
 
 The problem stores the likelihood and the prior and derives the model, because a model's factors
