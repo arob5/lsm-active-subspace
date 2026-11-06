@@ -1,0 +1,113 @@
+{
+  "git": {
+    "commit": "7949640eaa15e116a81be56bbb07bae93bea005c",
+    "dirty": true,
+    "changed_paths": [
+      "xperiments/single_site_mcmc_vs_eki/MODEL.md",
+      "experiments/single_site_mcmc_vs_eki/README.md",
+      "experiments/single_site_mcmc_vs_eki/config.py",
+      "experiments/single_site_mcmc_vs_eki/figures/common.py",
+      "experiments/single_site_mcmc_vs_eki/figures/comparison.py",
+      "experiments/single_site_mcmc_vs_eki/figures/diagnostics.py",
+      "experiments/single_site_mcmc_vs_eki/figures/eki.py",
+      "experiments/single_site_mcmc_vs_eki/figures/prior_predictive.py",
+      "experiments/single_site_mcmc_vs_eki/model/diagnostics.py",
+      "experiments/single_site_mcmc_vs_eki/model/inputs.py",
+      "experiments/single_site_mcmc_vs_eki/model/outputs.py",
+      "experiments/single_site_mcmc_vs_eki/model/sipnet.py",
+      "experiments/single_site_mcmc_vs_eki/report/report.qmd",
+      "experiments/single_site_mcmc_vs_eki/scripts/__init__.py -> experiments/single_site_mcmc_vs_eki/run/__init__.py",
+      "experiments/single_site_mcmc_vs_eki/scripts/predictive.py -> experiments/single_site_mcmc_vs_eki/run/_predictive.py",
+      "experiments/single_site_mcmc_vs_eki/scripts/provenance.py -> experiments/single_site_mcmc_vs_eki/run/_provenance.py",
+      "experiments/single_site_mcmc_vs_eki/scripts/describe.py -> experiments/single_site_mcmc_vs_eki/run/check_inputs.py",
+      "experiments/single_site_mcmc_vs_eki/scripts/diagnose.py -> experiments/single_site_mcmc_vs_eki/run/diagnose.py",
+      "experiments/single_site_mcmc_vs_eki/scripts/eki.py -> experiments/single_site_mcmc_vs_eki/run/eki.py",
+      "experiments/single_site_mcmc_vs_eki/scripts/fit_nee_discrepancy.py -> experiments/single_site_mcmc_vs_eki/run/fit_nee_discrepancy.py",
+      "experiments/single_site_mcmc_vs_eki/scripts/posterior_predictive.py -> experiments/single_site_mcmc_vs_eki/run/posterior_predictive.py",
+      "experiments/single_site_mcmc_vs_eki/scripts/prepare_drivers.py -> experiments/single_site_mcmc_vs_eki/run/prepare_drivers.py",
+      "experiments/single_site_mcmc_vs_eki/scripts/prior_predictive.py -> experiments/single_site_mcmc_vs_eki/run/prior_predictive.py"
+    ]
+  },
+  "packages": {
+    "pysipnet": {
+      "version": "0.1.0.dev0",
+      "url": "https://github.com/TARPS-group/pySIPNET.git",
+      "commit": "08bab7b04cf281b4c4b5e41ca18bbd604d30e46f"
+    },
+    "pyens": {
+      "version": "0.1.0",
+      "url": "https://github.com/arob5/PyEns.git",
+      "commit": "b1ed47805aa9f6e29d3d07a75828a46fc75f9ed8"
+    },
+    "pyeki": {
+      "version": "0.1.0.dev0",
+      "url": "https://github.com/TARPS-group/pyEKI.git",
+      "commit": "1fec3ee849cdb200ae2401e07e56a8b04ace3bb9"
+    }
+  },
+  "sipnet": {
+    "pinned_tag": "v2.2.0-alpha.1",
+    "pinned_commit": "41fa853e7131f542c52fcc0f4e3ea76892b52eda",
+    "binary": "/Users/andrewroberts/Library/Caches/pysipnet/sipnet/41fa853e7131/sipnet",
+    "binary_md5": "ececf552c16250f4aa3e16ef46bc35b7"
+  },
+  "command": {
+    "argv": [
+      "/Users/andrewroberts/Desktop/git-repos/spatial-lsm-calibration/.claude/worktrees/single-site-mcmc-vs-eki/experiments/single_site_mcmc_vs_eki/run/prepare_drivers.py",
+      "--help"
+    ],
+    "python": "3.14.4 (main, Apr 30 2026, 22:51:41) [Clang 14.0.0 (clang-1400.0.29.202)]"
+  },
+  "config": {
+    "BASE_SIPNET_PARAMETER_FILE": "PosixPath('/Users/andrewroberts/Desktop/git-repos/spatial-lsm-calibration/.claude/worktrees/single-site-mcmc-vs-eki/.venv/lib/python3.14/site-packages/pysipnet/data/niwot/sipnet.param')",
+    "CALIBRATION_NEE_PERIOD": "(2012, 2020)",
+    "CALIBRATION_NEE_SERIES": "'ameriflux_nee_hourly_ustar_variable'",
+    "CLIMATE_STAGING": "<ClimateStaging.SYMLINK: 'symlink'>",
+    "CONSTRAINT_NAMES": "('modis_leaf_area_index', 'landtrendr_aboveground_biomass', 'soilgrids_soil_organic_carbon')",
+    "DRIVER_SOURCE_INDEX": "1",
+    "DRIVER_TIME_ZONE": "'UTC'",
+    "EKI_DIRECTORY": "PosixPath('/Users/andrewroberts/Desktop/git-repos/spatial-lsm-calibration/.claude/worktrees/single-site-mcmc-vs-eki/experiments/single_site_mcmc_vs_eki/output/eki/two_term_discrepancy')",
+    "EKI_ENSEMBLE_SIZE": "100",
+    "EKI_ESS_FRACTION": "0.5",
+    "EKI_RUN_NAME": "'two_term_discrepancy'",
+    "EKI_SEED": "20260930",
+    "EKI_SYNTHETIC_TRUTH_SEED": "20260931",
+    "EXCLUDED_CONSTRAINTS": "frozendict.frozendict({'smap_soil_moisture': \"SMAP L4 total-profile volumetric water content, in percent, one 3-hourly snapshot on 07-15 each year on a 9 km grid. It has no defensible counterpart in SIPNET's soil water, a bucket whose capacity is porosity times the soil file's depth: the reanalysis compared it with the bucket's fraction of capacity, which is a degree of saturation, not a volumetric content, and the two differ by the porosity. About ten values at one site would not repay an operator built on an assumed depth and porosity.\", 'gedi_aboveground_biomass': \"Its units are not established, carbon or dry biomass (data/README.md open question 9), and its three values at the site fall from 145 to 78 over 2019-2022 while LandTrendr's change by a few percent, so three values of unknown meaning would add little but their disagreement.\"})",
+    "EXPERIMENT_DIRECTORY": "PosixPath('/Users/andrewroberts/Desktop/git-repos/spatial-lsm-calibration/.claude/worktrees/single-site-mcmc-vs-eki/experiments/single_site_mcmc_vs_eki')",
+    "FIGURE_DIRECTORY": "PosixPath('/Users/andrewroberts/Desktop/git-repos/spatial-lsm-calibration/.claude/worktrees/single-site-mcmc-vs-eki/experiments/single_site_mcmc_vs_eki/output/figures')",
+    "LAI_DISCREPANCY_STANDARD_DEVIATION": "0.5",
+    "LAI_DISCREPANCY_TIMESCALE": "datetime.timedelta(days=30)",
+    "LAI_STANDARD_DEVIATION_FLOOR": "0.66",
+    "LANDTRENDR_DISCREPANCY_STANDARD_DEVIATION": "5.0",
+    "LANDTRENDR_YEARS": "(2012, 2017)",
+    "MODEL_FLAGS": "ModelFlags(snow=True, gdd=True, water_hresp=True, growth_resp=False, leaf_water=False, litter_pool=False, soil_phenol=False, nitrogen_cycle=False, anaerobic=False, carbon_saturation=False, flooding=False, name='standard')",
+    "NEE_DISCREPANCY": "frozendict.frozendict({'nee_night_centered': NEEDiscrepancy(short_standard_deviation=0.603, short_timescale=datetime.timedelta(seconds=63936), long_standard_deviation=1.2, long_timescale=datetime.timedelta(days=57, seconds=17280), recurring_standard_deviation=0.0, recurring_width=0.5, recurring_timescale=None, provenance='two-term fit to the residuals of EKI run single_term_discrepancy, observed data'), 'nee_day_centered': NEEDiscrepancy(short_standard_deviation=1.96, short_timescale=datetime.timedelta(days=1, seconds=62208), long_standard_deviation=2.3, long_timescale=datetime.timedelta(days=36, seconds=43200), recurring_standard_deviation=0.0, recurring_width=0.5, recurring_timescale=None, provenance='two-term fit to the residuals of EKI run single_term_discrepancy, observed data')})",
+    "NEE_MINIMUM_MEASURED_FRACTION": "0.5",
+    "NEE_WINDOWS": "frozendict.frozendict({'nee_night_centered': (datetime.timedelta(0), datetime.timedelta(seconds=43200)), 'nee_day_centered': (datetime.timedelta(seconds=43200), datetime.timedelta(days=1))})",
+    "N_WORKERS": "3",
+    "OBSERVATION_OPERATORS": "frozendict.frozendict({'nee_night_centered': AverageRateOverWindows(output_variable_name='net_ecosystem_exchange'), 'nee_day_centered': AverageRateOverWindows(output_variable_name='net_ecosystem_exchange'), 'modis_leaf_area_index': ComputeLeafAreaIndex(), 'landtrendr_aboveground_biomass': ComputeAbovegroundBiomass(carbon_fraction=0.48), 'soilgrids_soil_organic_carbon': ReduceOverRun(output_variable_name='soil_carbon', how='mean')})",
+    "OUTPUT_DIRECTORY": "PosixPath('/Users/andrewroberts/Desktop/git-repos/spatial-lsm-calibration/.claude/worktrees/single-site-mcmc-vs-eki/experiments/single_site_mcmc_vs_eki/output')",
+    "PREPARED_DRIVERS_ROOT": "PosixPath('/Users/andrewroberts/Desktop/git-repos/spatial-lsm-calibration/.claude/worktrees/single-site-mcmc-vs-eki/experiments/single_site_mcmc_vs_eki/output/drivers')",
+    "PRIOR_PREDICTIVE_DIRECTORY": "PosixPath('/Users/andrewroberts/Desktop/git-repos/spatial-lsm-calibration/.claude/worktrees/single-site-mcmc-vs-eki/experiments/single_site_mcmc_vs_eki/output/prior_predictive')",
+    "PRIOR_PREDICTIVE_ENSEMBLE_SIZE": "200",
+    "PRIOR_PREDICTIVE_OUTPUT_VARIABLE_NAMES": "('net_ecosystem_exchange', 'gross_primary_production', 'ecosystem_respiration', 'leaf_carbon', 'wood_carbon', 'soil_carbon')",
+    "PRIOR_PREDICTIVE_SEED": "20260929",
+    "RAW_DRIVERS_ROOT": "PosixPath('/Users/andrewroberts/Desktop/git-repos/spatial-lsm-calibration/.claude/worktrees/single-site-mcmc-vs-eki/data/raw/drivers')",
+    "SIPNET_TIMEOUT": "datetime.timedelta(seconds=60)",
+    "SITE": "4977",
+    "SOIL_CARBON_DISCREPANCY_FRACTION": "0.25",
+    "SOIL_TEMPERATURE_TIMESCALE": "datetime.timedelta(days=15)",
+    "VALIDATION_NEE_PERIOD": "(2021, 2024)",
+    "VALIDATION_NEE_SERIES": "'ameriflux_nee_half_hourly_ustar_variable'",
+    "WOOD_CARBON_FRACTION": "0.48",
+    "WOOD_CARBON_FRACTION_UNCERTAINTY": "0.02"
+  },
+  "input_files": [
+    {
+      "path": "/Users/andrewroberts/Desktop/git-repos/spatial-lsm-calibration/data/raw/drivers/ERA5_4977_1/ERA5.1.2012-01-01.2024-12-31.clim",
+      "bytes": 4255104,
+      "md5": "90c40875ca33261113849e9d08288521"
+    }
+  ],
+  "written": "2026-10-01T20:30:16Z"
+}
