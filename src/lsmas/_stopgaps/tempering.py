@@ -77,7 +77,9 @@ def tempered_condition_on(
     if unknown:
         raise ValueError(f"learning rates given for outputs that are not observed: {unknown}")
     factors = [
-        _tempered_factor(factor, learning_rate) if _produces_any(factor, learning_rate) else factor
+        _tempered_factor(factor, learning_rate)
+        if _factor_produces_any_of(factor, learning_rate)
+        else factor
         for factor in model.factors
     ]
     tempered_model = functools.reduce(operator.and_, factors)
@@ -141,7 +143,7 @@ class _TemperedFactor(Distribution):
         return self._tempered._conditional_unnormalized_log_prob(self._given, value)
 
 
-def _produces_any(factor: Any, outputs: Mapping[str, Any]) -> bool:
+def _factor_produces_any_of(factor: Any, outputs: Mapping[str, Any]) -> bool:
     """Whether *factor* produces at least one of *outputs*."""
     return bool(set(factor.event_spec.outputs) & set(outputs))
 

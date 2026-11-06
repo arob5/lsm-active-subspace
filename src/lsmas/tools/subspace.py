@@ -84,7 +84,10 @@ class Subspace:
         """
         eigenvalues, eigenvectors = np.linalg.eigh(np.asarray(information, dtype=float))
         order = np.argsort(eigenvalues)[::-1]
-        eigenvalues, eigenvectors = eigenvalues[order], _signed(eigenvectors[:, order])
+        eigenvalues, eigenvectors = (
+            eigenvalues[order],
+            _sign_by_largest_entry(eigenvectors[:, order]),
+        )
         if rank is None:
             rank = suggest_rank(eigenvalues, discarded_information)
         _check_rank(rank, len(eigenvalues))
@@ -124,7 +127,9 @@ class Subspace:
         r"""$b = W_\perp^\top \xi$, shape $(\ldots, d) \to (\ldots, d - r)$."""
         return np.asarray(xi, dtype=float) @ self.complement
 
-    def whitened(self, active: np.ndarray, inactive: np.ndarray) -> np.ndarray:
+    def whitened_from_active_and_inactive(
+        self, active: np.ndarray, inactive: np.ndarray
+    ) -> np.ndarray:
         r"""$\xi = W a + W_\perp b$ from active and inactive variables, shape $(\ldots, d)$."""
         return (
             np.asarray(active, dtype=float) @ self.basis.T
@@ -174,12 +179,12 @@ def suggest_rank(
     discarded_information : float
         $\varepsilon \ge 0$.
     """
-    values = np.sort(np.asarray(eigenvalues, dtype=float))[::-1]
-    discarded_after = np.concatenate([np.cumsum(values[::-1])[::-1][1:], [0.0]])
+    descending = np.sort(np.asarray(eigenvalues, dtype=float))[::-1]
+    discarded_after = np.concatenate([np.cumsum(descending[::-1])[::-1][1:], [0.0]])
     return int(np.argmax(discarded_after <= discarded_information)) + 1
 
 
-def _signed(eigenvectors: np.ndarray) -> np.ndarray:
+def _sign_by_largest_entry(eigenvectors: np.ndarray) -> np.ndarray:
     """Each column multiplied by the sign of its largest entry in absolute value."""
     largest = eigenvectors[
         np.argmax(np.abs(eigenvectors), axis=0), np.arange(eigenvectors.shape[1])

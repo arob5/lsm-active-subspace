@@ -63,7 +63,7 @@ def harvard_forest(
         How many SIPNET runs the forward map runs at a time.
     """
     data = load_harvard_forest() if data is None else data
-    return _problem(
+    return _harvard_forest_problem(
         "harvard_forest",
         f"Harvard Forest NEE, 2012-2020, with all {len(data.prior_table)} calibration parameters "
         f"(noise scales {scales}).",
@@ -100,7 +100,7 @@ def harvard_forest_small(
         How many SIPNET runs the forward map runs at a time.
     """
     data = load_harvard_forest() if data is None else data
-    return _problem(
+    return _harvard_forest_problem(
         "harvard_forest_small",
         f"Harvard Forest NEE, 2012-2020, with {len(SMALL_PROBLEM_PARAMETERS)} of the "
         f"{len(data.prior_table)} calibration parameters; the others are held at their prior "
@@ -112,7 +112,7 @@ def harvard_forest_small(
     )
 
 
-def _problem(
+def _harvard_forest_problem(
     name: str,
     description: str,
     calibrated: Sequence[str],
@@ -134,7 +134,7 @@ def _problem(
         SIPNETSimulator(data.driver_path, {}),
         data.operator,
         functools.partial(
-            _sipnet_parameters,
+            _sipnet_parameters_with_held_values,
             calibrated=tuple(calibrated),
             held=held,
             fixed=data.fixed_sipnet_parameters,
@@ -151,7 +151,7 @@ def _problem(
     )
 
 
-def _sipnet_parameters(
+def _sipnet_parameters_with_held_values(
     theta: Mapping[str, Any],
     *,
     calibrated: Sequence[str],

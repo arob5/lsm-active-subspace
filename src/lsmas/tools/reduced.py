@@ -138,7 +138,9 @@ class ReducedProblem(InverseProblem):
         prior_xi = full.whitened_from_parameters(
             block_values(prior_draws, _PARAMETER_BLOCK, full.names)
         )
-        xi = self.subspace.whitened(active, self.subspace.inactive_variables(prior_xi))
+        xi = self.subspace.whitened_from_active_and_inactive(
+            active, self.subspace.inactive_variables(prior_xi)
+        )
         theta = full.parameters_from_whitened(xi)
         fields: dict[str, Any] = {
             _PARAMETER_BLOCK: {
@@ -151,7 +153,7 @@ class ReducedProblem(InverseProblem):
 
 
 @dataclass(frozen=True, eq=False)
-class _ReducedForward:
+class _ReducedForwardMap:
     r"""Evaluates $G(\theta(W a))$ at one record of active variables."""
 
     problem: InverseProblem
@@ -169,7 +171,7 @@ def _reduced_likelihood(
 ) -> GaussianSimulatorLikelihood:
     """The full problem's likelihood around the reduced forward map."""
     full_likelihood = problem.likelihood
-    evaluator = _ReducedForward(problem, jnp.asarray(subspace.basis), names)
+    evaluator = _ReducedForwardMap(problem, jnp.asarray(subspace.basis), names)
     traceable = declares_traceable(problem.forward)
     forward = Function(
         evaluator.features,
@@ -181,7 +183,7 @@ def _reduced_likelihood(
     return GaussianSimulatorLikelihood(
         forward,
         output_name=full_likelihood.output_name,
-        theta_spec=_record_spec(names),
+        theta_spec=_scalar_record_spec(names),
         reference_variance=full_likelihood.reference_variance,
         classes=full_likelihood.classes,
         scales=full_likelihood.scales,
@@ -189,6 +191,6 @@ def _reduced_likelihood(
     )
 
 
-def _record_spec(names: tuple[str, ...]) -> NumericRecordSpec:
+def _scalar_record_spec(names: tuple[str, ...]) -> NumericRecordSpec:
     """The spec of a record of scalar parameters *names*."""
     return NumericRecordSpec(**{name: NumericArraySpec(()) for name in names})

@@ -119,22 +119,28 @@ class EnsKitEKI(InferenceMethod):
         self._check_options(options)
         problem = _GaussianInverseProblem.from_target(target)
         key_prior, key_kalman, key_scales = jax.random.split(key, 3)
-        start = problem.prior_draws(key_prior, options.get("n_particles", 100))
-        final, records = _climb_ladder(
-            problem, start, key_kalman=key_kalman, key_scales=key_scales, options=options
+        initial_particles = problem.draw_initial_particles(
+            key_prior, options.get("n_particles", 100)
+        )
+        final_particles, step_records = _run_tempered_eki(
+            problem,
+            initial_particles,
+            key_kalman=key_kalman,
+            key_scales=key_scales,
+            options=options,
         )
         return make_posterior(
             target,
-            [_vectors_of_target(target, problem, final)],
+            [_particles_as_target_vectors(target, problem, final_particles)],
             method=self.name,
-            annotations=xr.DataTree.from_dict({"eki_history": history_dataset(records)}),
-            n_particles=final.z.shape[0],
-            n_steps=len(records),
+            annotations=xr.DataTree.from_dict({"eki_history": history_dataset(step_records)}),
+            n_particles=final_particles.z.shape[0],
+            n_steps=len(step_records),
         )
 
 
 @dataclass(frozen=True)
-class _Particles:
+class _ParticlesWithScales:
     """An ensemble: unconstrained parameters $z$, shape $(J, d)$, and class scales, $(J, K)$."""
 
     z: np.ndarray
@@ -154,7 +160,7 @@ class _GaussianInverseProblem:
     @classmethod
     def from_target(cls, target: InferenceTarget) -> _GaussianInverseProblem:
         factors = target.factors()
-        likelihood, learning_rate = _untempered(factors.likelihood)
+        likelihood, learning_rate = _likelihood_and_learning_rate(factors.likelihood)
         observations = np.asarray(factors.observed, dtype=float)
         return cls(
             likelihood=likelihood,
@@ -163,13 +169,13 @@ class _GaussianInverseProblem:
             bijection=ParameterBijection.from_prior(factors.prior, _PARAMETER_BLOCK),
             scale_conditionals=NoiseScaleConditionals.from_problem(
                 likelihood,
-                _scale_priors(factors.prior, likelihood.random_scale_slots),
+                _inverse_gamma_scale_priors(factors.prior, likelihood.random_scale_slots),
                 observations,
                 learning_rate,
             ),
         )
 
-    def prior_draws(self, key: Any, n_particles: int) -> _Particles:
+    def draw_initial_particles(self, key: Any, n_particles: int) -> _ParticlesWithScales:
         """*n_particles* prior draws: parameters in unconstrained coordinates, and class scales."""
         draws = draw_with_key(self.prior, key, (n_particles,))
         theta = block_values(draws, _PARAMETER_BLOCK, self.bijection.names)
@@ -181,7 +187,7 @@ class _GaussianInverseProblem:
             ],
             axis=-1,
         )
-        return _Particles(z=self.bijection.to_unconstrained(theta), scales=scales)
+        return _ParticlesWithScales(z=self.bijection.to_unconstrained(theta), scales=scales)
 
     def forward_in_unconstrained_coordinates(self, z: Any) -> np.ndarray:
         """$G$ at each row of unconstrained coordinates *z*, shape $(J, n)$; EnsKit's simulator."""
@@ -189,31 +195,33 @@ class _GaussianInverseProblem:
         return np.asarray(self.likelihood.forward(self.bijection.record_batch(theta)).raw)
 
 
-def _climb_ladder(
+def _run_tempered_eki(
     problem: _GaussianInverseProblem,
-    start: _Particles,
+    initial_particles: _ParticlesWithScales,
     *,
     key_kalman: Any,
     key_scales: Any,
     options: Mapping[str, Any],
-) -> tuple[_Particles, list[StepRecord]]:
-    """Climb the tempering ladder from *start*; return the final particles and every step's record.
+) -> tuple[_ParticlesWithScales, list[StepRecord]]:
+    r"""Run tempered EKI from *initial_particles*.
+
+    Returns the final particles and every step's record.
 
     Raises
     ------
     RuntimeError
-        If the ladder does not reach $\\beta = 1$ within ``max_steps`` steps.
+        If the ladder does not reach $\beta = 1$ within ``max_steps`` steps.
     """
     callbacks: Sequence[StepCallback] = options.get("callbacks", ())
     ess_fraction = float(options.get("ess_fraction", 0.5))
     max_steps = int(options.get("max_steps", 1000))
     conditionals = problem.scale_conditionals
-    state = eki.EKIState(Ensemble(u=jnp.asarray(start.z)), key=key_kalman)
-    scales = start.scales
-    evaluation = _evaluate(problem, state, scales)
-    records: list[StepRecord] = []
+    state = eki.EKIState(Ensemble(u=jnp.asarray(initial_particles.z)), key=key_kalman)
+    scales = initial_particles.scales
+    evaluation = _evaluate_forward_map_at_particles(problem, state, scales)
+    step_records: list[StepRecord] = []
     while float(state.beta) < 1.0:
-        if len(records) == max_steps:
+        if len(step_records) == max_steps:
             raise RuntimeError(
                 f"EKI reached only beta = {float(state.beta):.4g} in {max_steps} steps"
             )
@@ -223,10 +231,10 @@ def _climb_ladder(
             conditionals.quadratic_forms(predictions), beta, ess_fraction
         )
         noise_variance = conditionals.noise_variance(conditionals.common_scales(scales))
-        record = _step_record(problem, evaluation, beta, increment, scales, noise_variance)
+        record = _build_step_record(problem, evaluation, beta, increment, scales, noise_variance)
         for callback in callbacks:
             callback(record)
-        records.append(record)
+        step_records.append(record)
         state = eki.assimilate(
             state,
             evaluation,
@@ -235,13 +243,15 @@ def _climb_ladder(
             linalg.PSDDiagonal(jnp.asarray(noise_variance)),
             update_rule=kalman.Matheron(),
         )
-        if float(state.beta) < 1.0 or conditionals.inferred.any():
-            evaluation = _evaluate(problem, state, scales)
-            scales = _draw_scales(problem, evaluation, state, scales, key_scales)
-    return _Particles(z=_final_particles(state, evaluation), scales=scales), records
+        if float(state.beta) < 1.0 or conditionals.is_inferred.any():
+            evaluation = _evaluate_forward_map_at_particles(problem, state, scales)
+            scales = _gibbs_draw_noise_scales(problem, evaluation, state, scales, key_scales)
+    return _ParticlesWithScales(
+        z=_final_particles_as_evaluated(state, evaluation), scales=scales
+    ), step_records
 
 
-def _final_particles(state: Any, evaluation: Any) -> np.ndarray:
+def _final_particles_as_evaluated(state: Any, evaluation: Any) -> np.ndarray:
     r"""The final particles, as repaired by their evaluation if they were evaluated at $\beta = 1$.
 
     With inferred scales the final ensemble is evaluated, so that its scales can be drawn, and any
@@ -253,7 +263,9 @@ def _final_particles(state: Any, evaluation: Any) -> np.ndarray:
     return np.asarray(state.ensemble["u"])
 
 
-def _evaluate(problem: _GaussianInverseProblem, state: Any, scales: np.ndarray) -> Any:
+def _evaluate_forward_map_at_particles(
+    problem: _GaussianInverseProblem, state: Any, scales: np.ndarray
+) -> Any:
     """EnsKit's evaluation of *state*: the forward map at every particle, failures repaired."""
     conditionals = problem.scale_conditionals
     noise = conditionals.noise_variance(conditionals.common_scales(scales))
@@ -266,7 +278,7 @@ def _evaluate(problem: _GaussianInverseProblem, state: Any, scales: np.ndarray) 
     )
 
 
-def _draw_scales(
+def _gibbs_draw_noise_scales(
     problem: _GaussianInverseProblem,
     evaluation: Any,
     state: Any,
@@ -275,17 +287,17 @@ def _draw_scales(
 ) -> np.ndarray:
     """The particles' scales drawn at the state's level, or *scales* if none is inferred."""
     conditionals = problem.scale_conditionals
-    if not conditionals.inferred.any():
+    if not conditionals.is_inferred.any():
         return scales
     predictions = np.asarray(evaluation.ensemble[eki.PREDICTION])
-    return conditionals.draw(
+    return conditionals.draw_scales(
         conditionals.quadratic_forms(predictions),
         float(state.beta),
         jax.random.fold_in(key, int(state.step)),
     )
 
 
-def _step_record(
+def _build_step_record(
     problem: _GaussianInverseProblem,
     evaluation: Any,
     beta: float,
@@ -311,14 +323,14 @@ def _step_record(
     )
 
 
-def _untempered(likelihood: Any) -> tuple[Any, np.ndarray]:
+def _likelihood_and_learning_rate(likelihood: Any) -> tuple[Any, np.ndarray]:
     """The likelihood beneath any tempering, and the learning rate (1 when untempered)."""
     if isinstance(likelihood, TemperedLikelihood):
         return likelihood.likelihood, likelihood.learning_rate
     return likelihood, np.asarray(1.0)
 
 
-def _scale_priors(prior: Any, slots: Sequence[str]) -> dict[str, InverseGamma]:
+def _inverse_gamma_scale_priors(prior: Any, slots: Sequence[str]) -> dict[str, InverseGamma]:
     """The inverse-gamma priors of the inferred scales *slots*, by slot; others are left out."""
     return {
         slot: factor
@@ -327,8 +339,8 @@ def _scale_priors(prior: Any, slots: Sequence[str]) -> dict[str, InverseGamma]:
     }
 
 
-def _vectors_of_target(
-    target: InferenceTarget, problem: _GaussianInverseProblem, particles: _Particles
+def _particles_as_target_vectors(
+    target: InferenceTarget, problem: _GaussianInverseProblem, particles: _ParticlesWithScales
 ) -> jnp.ndarray:
     """The final particles, with their inferred scales, as vectors of the target's event."""
     theta = problem.bijection.to_constrained(particles.z)
@@ -349,7 +361,7 @@ def _infeasibility_reason(target: InferenceTarget) -> str | None:
     factors = target.factors()
     if factors is None:
         return "the model must be a merge likelihood & prior, conditioned on its observations"
-    likelihood, _ = _untempered(factors.likelihood)
+    likelihood, _ = _likelihood_and_learning_rate(factors.likelihood)
     if not isinstance(likelihood, GaussianSimulatorLikelihood):
         return "the likelihood must be a Gaussian simulator likelihood"
     slots = set(likelihood.random_scale_slots)
@@ -358,6 +370,6 @@ def _infeasibility_reason(target: InferenceTarget) -> str | None:
             f"the prior must be over the parameter record {_PARAMETER_BLOCK!r} and the inferred "
             f"noise scales {sorted(slots)}, and nothing else"
         )
-    if missing := sorted(slots - _scale_priors(factors.prior, sorted(slots)).keys()):
+    if missing := sorted(slots - _inverse_gamma_scale_priors(factors.prior, sorted(slots)).keys()):
         return f"each inferred noise scale needs an inverse-gamma prior; these have none: {missing}"
     return None

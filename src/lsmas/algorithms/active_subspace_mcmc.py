@@ -83,76 +83,82 @@ def active_subspace_mcmc(
     >>> result.subspace.rank, result.forward_runs                  # doctest: +SKIP
     (7, {'exploration': 600, 'sampling': 6004})
     """
-    explore_seed, sample_seed, lift_seed = _stage_seeds(seed)
-    exploration, records, ladder = _explore(problem, n_particles, weighting, explore_seed)
-    subspace = ladder.subspace(rank, discarded_information)
+    eki_seed, rwmh_seed, lift_seed = _independent_stage_seeds(seed)
+    eki_posterior, eki_steps, ladder_linearization = _run_eki_estimating_subspace(
+        problem, n_particles, weighting, eki_seed
+    )
+    subspace = ladder_linearization.subspace(rank, discarded_information)
     reduced = reduced_problem(problem, subspace)
-    options = (
+    rwmh_options = (
         DEFAULT_SAMPLER_OPTIONS
-        | {"init": _starting_point(reduced, problem, exploration)}
+        | {"init": _rwmh_start_at_eki_mean(reduced, eki_posterior)}
         | dict(sampler_options or {})
     )
-    with workflow_run(seed=sample_seed):
-        reduced_posterior = reduced.condition(method="blackjax_rwmh", method_options=options)
+    with workflow_run(seed=rwmh_seed):
+        reduced_posterior = reduced.condition(method="blackjax_rwmh", method_options=rwmh_options)
     return AlgorithmResult(
         posterior=reduced.lift(reduced_posterior, key=jax.random.key(lift_seed)),
         subspace=subspace,
         forward_runs={
-            "exploration": _exploration_runs(problem, records),
-            "sampling": _sampling_runs(options),
+            "exploration": _count_eki_forward_runs(problem, eki_steps),
+            "sampling": _count_rwmh_forward_runs(rwmh_options),
         },
-        exploration=exploration,
+        exploration_posterior=eki_posterior,
         reduced_posterior=reduced_posterior,
     )
 
 
-def _stage_seeds(seed: int) -> tuple[int, int, int]:
-    """Independent seeds for exploration, sampling and lifting, spawned from one root seed."""
-    children = np.random.SeedSequence(seed).spawn(3)
-    explore, sample, lift = (int(child.generate_state(1)[0]) for child in children)
-    return explore, sample, lift
+def _independent_stage_seeds(seed: int) -> tuple[int, int, int]:
+    """Independent seeds for EKI, random-walk Metropolis and the lift, spawned from one root."""
+    eki_seed, rwmh_seed, lift_seed = (
+        int(child.generate_state(1)[0]) for child in np.random.SeedSequence(seed).spawn(3)
+    )
+    return eki_seed, rwmh_seed, lift_seed
 
 
-def _explore(
+def _run_eki_estimating_subspace(
     problem: InverseProblem, n_particles: int, weighting: Weighting, seed: int
 ) -> tuple[Distribution, list[StepRecord], LadderLinearization]:
-    """EKI on *problem*, with the ladder accumulator and a record of every step."""
-    ladder = LadderLinearization(problem.coordinates, weighting=weighting)
-    records: list[StepRecord] = []
+    """EKI on *problem* with the ladder linearization as a callback.
+
+    Returns EKI's posterior, the record of every step, and the ladder linearization, which holds
+    the estimated information matrix.
+    """
+    ladder_linearization = LadderLinearization(problem.coordinates, weighting=weighting)
+    eki_steps: list[StepRecord] = []
     with workflow_run(seed=seed):
-        exploration = problem.condition(
+        eki_posterior = problem.condition(
             method="enskit_eki",
-            method_options={"n_particles": n_particles, "callbacks": [ladder, records.append]},
+            method_options={
+                "n_particles": n_particles,
+                "callbacks": [ladder_linearization, eki_steps.append],
+            },
         )
-    return exploration, records, ladder
+    return eki_posterior, eki_steps, ladder_linearization
 
 
-def _starting_point(
-    reduced: ReducedProblem, problem: InverseProblem, exploration: Distribution
-) -> np.ndarray:
-    r"""The chains' start: $W^\top \bar\xi$ for EKI's final ensemble, then each inferred noise
-    scale's median over the ensemble, in the order of the reduced prior's event."""
-    theta = problem.coordinates.array_from_draws(exploration.atoms).reshape(
-        -1, problem.coordinates.dimension
-    )
-    xi = problem.coordinates.whitened_from_parameters(theta)
-    active = reduced.subspace.active_variables(xi.mean(axis=0))
-    scales = [
-        np.median(np.asarray(exploration.atoms[slot].raw))
-        for slot in problem.likelihood.random_scale_slots
+def _rwmh_start_at_eki_mean(reduced: ReducedProblem, eki_posterior: Distribution) -> np.ndarray:
+    r"""The chains' initial state: $W^\top \bar\xi$ for the mean $\bar\xi$ of EKI's final
+    ensemble, then each inferred noise scale's median over the ensemble, in the order of the
+    reduced prior's event."""
+    coordinates = reduced.full_problem.coordinates
+    eki_theta = coordinates.array_from_draws(eki_posterior.atoms).reshape(-1, coordinates.dimension)
+    eki_mean_xi = coordinates.whitened_from_parameters(eki_theta).mean(axis=0)
+    scale_medians = [
+        np.median(np.asarray(eki_posterior.atoms[slot].raw))
+        for slot in reduced.likelihood.random_scale_slots
     ]
-    return np.concatenate([active, scales])
+    return np.concatenate([reduced.subspace.active_variables(eki_mean_xi), scale_medians])
 
 
-def _exploration_runs(problem: InverseProblem, records: list[StepRecord]) -> int:
+def _count_eki_forward_runs(problem: InverseProblem, eki_steps: list[StepRecord]) -> int:
     """Forward runs of EKI: one ensemble per step, and a final one when scales are inferred."""
-    n_particles = records[0].theta.shape[0]
+    n_particles = eki_steps[0].theta.shape[0]
     final_evaluation = 1 if problem.likelihood.random_scale_slots else 0
-    return n_particles * (len(records) + final_evaluation)
+    return n_particles * (len(eki_steps) + final_evaluation)
 
 
-def _sampling_runs(options: Mapping[str, Any]) -> int:
+def _count_rwmh_forward_runs(rwmh_options: Mapping[str, Any]) -> int:
     """Forward runs of random-walk Metropolis: one per step of each chain, and one at its start."""
-    return int(options["num_chains"]) * (
-        int(options["num_warmup"]) + int(options["num_results"]) + 1
-    )
+    steps_per_chain = int(rwmh_options["num_warmup"]) + int(rwmh_options["num_results"]) + 1
+    return int(rwmh_options["num_chains"]) * steps_per_chain

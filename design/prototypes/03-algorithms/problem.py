@@ -14,7 +14,7 @@ from probpipe import Function, NumericArraySpec, NumericRecordSpec
 from lsmas._stopgaps.coordinates import Coordinates
 from lsmas._stopgaps.likelihood import GaussianSimulatorLikelihood
 from lsmas.priors import independent_prior
-from lsmas.problems.nee_likelihood import REFERENCE_VARIANCE, _learning_rate, _scale_values, _prior
+from lsmas.problems.nee_likelihood import REFERENCE_VARIANCE, _feature_learning_rates, _likelihood_scales, _prior_with_noise_scales
 from lsmas.problems.inverse_problem import InverseProblem
 from toy import DATA, LAWS, N_FEATURES, TOY_PARAMETERS, features
 
@@ -52,17 +52,17 @@ def toy_problem(data="observed", scales="fixed"):
         theta_spec=NumericRecordSpec(**{p: NumericArraySpec(()) for p in TOY_PARAMETERS}),
         reference_variance=np.vectorize(REFERENCE_VARIANCE.get)(DATA.feature_classes),
         classes=DATA.feature_classes,
-        scales=_scale_values(scales),
+        scales=_likelihood_scales(scales),
         label="nee_likelihood",
     )
-    prior = _prior({p: LAWS[p] for p in TOY_PARAMETERS}, likelihood.random_scale_slots)
+    prior = _prior_with_noise_scales({p: LAWS[p] for p in TOY_PARAMETERS}, likelihood.random_scale_slots)
     return InverseProblem(
         name="toy",
         description=f"toy, {data} data, scales {scales}",
         likelihood=likelihood,
         prior=prior,
         data={"nee": observations},
-        learning_rate={"nee": _learning_rate(DATA)},
+        learning_rate={"nee": _feature_learning_rates(DATA)},
         coordinates=Coordinates.from_prior(prior, "theta"),
     )
 

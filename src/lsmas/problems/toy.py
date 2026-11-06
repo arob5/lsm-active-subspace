@@ -207,7 +207,7 @@ class ToyCanopyModel:
         medians = prior_medians(data.prior_table)
         operator = data.operator.tocoo()
         return cls(
-            **_driver_series(driver),
+            **_driver_series_in_model_units(driver),
             leaf_carbon_per_area=data.fixed_sipnet_parameters["leaf_carbon_per_area"],
             wood_carbon=medians["initial_wood_carbon"],
             respiration_q10=medians["wood_respiration_q10"],
@@ -300,7 +300,7 @@ class ToyCanopyModel:
         return foliar + wood + soil
 
 
-def _driver_series(driver: Any) -> dict[str, jax.Array]:
+def _driver_series_in_model_units(driver: Any) -> dict[str, jax.Array]:
     """The model's driver series from pySIPNET's driver table, in the model's units."""
     step_length = driver["timestep_length"].to_numpy()
     air_temperature = driver["air_temperature"].to_numpy()

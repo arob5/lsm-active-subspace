@@ -95,7 +95,7 @@ def load_harvard_forest(directory: Path | None = None) -> HarvardForestData:
         fixed_sipnet_parameters=_read_fixed_values(directory / "sipnet_fixed.csv"),
         prior_table=_read_prior_table(directory / "prior.csv"),
     )
-    _check_consistent(data)
+    _check_files_agree(data)
     return data
 
 
@@ -127,7 +127,7 @@ def _read_prior_table(path: Path) -> pd.DataFrame:
     return table
 
 
-def _check_consistent(data: HarvardForestData) -> None:
+def _check_files_agree(data: HarvardForestData) -> None:
     """Raise ``ValueError`` unless the operator matches the step axis and the feature table."""
     n_features, n_steps = data.operator.shape
     if n_steps != len(data.step_ends):

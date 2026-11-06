@@ -24,7 +24,7 @@ class AlgorithmResult:
         The subspace the algorithm estimated and used.
     forward_runs : dict of str to int
         How many times each stage ran the forward map, by stage name.
-    exploration : Distribution
+    exploration_posterior : Distribution
         The posterior of the exploration stage (for EKI, with its step history in
         ``annotations["arviz/eki_history"]``).
     reduced_posterior : Distribution
@@ -34,7 +34,7 @@ class AlgorithmResult:
     posterior: Distribution
     subspace: Subspace
     forward_runs: dict[str, int]
-    exploration: Distribution
+    exploration_posterior: Distribution
     reduced_posterior: Distribution
 
     @property

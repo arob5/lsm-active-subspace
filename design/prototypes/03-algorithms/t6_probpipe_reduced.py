@@ -21,7 +21,7 @@ from common import forward_xi, problem, top_eigenvectors
 from lsmas._stopgaps.coordinates import Coordinates
 from lsmas._stopgaps.likelihood import GaussianSimulatorLikelihood
 from lsmas.priors import independent_prior
-from lsmas.problems.nee_likelihood import _prior, _scale_values
+from lsmas.problems.nee_likelihood import _prior_with_noise_scales, _likelihood_scales
 from lsmas.problems.inverse_problem import InverseProblem
 from toy import DATA, N_FEATURES
 
@@ -49,10 +49,10 @@ likelihood = GaussianSimulatorLikelihood(
     theta_spec=NumericRecordSpec(**{name: NumericArraySpec(()) for name in names}),
     reference_variance=problem.likelihood.reference_variance,
     classes=DATA.feature_classes,
-    scales=_scale_values(SCALES),
+    scales=_likelihood_scales(SCALES),
     label="reduced_likelihood",
 )
-prior = _prior({name: Normal(name, 0.0, 1.0) for name in names}, likelihood.random_scale_slots)
+prior = _prior_with_noise_scales({name: Normal(name, 0.0, 1.0) for name in names}, likelihood.random_scale_slots)
 reduced = InverseProblem(
     name="toy_reduced",
     description=f"plug-in reduced toy, r = {RANK}",

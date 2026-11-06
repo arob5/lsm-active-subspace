@@ -30,7 +30,9 @@ def test_active_and_inactive_variables_recompose_the_whitened_coordinates():
     information, _ = information_with([5.0, 2.0, 0.3, 0.1])
     subspace = Subspace.from_information(information, parameter_names=NAMES, estimator="exact")
     xi = np.random.default_rng(1).normal(size=(7, 4))
-    recomposed = subspace.whitened(subspace.active_variables(xi), subspace.inactive_variables(xi))
+    recomposed = subspace.whitened_from_active_and_inactive(
+        subspace.active_variables(xi), subspace.inactive_variables(xi)
+    )
     np.testing.assert_allclose(recomposed, xi, atol=1e-12)
 
 

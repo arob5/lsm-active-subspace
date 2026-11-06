@@ -80,22 +80,24 @@ def nee_problem(
         theta_spec=NumericRecordSpec(**{parameter: NumericArraySpec(()) for parameter in laws}),
         reference_variance=np.vectorize(REFERENCE_VARIANCE.get)(data.feature_classes),
         classes=data.feature_classes,
-        scales=_scale_values(scales),
+        scales=_likelihood_scales(scales),
         label="nee_likelihood",
     )
-    prior = _prior(laws, likelihood.random_scale_slots)
+    prior = _prior_with_noise_scales(laws, likelihood.random_scale_slots)
     return InverseProblem(
         name=name,
         description=description,
         likelihood=likelihood,
         prior=prior,
         data={"nee": data.observations},
-        learning_rate={"nee": _learning_rate(data)},
+        learning_rate={"nee": _feature_learning_rates(data)},
         coordinates=Coordinates.from_prior(prior, "theta"),
     )
 
 
-def _prior(laws: Mapping[str, Distribution], random_scale_slots: Sequence[str]) -> Any:
+def _prior_with_noise_scales(
+    laws: Mapping[str, Distribution], random_scale_slots: Sequence[str]
+) -> Any:
     """The prior of the calibration parameters and of any noise scales that are inferred."""
     prior = independent_prior(laws)
     for slot in random_scale_slots:
@@ -103,7 +105,7 @@ def _prior(laws: Mapping[str, Distribution], random_scale_slots: Sequence[str]) 
     return prior
 
 
-def _scale_values(scales: str) -> dict[str, str | float]:
+def _likelihood_scales(scales: str) -> dict[str, str | float]:
     """The likelihood's scale for each class: a slot name when inferred, 1 when fixed."""
     if scales == "fixed":
         return {"day": 1.0, "night": 1.0}
@@ -112,7 +114,7 @@ def _scale_values(scales: str) -> dict[str, str | float]:
     raise ValueError(f"scales must be 'fixed' or 'inferred', got {scales!r}")
 
 
-def _learning_rate(data: HarvardForestData) -> np.ndarray:
+def _feature_learning_rates(data: HarvardForestData) -> np.ndarray:
     """The per-feature learning rate of the NEE features."""
     return effective_sample_size_learning_rate(
         data.feature_classes,

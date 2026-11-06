@@ -276,17 +276,17 @@ def finite_difference_subspace(
     theta = coordinates.parameters_from_whitened(perturbed)
     predictions = np.asarray(problem.forward(coordinates.bijection.record_batch(theta)).raw)
     predictions = predictions.reshape(len(xi), 2 * dimension, -1)
-    informations = []
+    per_point_information = []
     for point_predictions in predictions:
         if not np.all(np.isfinite(point_predictions)):
             logger.warning("the forward map failed near a point; it is left out")
             continue
         jacobian = (point_predictions[:dimension] - point_predictions[dimension:]).T / (2 * step)
-        informations.append(jacobian.T @ (precision[:, None] * jacobian))
-    if not informations:
+        per_point_information.append(jacobian.T @ (precision[:, None] * jacobian))
+    if not per_point_information:
         raise ValueError("the forward map failed near every point")
     return Subspace.from_information(
-        np.mean(informations, axis=0),
+        np.mean(per_point_information, axis=0),
         parameter_names=coordinates.names,
         estimator="finite_differences",
         rank=rank,

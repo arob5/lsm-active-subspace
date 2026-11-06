@@ -111,11 +111,13 @@ class ParameterBijection:
         fields = {name: jnp.asarray(theta[:, index]) for index, name in enumerate(self.names)}
         return NumericRecordBatch(fields, level)
 
-    def _apply_columnwise(self, values: Any, maps: list[Any]) -> np.ndarray:
-        """Each column of *values* through its own map."""
-        values = np.asarray(values, dtype=float)
-        columns = [np.asarray(apply(jnp.asarray(values[..., j]))) for j, apply in enumerate(maps)]
-        return np.stack(columns, axis=-1)
+    def _apply_columnwise(self, array: Any, maps: list[Any]) -> np.ndarray:
+        """Each column of *array* through its own map."""
+        array = np.asarray(array, dtype=float)
+        mapped_columns = [
+            np.asarray(column_map(jnp.asarray(array[..., j]))) for j, column_map in enumerate(maps)
+        ]
+        return np.stack(mapped_columns, axis=-1)
 
 
 @dataclass(frozen=True, eq=False)
@@ -255,8 +257,8 @@ def block_values(draws: Any, block: str, names: tuple[str, ...]) -> np.ndarray:
     """
     raw = draws.raw if hasattr(draws, "raw") else draws
     # STOPGAP(PG-13): a prior taken back out of a joint draws its block's fields ungrouped.
-    values = raw.get(block, raw)
-    return np.stack([np.asarray(values[name], dtype=float) for name in names], axis=-1)
+    block_draws = raw.get(block, raw)
+    return np.stack([np.asarray(block_draws[name], dtype=float) for name in names], axis=-1)
 
 
 def _block_spec(prior: Any, block: str) -> Any:

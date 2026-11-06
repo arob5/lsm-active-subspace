@@ -29,7 +29,7 @@ def test_draws_follow_the_conjugate_inverse_gamma_law():
     model = conditionals(None)
     beta = 0.6
     forms = np.repeat(model.quadratic_forms(PREDICTIONS[:1]), 200_000, axis=0)
-    draws = model.draw(forms, beta, jax.random.key(0))
+    draws = model.draw_scales(forms, beta, jax.random.key(0))
     shape = model.concentrations + beta * model.effective_counts / 2
     rate = model.prior_scales + beta * forms[0] / 2
     for k in range(2):
@@ -49,13 +49,13 @@ def test_fixed_scales_give_the_usual_tempering_weights():
         LEARNING_RATE * residuals**2 / (fixed_scales * REFERENCE_VARIANCE), axis=1
     )
     increment = 0.3
-    weights = model.log_weights(model.quadratic_forms(PREDICTIONS), 0.2, increment)
+    weights = model.log_importance_weights(model.quadratic_forms(PREDICTIONS), 0.2, increment)
     np.testing.assert_allclose(weights, -increment * misfits)
 
 
 def test_only_scales_given_as_slots_are_inferred():
-    assert conditionals(0.7).inferred.tolist() == [True, False]
-    assert conditionals(None).inferred.tolist() == [True, True]
+    assert conditionals(0.7).is_inferred.tolist() == [True, False]
+    assert conditionals(None).is_inferred.tolist() == [True, True]
 
 
 def test_weights_are_the_ratio_of_the_scale_marginal_likelihoods():
@@ -81,7 +81,7 @@ def test_weights_are_the_ratio_of_the_scale_marginal_likelihoods():
         return np.log(integrate.quad(integrand, 0, np.inf)[0]) + night
 
     expected = [log_marginal(j, beta + increment) - log_marginal(j, beta) for j in range(2)]
-    computed = model.log_weights(forms, beta, increment)
+    computed = model.log_importance_weights(forms, beta, increment)
     assert computed[0] - computed[1] == pytest.approx(expected[0] - expected[1], rel=1e-6)
 
 
@@ -89,7 +89,7 @@ def test_largest_increment_keeps_the_effective_sample_size():
     model = conditionals(None)
     forms = model.quadratic_forms(np.random.default_rng(0).normal(size=(50, 6)) * 2)
     increment = model.largest_increment(forms, 0.0, 0.5)
-    weights = np.exp(model.log_weights(forms, 0.0, increment))
+    weights = np.exp(model.log_importance_weights(forms, 0.0, increment))
     ess = weights.sum() ** 2 / (weights**2).sum()
     assert 0 < increment < 1
     assert ess == pytest.approx(25, rel=1e-3)

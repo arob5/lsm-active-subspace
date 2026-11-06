@@ -176,12 +176,12 @@ class _FeatureEvaluator:
         try:
             rate = self.simulator.nee_rate(sipnet_parameters)
         except SIMULATION_FAILURES as failure:
-            _log_failure(sipnet_parameters, failure)
+            _log_failed_run(sipnet_parameters, failure)
             return jnp.full(self.operator.shape[0], jnp.nan)
         return jnp.asarray(self.operator @ rate)
 
 
-def _log_failure(sipnet_parameters: Mapping[str, float], failure: Exception) -> None:
+def _log_failed_run(sipnet_parameters: Mapping[str, float], failure: Exception) -> None:
     """Log a SIPNET run that produced no output, with its parameters and the reason."""
     reason = " ".join(str(failure).split())
     logger.warning(

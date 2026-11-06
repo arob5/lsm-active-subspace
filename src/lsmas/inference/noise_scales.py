@@ -115,7 +115,7 @@ class NoiseScaleConditionals:
         )
 
     @property
-    def inferred(self) -> np.ndarray:
+    def is_inferred(self) -> np.ndarray:
         """Whether each class's scale is inferred, shape $(K,)$."""
         return np.array([slot is not None for slot in self.slots])
 
@@ -130,18 +130,20 @@ class NoiseScaleConditionals:
         weighted = self.learning_rate * residuals**2 / self.reference_variance
         return weighted @ self.membership.T
 
-    def draw(self, quadratic_forms: np.ndarray, beta: float, key: Any) -> np.ndarray:
+    def draw_scales(self, quadratic_forms: np.ndarray, beta: float, key: Any) -> np.ndarray:
         r"""One draw of each particle's scales from their conditional law at level $\beta$.
 
         Returns shape $(J, K)$: the drawn $s^2_{jk}$ for inferred classes, the fixed scale
         otherwise.
         """
-        shape, rate = self._posterior_parameters(quadratic_forms, beta)
-        gamma_shape = np.broadcast_to(np.where(self.inferred, shape, 1.0), rate.shape)
+        shape, rate = self._conditional_shape_and_rate(quadratic_forms, beta)
+        gamma_shape = np.broadcast_to(np.where(self.is_inferred, shape, 1.0), rate.shape)
         gamma = np.asarray(jax.random.gamma(key, gamma_shape))
-        return np.where(self.inferred, rate / gamma, self.fixed_scales)
+        return np.where(self.is_inferred, rate / gamma, self.fixed_scales)
 
-    def log_weights(self, quadratic_forms: np.ndarray, beta: float, increment: float) -> np.ndarray:
+    def log_importance_weights(
+        self, quadratic_forms: np.ndarray, beta: float, increment: float
+    ) -> np.ndarray:
         r"""The log importance weights from level $\beta$ to $\beta' = \beta + \Delta\beta$.
 
         They are the ratio $\pi_{\beta'}(\theta_j) / \pi_\beta(\theta_j)$ of the targets'
@@ -156,11 +158,13 @@ class NoiseScaleConditionals:
 
         Shape $(J,)$.
         """
-        before_shape, before_rate = self._posterior_parameters(quadratic_forms, beta)
-        after_shape, after_rate = self._posterior_parameters(quadratic_forms, beta + increment)
+        before_shape, before_rate = self._conditional_shape_and_rate(quadratic_forms, beta)
+        after_shape, after_rate = self._conditional_shape_and_rate(
+            quadratic_forms, beta + increment
+        )
         inferred_terms = before_shape * np.log(before_rate) - after_shape * np.log(after_rate)
         fixed_terms = -increment / 2 * quadratic_forms / self.fixed_scales
-        return np.sum(np.where(self.inferred, inferred_terms, fixed_terms), axis=1)
+        return np.sum(np.where(self.is_inferred, inferred_terms, fixed_terms), axis=1)
 
     def largest_increment(
         self,
@@ -180,9 +184,9 @@ class NoiseScaleConditionals:
         n_particles = quadratic_forms.shape[0]
 
         def keeps_enough(increment: float) -> bool:
-            return _effective_sample_size(self.log_weights(quadratic_forms, beta, increment)) >= (
-                ess_fraction * n_particles
-            )
+            return _effective_sample_size(
+                self.log_importance_weights(quadratic_forms, beta, increment)
+            ) >= (ess_fraction * n_particles)
 
         if keeps_enough(1.0 - beta):
             return 1.0 - beta
@@ -212,7 +216,7 @@ class NoiseScaleConditionals:
         """
         return 1.0 / np.mean(1.0 / np.asarray(scales, dtype=float), axis=0)
 
-    def _posterior_parameters(
+    def _conditional_shape_and_rate(
         self, quadratic_forms: np.ndarray, beta: float
     ) -> tuple[np.ndarray, np.ndarray]:
         r"""$A_k(\beta)$, shape $(K,)$, and $B_{jk}(\beta)$, shape $(J, K)$."""
@@ -221,7 +225,7 @@ class NoiseScaleConditionals:
         return shape, rate
 
 
-def _effective_sample_size(log_weights: np.ndarray) -> float:
+def _effective_sample_size(log_importance_weights: np.ndarray) -> float:
     r"""$(\sum_j w_j)^2 / \sum_j w_j^2$ for weights given by their logarithms."""
-    weights = np.exp(log_weights - np.max(log_weights))
+    weights = np.exp(log_importance_weights - np.max(log_importance_weights))
     return float(weights.sum() ** 2 / (weights**2).sum())
