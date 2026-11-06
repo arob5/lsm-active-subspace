@@ -7,7 +7,7 @@ $$
 H(\mu) = \mathbb E_\mu\!\left[DG(\xi)^\top \Gamma^{-1} DG(\xi)\right],
 $$
 
-and :class:`Subspace` turns it into what algorithms and plots use: the eigenvalues
+and :class:`Subspace` computes from it the eigenvalues
 $\lambda_1 \ge \dots \ge \lambda_d$, the basis $W$ of the leading $r$ eigenvectors and the
 basis $W_\perp$ of the rest, the active and inactive variables $a = W^\top \xi$ and
 $b = W_\perp^\top \xi$, and each parameter's loadings and activity score. Because the prior's
@@ -167,7 +167,7 @@ def suggest_rank(
     \sum_{i > r} \lambda_i \le \varepsilon .
     $$
 
-    The rule follows the error of a reduced posterior rather than the share of the trace: one
+    The rule is based on the error of a reduced posterior rather than on the share of the trace: one
     dominant eigenvalue can hold most of the trace while several weaker directions remain informed.
     For the posterior-averaged information of gradients of the log-likelihood, half the discarded
     eigenvalues bounds the Kullback–Leibler error of the best reduced posterior (Zahm et al. 2022).

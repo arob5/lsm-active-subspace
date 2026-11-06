@@ -1,4 +1,4 @@
-r"""The NEE likelihood every problem shares, and the assembly of a problem around a forward map.
+r"""The NEE likelihood shared by every problem, and a function that builds a problem from it.
 
 Every problem calibrates a forward map $G$ against the same 400 half-monthly day and night NEE
 features $y$, with the same likelihood,

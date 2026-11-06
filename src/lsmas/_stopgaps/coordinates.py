@@ -131,10 +131,11 @@ class Coordinates:
     - **whitened** $\xi = L^{-1}(z - m)$, where $m$ and $L L^\top$ are the prior mean and
       covariance of $z$, so that $\xi$ has prior mean $0$ and covariance $I$.
 
-    Whitened coordinates put every parameter on the same footing whatever its units, which is
-    what subspace methods need. $m$ and $L$ are estimated from a fixed number of prior draws with a
-    fixed seed, so a given prior always yields the same coordinates. Every map acts on the last
-    axis, so arrays of shape $(\ldots, d)$ map row by row.
+    In whitened coordinates every parameter has prior mean 0 and variance 1, whatever its units,
+    so directions in parameter space can be compared; subspace methods need this. $m$ and $L$ are
+    estimated from a fixed number of prior draws with a fixed seed, so a given prior always yields
+    the same coordinates. Every map acts on the last axis, so arrays of shape $(\ldots, d)$ map
+    row by row.
 
     Use :meth:`from_prior` to build one.
 

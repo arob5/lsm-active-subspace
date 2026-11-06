@@ -1,4 +1,4 @@
-r"""What every parameter-reduction algorithm returns."""
+r"""The result type that every parameter-reduction algorithm returns."""
 
 from __future__ import annotations
 

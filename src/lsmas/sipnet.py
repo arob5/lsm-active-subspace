@@ -46,8 +46,8 @@ class SIPNETSimulator:
     """SIPNET at one site: a driver, fixed parameter values, and model options.
 
     Between them, the fixed values and the values passed to a run must set every SIPNET parameter
-    (:data:`~lsmas.parameters.SIPNET_PARAMETERS`), so that no value is left at pySIPNET's
-    reference values for Niwot Ridge, which only serve as the template every run overrides.
+    (:data:`~lsmas.parameters.SIPNET_PARAMETERS`). pySIPNET needs a base parameter set, its
+    reference values for Niwot Ridge, but every one of them is overridden.
 
     Parameters
     ----------

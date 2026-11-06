@@ -40,7 +40,8 @@ MIN_INCREMENT = 1e-3
 
 @dataclass(frozen=True, eq=False)
 class NoiseScaleConditionals:
-    r"""The conditional laws of the inferred noise scales, and what follows from them.
+    r"""The conditional laws of the inferred noise scales given the parameters, and the importance
+    weights and tempering increments computed from them.
 
     Classes are indexed by $k$ in the order of :attr:`classes`. A class whose scale is fixed has no
     law; it enters the weights through its fixed scale.
@@ -178,8 +179,8 @@ class NoiseScaleConditionals:
 
         The effective sample size of weights $w$ is $(\sum_j w_j)^2 / \sum_j w_j^2$; it falls from
         $J$ as $\Delta\beta$ grows. The floor *min_increment* (EnsKit's default) bounds the number
-        of steps a ladder can take, at the cost of a lower effective sample size on a step that
-        needs it.
+        of steps; on a step where the floor applies, the effective sample size falls below the
+        target.
         """
         n_particles = quadratic_forms.shape[0]
 
@@ -212,7 +213,7 @@ class NoiseScaleConditionals:
         r"""One scale per class for the whole ensemble: the mean precision's inverse,
         $\bar s^2_k = \left(\tfrac1J \sum_j s^{-2}_{jk}\right)^{-1}$, shape $(K,)$.
 
-        The Kalman gain reads $\Gamma^{-1}$, so the precisions are what is averaged.
+        The precisions $1 / s^2$ are averaged because the Kalman gain uses $\Gamma^{-1}$.
         """
         return 1.0 / np.mean(1.0 / np.asarray(scales, dtype=float), axis=0)
 

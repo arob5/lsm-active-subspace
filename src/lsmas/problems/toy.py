@@ -2,9 +2,9 @@ r"""The toy problem: a simplified SIPNET in JAX, differentiable, with 14 calibra
 
 The toy calibrates against the real Harvard Forest data, with the likelihood every problem shares
 (:mod:`lsmas.problems.nee_likelihood`), but its forward map is a small model written in JAX, so it
-can be differentiated exactly and sampled with NUTS. It exists to check methods: exact Jacobians
-show what a gradient-free estimate of a subspace estimates, and a NUTS posterior is a reference that
-a reduced posterior can be scored against.
+can be differentiated exactly and sampled with NUTS. It is used to test methods: its exact
+Jacobians give the exact information matrix, to compare gradient-free estimates with, and NUTS gives
+a reference posterior, to compare reduced posteriors with.
 
 **The model.** At each 3-hour step of the shipped driver, with air temperature $T_a$ and soil
 temperature $T_s$ (°C), photosynthetically active radiation $\mathrm{PAR}$ (mol m⁻² d⁻¹), vapor

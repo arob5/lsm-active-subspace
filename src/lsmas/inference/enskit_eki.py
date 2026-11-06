@@ -51,10 +51,10 @@ class EnsKitEKI(InferenceMethod):
 
     with $\eta_i$ the learning rates (all 1 for the ordinary posterior). Particles $z_j$,
     $j = 1, \dots, J$, live in unconstrained coordinates $z = b^{-1}(\theta)$; they and their scales
-    $s^2_j$ start as prior draws. The method climbs a ladder $0 = \beta_0 < \beta_1 < \dots <
-    \beta_T = 1$, the level $\beta$ targeting the tempered posterior with likelihood
-    $\mathcal N(y \mid G, \Gamma / \beta)$. Each step evaluates $G$ at every particle (EnsKit's
-    ``eki.evaluate``, the step's one batch of forward runs) and then:
+    $s^2_j$ start as prior draws. The method moves through tempering levels
+    $0 = \beta_0 < \beta_1 < \dots < \beta_T = 1$, the level $\beta$ targeting the tempered
+    posterior with likelihood $\mathcal N(y \mid G, \Gamma / \beta)$. Each step evaluates $G$ at
+    every particle (EnsKit's ``eki.evaluate``, the step's one batch of forward runs) and then:
 
     1. **Increment.** $\Delta\beta_t$ is the largest increment whose importance weights from
        $\beta_t$ to $\beta_t + \Delta\beta_t$, with the scales integrated out, keep an effective
@@ -256,7 +256,7 @@ def _final_particles_as_evaluated(state: Any, evaluation: Any) -> np.ndarray:
 
     With inferred scales the final ensemble is evaluated, so that its scales can be drawn, and any
     particle at which the forward map failed was moved to the valid particles' centre; returning
-    the evaluated particles keeps each one paired with the scales drawn for it.
+    the evaluated particles means each particle's scales were drawn from its own predictions.
     """
     if int(evaluation.step) == int(state.step):
         return np.asarray(evaluation.ensemble["u"])

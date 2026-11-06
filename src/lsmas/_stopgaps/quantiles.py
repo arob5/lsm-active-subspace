@@ -2,8 +2,8 @@ r"""The exact median of a scalar law, including one transformed by a bijector.
 
 ProbPipe's ``quantile`` is exact for a family that states its quantiles, such as ``Normal`` or
 ``LogNormal``, but a ``BijectorTransformedDistribution`` states none, so ``quantile`` falls back to
-Monte Carlo: approximate, and different from run to run. Yet a quantile passes exactly through a
-strictly monotone map. ProbPipe would ideally state the quantiles of a scalar law transformed by a
+Monte Carlo: approximate, and different from run to run. However, a strictly monotone map carries
+quantiles over exactly. ProbPipe would ideally state the quantiles of a scalar law transformed by a
 monotone bijector. :func:`median` uses that fact for the median, so its calls can be replaced by
 ``quantile(law, 0.5)`` under ``exact_only`` once ProbPipe does, after which this module can be
 deleted.

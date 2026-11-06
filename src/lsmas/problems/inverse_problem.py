@@ -1,4 +1,4 @@
-r"""A Bayesian inverse problem, ready to condition: model, data, learning rate and coordinates."""
+r"""The inverse-problem class: prior, likelihood, observed data and learning rates."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ __all__ = ["InverseProblem"]
 
 @dataclass(frozen=True, eq=False)
 class InverseProblem:
-    r"""A fixed inverse problem: a generative model, observed data, and how much the data count.
+    r"""An inverse problem: the prior, the likelihood and the observed data.
 
     The model is $p(y \mid \theta, s^2)\, \pi(\theta, s^2)$, a ProbPipe ``likelihood & prior``, and
     conditioning it on the observed $y$ with learning rates $\eta$ gives the generalized posterior

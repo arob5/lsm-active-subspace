@@ -1,4 +1,4 @@
-"""Inverse problems, ready to condition.
+"""The inverse problems ``harvard_forest``, ``harvard_forest_small`` and ``toy``, loaded by name.
 
 >>> problem = load("harvard_forest_small")        # doctest: +SKIP
 >>> print(problem.describe())                      # doctest: +SKIP

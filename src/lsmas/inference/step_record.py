@@ -1,4 +1,4 @@
-r"""What an ensemble method reports after each evaluation of the forward map."""
+r"""The record an ensemble method passes to its callbacks at each step, and the run history."""
 
 from __future__ import annotations
 
@@ -13,7 +13,8 @@ __all__ = ["StepCallback", "StepRecord", "history_dataset"]
 
 @dataclass(frozen=True)
 class StepRecord:
-    r"""One step of a tempered ensemble method: the ensemble it evaluated and what it then did.
+    r"""One step of a tempered ensemble method: the evaluated particles, their predictions and the
+    step's increment.
 
     The method moves an ensemble of $J$ particles from the prior ($\beta = 0$) to the posterior
     ($\beta = 1$) in increments $\Delta\beta$. Each step evaluates the forward map $G$ at every

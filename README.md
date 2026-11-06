@@ -1,11 +1,10 @@
 # lsm-active-subspace
 
 Calibrating the SIPNET land-surface model to eddy-covariance data from Harvard Forest, with
-algorithms that learn which directions in parameter space the data actually inform.
+algorithms that find the directions in parameter space that the data inform.
 
 The inverse problem (the model, the data, the likelihood and the prior) is fixed and shipped with
-the repository. The work done here is algorithmic: building, combining and comparing parameter
-reduction methods.
+the repository. This repository is for building and comparing parameter-reduction algorithms.
 
 > **Status:** under construction. The probability model, the SIPNET forward map, ensemble Kalman
 > inversion, the parameter-reduction tools and the first algorithm work; the experiment harness and
@@ -45,7 +44,8 @@ with workflow_run(seed=1):
 Three problems ship. `harvard_forest` calibrates all 46 parameters. `harvard_forest_small`
 calibrates ten of them and holds the rest at their prior medians, so that a long MCMC run, and with
 it a trustworthy reference posterior, is affordable. `toy` is a simplified SIPNET written in JAX:
-it can be differentiated exactly and sampled with NUTS, so it is where methods are checked.
+it can be differentiated exactly and sampled with NUTS, so methods can be tested on it against
+exact Jacobians and a reference posterior.
 [Design 02](design/02-inverse-problem.md) explains how the Harvard Forest problems were chosen.
 
 ## The first algorithm
@@ -54,15 +54,15 @@ it can be differentiated exactly and sampled with NUTS, so it is where methods a
 from lsmas.algorithms import active_subspace_mcmc
 
 result = active_subspace_mcmc(load("toy", scales="inferred"), seed=1)
-result.subspace.rank                    # how many directions the data inform
-result.subspace.activity_scores()       # which parameters matter, and how much
+result.subspace.rank                    # the number of active directions
+result.subspace.activity_scores()       # each parameter's activity score
 result.posterior                        # draws of every parameter and the noise scales
 result.forward_runs                     # {'exploration': 600, 'sampling': 6004}
 ```
 
-It explores with ensemble Kalman inversion, estimates the active subspace from the ensemble's
-linearizations along the way, samples the reduced posterior of the active variables with
-random-walk Metropolis, and lifts the draws back to every parameter. Each step is a tool in
+It runs ensemble Kalman inversion (EKI), estimates the active subspace from statistical
+linearizations of the EKI ensembles, samples the posterior of the active variables with
+random-walk Metropolis, and maps the draws back to every parameter. Each step is a tool in
 `lsmas.tools` that can be swapped: another estimator of the subspace, another rank, another
 sampler. [Design 03](design/03-algorithms.md) explains the choices.
 
@@ -79,7 +79,7 @@ src/lsmas/
     parameters.py      maps calibration parameters to SIPNET parameters
     priors.py          prior families specified by intervals; the prior from a table
     learning_rate.py   the likelihood's learning rate
-    problems/          inverse problems, ready to condition: harvard_forest, harvard_forest_small, toy
+    problems/          the inverse problems: harvard_forest, harvard_forest_small, toy
     inference/         ensemble Kalman inversion, registered with ProbPipe
     tools/             subspaces, their estimators, and reduced problems
     algorithms/        complete parameter-reduction algorithms built from the tools

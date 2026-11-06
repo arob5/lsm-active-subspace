@@ -96,7 +96,7 @@ def reduced_problem(problem: InverseProblem, subspace: Subspace) -> ReducedProbl
 
 @dataclass(frozen=True, eq=False)
 class ReducedProblem(InverseProblem):
-    """A reduced problem, which remembers the full problem and the subspace it came from.
+    """A reduced problem, with the full problem and the subspace it was built from.
 
     Attributes
     ----------

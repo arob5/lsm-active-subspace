@@ -1,6 +1,6 @@
 r"""Priors: families specified by a central interval, and independent priors built from a table.
 
-Expert knowledge usually comes as "between 140 and 450, most likely". The interval constructors
+Prior knowledge of a parameter is often an interval, such as 140 to 450. The interval constructors
 return the ProbPipe law whose central interval of the given probability is exactly that range.
 :func:`laws_from_table` builds one law per row of a prior table, and :func:`independent_prior`
 combines such laws into the prior of a block of calibration parameters.

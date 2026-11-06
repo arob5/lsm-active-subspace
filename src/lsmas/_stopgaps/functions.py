@@ -1,4 +1,4 @@
-r"""What a ProbPipe ``Function`` declares about itself.
+r"""Reading whether a ProbPipe ``Function`` was declared traceable.
 
 A ``Function`` is built with ``traceable=True`` or ``False``, and ProbPipe uses the claim to choose
 how to run it, but the claim cannot be read back publicly. Code that wraps one function in another,

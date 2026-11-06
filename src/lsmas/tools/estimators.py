@@ -11,7 +11,7 @@ they need and in which average they estimate:
 
 - :class:`LadderLinearization`, a callback of an ensemble run, accumulates
   $\sum_t \Delta\beta_t\, \widehat{DG}_t^\top \Gamma^{-1} \widehat{DG}_t$ over the tempering
-  ladder, at no cost beyond the run's;
+  ladder, with no forward runs beyond the ensemble run's own;
 - :func:`exact_subspace` averages exact Jacobians at given points, for a forward map JAX can
   differentiate;
 - :func:`finite_difference_subspace` averages central-difference Jacobians, at $2d$ forward runs
@@ -75,8 +75,8 @@ class LadderLinearization:
     $$
 
     with weights set by *weighting*: ``"increment"`` (the default), $w_t = \Delta\beta_t$, a
-    Riemann sum over the ladder in which each level counts by how much of the likelihood its step
-    conditioned on; ``"uniform"``, $w_t = 1/T$ for $T$ steps; or ``"last"``, only the last step.
+    Riemann sum over the tempering levels in which each step is weighted by its increment;
+    ``"uniform"``, $w_t = 1/T$ for $T$ steps; or ``"last"``, only the last step.
 
     Pass it to an ensemble method, then read the result::
 

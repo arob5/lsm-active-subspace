@@ -1,9 +1,9 @@
-r"""The learning rate that sets how much the NEE observations count.
+r"""The learning rates that temper the NEE likelihood.
 
 Errors in neighbouring half-monthly NEE features are strongly correlated, so treating the features
-as independent would overstate what the data say. The likelihood is instead tempered by a learning
-rate chosen so that each class of observations counts as a fixed number of independent observations
-per year of data.
+as independent would make the posterior too narrow. Instead, the likelihood is tempered by a
+learning rate chosen so that each class of observations carries the information of a fixed number
+of independent observations per year of data.
 """
 
 from __future__ import annotations
