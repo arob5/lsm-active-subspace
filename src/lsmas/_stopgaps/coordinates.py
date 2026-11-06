@@ -19,6 +19,8 @@ import numpy as np
 from probpipe import NumericRecordBatch, bijector_for
 from scipy.linalg import solve_triangular
 
+from lsmas._stopgaps.sampling import draw_with_key
+
 __all__ = ["Coordinates", "ParameterBijection", "block_values"]
 
 
@@ -51,12 +53,12 @@ class ParameterBijection:
         prior : Distribution
             A ProbPipe law whose event declares *block* as a record of scalar parameters.
         block : str
-            The component holding the parameters.
+            The output holding the parameters.
 
         Raises
         ------
         ValueError
-            If *block* is not a record component of *prior*, or a parameter is not a scalar.
+            If *block* is not an output of *prior* holding a record, or a parameter is not a scalar.
         """
         record_spec = _block_spec(prior, block)
         names = tuple(record_spec.fields)
@@ -77,7 +79,7 @@ class ParameterBijection:
 
     def to_constrained(self, z: Any) -> np.ndarray:
         r"""$\theta = b(z)$ for unconstrained coordinates *z*, shape $(\ldots, d)$."""
-        return self._apply_columnwise(z, [bijector.raw() for bijector in self._bijectors])
+        return self._apply_columnwise(z, [bijector.raw for bijector in self._bijectors])
 
     def record_batch(self, theta: Any, level: str = "member") -> NumericRecordBatch:
         """Constrained parameters *theta*, shape $(n, d)$, as a ProbPipe batch of records.
@@ -124,7 +126,7 @@ class Coordinates:
     Attributes
     ----------
     block : str
-        The prior component that holds the parameters, such as ``"theta"``.
+        The prior's output that holds the parameters, such as ``"theta"``.
     bijection : ParameterBijection
         The map between constrained and unconstrained coordinates.
     whitening_mean : numpy.ndarray
@@ -149,14 +151,14 @@ class Coordinates:
         prior : Distribution
             A ProbPipe law whose event declares *block* as a record of scalar parameters.
         block : str
-            The component of *prior* to describe.
+            The output of *prior* to describe.
         n_moment_draws : int
             How many prior draws estimate $m$ and $L$.
         seed : int
             The seed of those draws. The draws do not touch any surrounding ``workflow_run``.
         """
         bijection = ParameterBijection.from_prior(prior, block)
-        draws = prior._sample(jax.random.key(seed), (n_moment_draws,))
+        draws = draw_with_key(prior, jax.random.key(seed), (n_moment_draws,))
         unconstrained = bijection.to_unconstrained(block_values(draws, block, bijection.names))
         covariance = np.atleast_2d(np.cov(unconstrained, rowvar=False))
         return cls(
@@ -206,11 +208,11 @@ def block_values(draws: Any, block: str, names: tuple[str, ...]) -> np.ndarray:
     draws : RecordBatch or Mapping
         Draws, tracked or raw.
     block : str
-        The component holding the parameters.
+        The output holding the parameters.
     names : tuple of str
         The parameters, in the order of the result's last axis.
     """
-    raw = draws.raw() if hasattr(draws, "raw") else draws
+    raw = draws.raw if hasattr(draws, "raw") else draws
     # STOPGAP(PG-13): a prior taken back out of a joint draws its block's fields ungrouped.
     values = raw.get(block, raw)
     return np.stack([np.asarray(values[name], dtype=float) for name in names], axis=-1)
@@ -218,7 +220,7 @@ def block_values(draws: Any, block: str, names: tuple[str, ...]) -> np.ndarray:
 
 def _block_spec(prior: Any, block: str) -> Any:
     """The record spec of *block* in *prior*'s event declaration."""
-    components = prior.event_spec.components
-    if block not in components or not hasattr(components[block], "fields"):
+    outputs = prior.event_spec.outputs
+    if block not in outputs or not hasattr(outputs[block], "fields"):
         raise ValueError(f"the prior has no block of named parameters called {block!r}")
-    return components[block]
+    return outputs[block]

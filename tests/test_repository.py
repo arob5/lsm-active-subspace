@@ -36,25 +36,35 @@ def test_every_stopgap_module_names_its_gap():
             assert STOPGAP_TAG.search(path.read_text()), f"{path.name} has no STOPGAP tag"
 
 
-def test_private_probpipe_names_are_imported_in_one_place():
-    allowed = SOURCE / "_stopgaps" / "probpipe_private.py"
+def test_no_private_probpipe_name_is_imported():
     for path in source_files():
-        if path != allowed:
-            for node in ast.walk(ast.parse(path.read_text())):
-                if isinstance(node, ast.ImportFrom) and node.module and "._" in node.module:
-                    assert not node.module.startswith("probpipe"), (
-                        f"{path.name} imports the private module {node.module}"
-                    )
+        for node in ast.walk(ast.parse(path.read_text())):
+            for imported in _probpipe_imports(node):
+                assert not any(part.startswith("_") for part in imported.split(".")), (
+                    f"{path.name}:{node.lineno} imports the private name {imported}"
+                )
 
 
-def test_every_probpipe_function_sets_its_dispatch():
-    for path in source_files():
+def test_every_probpipe_function_states_whether_it_is_traceable():
+    for path in [*source_files(), *sorted((ROOT / "tests").glob("*.py"))]:
         for node in ast.walk(ast.parse(path.read_text())):
             if isinstance(node, ast.Call) and _called_name(node) in {"Function", "function"}:
                 keywords = {keyword.arg for keyword in node.keywords}
-                assert "dispatch" in keywords, (
-                    f"{path.name}:{node.lineno} builds a Function without choosing its dispatch"
+                assert "traceable" in keywords, (
+                    f"{path.name}:{node.lineno} builds a Function without stating whether JAX "
+                    f"can trace it"
                 )
+
+
+def _probpipe_imports(node):
+    """The dotted names a statement imports from ProbPipe, such as ``probpipe.core._x``."""
+    if isinstance(node, ast.Import):
+        names = [alias.name for alias in node.names]
+    elif isinstance(node, ast.ImportFrom) and node.module:
+        names = [f"{node.module}.{alias.name}" for alias in node.names]
+    else:
+        names = []
+    return [name for name in names if name.split(".")[0] == "probpipe"]
 
 
 def _called_name(call):

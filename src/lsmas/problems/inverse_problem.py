@@ -19,7 +19,7 @@ __all__ = ["InverseProblem"]
 class InverseProblem:
     r"""A fixed inverse problem: a generative model, observed data, and how much the data count.
 
-    The model is $p(y \mid \theta, s^2)\, \pi(\theta, s^2)$, a ProbPipe ``likelihood * prior``, and
+    The model is $p(y \mid \theta, s^2)\, \pi(\theta, s^2)$, a ProbPipe ``likelihood & prior``, and
     conditioning it on the observed $y$ with learning rates $\eta$ gives the generalized posterior
 
     $$
@@ -40,9 +40,9 @@ class InverseProblem:
         $\pi(\theta, s^2)$, the law of the parameters, with the calibration parameters grouped
         under ``theta``.
     data : dict of str to numpy.ndarray
-        The observed value of each observed component.
+        The observed value of each observed output.
     learning_rate : dict of str to numpy.ndarray
-        $\eta$ for each observed component, one rate per element.
+        $\eta$ for each observed output, one rate per element.
     coordinates : Coordinates
         Constrained, unconstrained and whitened coordinates of ``theta``.
     """
@@ -62,19 +62,29 @@ class InverseProblem:
 
     @functools.cached_property
     def model(self) -> Distribution:
-        """The generative model ``likelihood * prior``."""
-        return (self.likelihood * self.prior).with_label(self.name)
+        """The generative model ``likelihood & prior``.
 
-    def condition(self, **using: Any) -> Distribution:
-        """The generalized posterior, computed as ``condition_on.using(**using)`` computes it.
+        Its draws are prior predictive draws: ``sample(problem.model, n)`` draws the parameters
+        from the prior and then the observations from the likelihood, running the forward map
+        once per draw.
+        """
+        return (self.likelihood & self.prior).with_label(self.name)
+
+    # STOPGAP(PG-08): automatic method selection assumes gradients, so the method is required.
+    def condition(self, *, method: str, **using: Any) -> Distribution:
+        """The generalized posterior, computed by the inference method *method*.
 
         Parameters
         ----------
+        method : str
+            The inference method, such as ``"enskit_eki"`` or ``"blackjax_rwmh"``. It is required
+            because ProbPipe's automatic choice assumes that a density it can trace has gradients,
+            and a forward map that runs SIPNET has none.
         **using
-            Controls of ``condition_on``, such as ``method`` and ``method_options``.
+            Further controls of ``condition_on``, such as ``method_options``.
         """
         return tempered_condition_on(
-            self.model, self.data, learning_rate=self.learning_rate, **using
+            self.model, self.data, learning_rate=self.learning_rate, method=method, **using
         )
 
     def describe(self) -> str:

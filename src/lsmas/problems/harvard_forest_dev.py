@@ -114,7 +114,7 @@ def harvard_forest_dev(
     scale_values = _scale_values(scales)
     likelihood = GaussianSimulatorLikelihood(
         forward,
-        component="nee",
+        output_name="nee",
         theta_spec=NumericRecordSpec(**{name: NumericArraySpec(()) for name in PARAMETER_NAMES}),
         reference_variance=np.vectorize(REFERENCE_VARIANCE.get)(data.feature_classes),
         classes=data.feature_classes,
@@ -140,18 +140,18 @@ def _theta_prior() -> Any:
     """The prior of the four calibration parameters, grouped under ``theta``."""
     factors = (
         log_normal_from_interval("photosynthetic_capacity", 140.0, 450.0)
-        * logit_normal_from_interval("respiration_share", 0.04, 0.20)
-        * Normal("optimum_photosynthesis_temperature", 22.0, 2.5)
-        * log_normal_from_interval("soil_respiration_q10", 1.3, 3.2)
+        & logit_normal_from_interval("respiration_share", 0.04, 0.20)
+        & Normal("optimum_photosynthesis_temperature", 22.0, 2.5)
+        & log_normal_from_interval("soil_respiration_q10", 1.3, 3.2)
     )
-    return factors.with_path_names({name: f"theta/{name}" for name in PARAMETER_NAMES})
+    return factors.rename({name: f"theta/{name}" for name in PARAMETER_NAMES})
 
 
 def _prior(random_scale_slots: tuple[str, ...]) -> Any:
     """The prior of the calibration parameters and of any noise scales that are inferred."""
     prior = _theta_prior()
     for slot in random_scale_slots:
-        prior = prior * InverseGamma(slot, **NOISE_SCALE_PRIOR)
+        prior = prior & InverseGamma(slot, **NOISE_SCALE_PRIOR)
     return prior
 
 

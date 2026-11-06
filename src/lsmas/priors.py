@@ -21,7 +21,7 @@ __all__ = ["log_normal_from_interval", "logit_normal_from_interval"]
 
 
 def log_normal_from_interval(
-    component: str, lower: float, upper: float, *, probability: float = 0.95
+    output_name: str, lower: float, upper: float, *, probability: float = 0.95
 ) -> Distribution:
     r"""The log-normal law whose central interval of probability $p$ is $[\ell, u]$.
 
@@ -36,19 +36,19 @@ def log_normal_from_interval(
 
     Parameters
     ----------
-    component : str
-        The name of the law's draws.
+    output_name : str
+        The name of the law's output, by which its draws are read.
     lower, upper : float
         $0 < \ell < u$.
     probability : float
         $p \in (0, 1)$.
     """
     location, scale = _normal_from_interval(np.log(lower), np.log(upper), probability)
-    return LogNormal(component, location, scale)
+    return LogNormal(output_name, location, scale)
 
 
 def logit_normal_from_interval(
-    component: str, lower: float, upper: float, *, probability: float = 0.95
+    output_name: str, lower: float, upper: float, *, probability: float = 0.95
 ) -> Distribution:
     r"""The logit-normal law on $(0, 1)$ whose central interval of probability $p$ is $[\ell, u]$.
 
@@ -64,8 +64,8 @@ def logit_normal_from_interval(
 
     Parameters
     ----------
-    component : str
-        The name of the law's draws.
+    output_name : str
+        The name of the law's output, by which its draws are read.
     lower, upper : float
         $0 < \ell < u < 1$.
     probability : float
@@ -74,8 +74,8 @@ def logit_normal_from_interval(
     location, scale = _normal_from_interval(
         stats.logistic.ppf(lower), stats.logistic.ppf(upper), probability
     )
-    base = Normal(f"logit_{component}", location, scale)
-    return BijectorTransformedDistribution(component, base, bijector_for(unit_interval))
+    base = Normal(f"logit_{output_name}", location, scale)
+    return BijectorTransformedDistribution(output_name, base, bijector_for(unit_interval))
 
 
 def _normal_from_interval(lower: float, upper: float, probability: float) -> tuple[float, float]:

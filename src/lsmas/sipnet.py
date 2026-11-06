@@ -18,7 +18,7 @@ import numpy as np
 import pydantic
 import scipy.sparse as sp
 import xarray as xr
-from probpipe import Function
+from probpipe import Function, NumericArraySpec
 from pysipnet import (
     ClimateDrivers,
     ModelFlags,
@@ -109,7 +109,8 @@ def feature_map(
     $x(\theta)$ is SIPNET's NEE rate at the SIPNET parameters ``to_sipnet(theta)``, one value per
     output step, and $A$ is the observation operator. Calling the function on a batch of parameter
     records runs SIPNET once per record, on up to *max_workers* threads (each run is a separate
-    SIPNET process, so threads run in parallel).
+    SIPNET process, so threads run in parallel). The same holds wherever ProbPipe evaluates the
+    function on many records, such as when sampling a model whose likelihood calls it.
 
     If SIPNET cannot run at a parameter setting (see :data:`SIMULATION_FAILURES`), the result for
     that setting is a row of NaN and a warning is logged, so one failure does not stop a batch.
@@ -133,7 +134,14 @@ def feature_map(
         ``theta -> array of shape (n,)``.
     """
     evaluator = _FeatureEvaluator(simulator, operator, to_sipnet)
-    return Function(evaluator.features, label=label, dispatch="thread", max_workers=max_workers)
+    return Function(
+        evaluator.features,
+        label=label,
+        output_spec=NumericArraySpec((operator.shape[0],), jnp.float64),
+        traceable=False,
+        executor="thread",
+        executor_options={"max_workers": max_workers},
+    )
 
 
 # STOPGAP(PG-14): a class with a method, not a closure, because ProbPipe's provenance recurses

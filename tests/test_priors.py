@@ -12,7 +12,7 @@ from lsmas.priors import log_normal_from_interval, logit_normal_from_interval
 def test_central_interval_holds_the_stated_probability(constructor, lower, upper):
     law = constructor("x", lower, upper, probability=0.9)
     with workflow_run(seed=0):
-        draws = np.asarray(sample(law, 200_000).raw())
+        draws = np.asarray(sample(law, 200_000).raw)
     np.testing.assert_allclose(np.quantile(draws, [0.05, 0.95]), [lower, upper], rtol=0.01)
 
 

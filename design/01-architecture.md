@@ -1,7 +1,8 @@
 # Design 01 — Architecture: how the pieces fit together
 
 *Draft 2, 2026-10-15, updated after the first implementation round (see
-[`01b-implementation-report.md`](01b-implementation-report.md)).*
+[`01b-implementation-report.md`](01b-implementation-report.md)) and again on 2026-11-05 for the move
+to ProbPipe `main` (see [`01c-probpipe-main-report.md`](01c-probpipe-main-report.md)).*
 
 **Changes from draft 1.** The decisions in §11 are settled. "Blocks" became **tools**, "recipes"
 became **algorithms**, "observers" became **callbacks**, and `methods/` became `inference/`. Two
@@ -9,15 +10,22 @@ implementation rules were added (§2). The learning rate moved out of the likeli
 conditioning (§4.3), so every object denotes one mathematical thing. The ProbPipe gap register now
 lives in its own file, [`probpipe-gaps.md`](probpipe-gaps.md).
 
+**Changes for ProbPipe `main`.** The code examples use ProbPipe's new names (`&`, `rename`,
+`output_name`, `traceable=`, `executor=`). EKI uses ProbPipe's public inference-method interface
+(§4.5). Prior predictives come from `sample(problem.model, n)` (§4.4). ProbPipe's automatic method
+selection now fails on SIPNET problems, so conditioning calls name their method (§4.4).
+
 This document fixes the shape of the repository: its layers, the handful of objects everything else
 is built from, and how SIPNET, ProbPipe and EnsKit connect. It does **not** fix the inverse problem
 (parameters, prior, likelihood details, data; design 02), the algorithms (the EKI update with noise
 scales, the averaged-Jacobian estimator, the reduced posterior; design 03), or the experiment harness
 (metrics, ablations, plots; design 04).
 
-Every factual claim below was checked against the pinned packages with the prototype in
-[`prototypes/01-architecture/`](prototypes/01-architecture/). Results quoted as "verified" come from
-those scripts.
+Every factual claim below was checked against the pinned packages. Claims first made at ProbPipe
+`638f56bc` come from the prototype in [`prototypes/01-architecture/`](prototypes/01-architecture/);
+the move to `main` re-checked them with the repository's tests and with
+[`prototypes/01c-probpipe-main/`](prototypes/01c-probpipe-main/). Results quoted as "verified" come
+from those scripts.
 
 ---
 
@@ -141,16 +149,17 @@ lsmas.plots.eigenvalues(subspace)
 
 | Package | Pin | Why this pin |
 |---|---|---|
-| `probpipe-core` | `TARPS-group/prob-pipe@638f56bc` (`dev/overhaul`, 2026-10-14) | Current tip of the overhaul branch |
+| `probpipe-core` | `TARPS-group/prob-pipe@9158a50e` (`main`, 2026-11-02) | `main` after the overhaul merged (#468); no 0.2 release yet |
 | `enskit` | `TARPS-group/EnsKit@f7dc7ee` (`main`, 2026-10-10) | Includes statistical linearization (PRs #87, #95) |
 | `pysipnet` | `TARPS-group/pySIPNET@08bab7b` (`main`) | SIPNET `v2.2.0-alpha.1` (`41fa853e`) via its submodule |
 | `jax` | resolved by the above (0.11.2 today) | |
 | Python | ≥ 3.12 | ProbPipe's floor |
 
 All three are git dependencies pinned to **commits**, not branches, in `pyproject.toml`, with
-`uv.lock` committed. A branch pin would change under us: `dev/overhaul` merged more than 40 PRs in the
-week before this draft, and two pending PRs rename public API (`x.raw()` becomes `x.raw`, #575;
-summary field names change, #576). The README carries the upgrade recipe:
+`uv.lock` committed. A branch pin would change under us: between `638f56bc` and `9158a50e` ProbPipe
+renamed much of the API this repo uses (`*` became `&`, `x.raw()` became `x.raw`, `dispatch=`
+became `traceable=` and `executor=`), and its deferred plans propose more. The README carries the
+upgrade recipe:
 
 ```bash
 # 1. edit the commit hash in pyproject.toml, then
@@ -161,12 +170,10 @@ uv run pytest -m smoke        # the fast checks of the whole stack
 
 When ProbPipe is released on PyPI, the pin becomes a version range.
 
-> **Note.** The local clone at `~/Desktop/git-repos/prob-pipe-overhaul` is 248 commits behind
-> `origin/dev/overhaul`. The prototype installs from GitHub, not from that clone.
-
 **One import-order rule (verified, EK-01).** Importing EnsKit switches JAX to 64-bit floats. A
 ProbPipe prior built before that switch and a JAX sampler run after it fail with a float32/float64
-mismatch. So `lsmas/__init__.py` imports EnsKit first, and 64-bit is on everywhere.
+mismatch. So `lsmas/__init__.py` imports EnsKit first, and 64-bit is on everywhere. The forward
+map relies on this too, since ProbPipe requires 64-bit mode for a declared float64 output.
 
 ---
 
@@ -192,28 +199,29 @@ mismatch. So `lsmas/__init__.py` imports EnsKit first, and 64-bit is on everywhe
   prototype's leading direction is 0.995 on `log photosynthetic_capacity` (`t3_eki.py`), next to a
   raw temperature in °C with prior sd 2.5. Whitening by the prior removes that arbitrariness and
   makes "eigenvalue > 1" mean "the data are more informative than the prior in this direction". m
-  and L are exact for normal, log-normal and logit-normal factors (all Gaussian in z) and are moment
-  estimates otherwise.
+  and L are estimated from 50,000 prior draws with a fixed key (about 0.3% error in each standard
+  deviation), whatever the prior's families.
 
-The prior in ProbPipe is a product of named families, grouped under `theta/`, times the
-inverse-gamma scales (verified, `t1_basics.py`):
+The prior in ProbPipe is a merge (`&`) of named families, grouped under `theta/`, and the
+inverse-gamma scales (verified, `t1_basics.py`; `lsmas.priors` builds the interval-specified
+families):
 
 ```python
 theta_prior = (
-    LogNormal("photosynthetic_capacity", loc, scale)
-    * BijectorTransformedDistribution(                      # logit-normal; ProbPipe has no LogitNormal family
-        "respiration_share", Normal("z", m, s), bijector_for(unit_interval))
-    * Normal("optimum_photosynthesis_temperature", 22.0, 2.5)
-    * ...
+    log_normal_from_interval("photosynthetic_capacity", 140.0, 450.0)
+    & logit_normal_from_interval("respiration_share", 0.04, 0.20)   # ProbPipe has no LogitNormal family
+    & Normal("optimum_photosynthesis_temperature", 22.0, 2.5)
+    & ...
 )
 prior = (
-    theta_prior.with_path_names({name: f"theta/{name}" for name in NAMES})
-    * InverseGamma("s2_day", 2.0, 1.678)                   # prior median 1 (verified: 0.991 from 4000 draws)
-    * InverseGamma("s2_night", 2.0, 1.678)
+    theta_prior.rename({name: f"theta/{name}" for name in NAMES})
+    & InverseGamma("s2_day", 2.0, 1.678)                   # prior median 1 (verified: 0.991 from 4000 draws)
+    & InverseGamma("s2_night", 2.0, 1.678)
 )
 ```
 
-ProbPipe's coordinate helpers are private and refuse views such as `prior["theta"]` (**PG-05**).
+ProbPipe lays a law's values out as vectors publicly (`to_vector`), but its maps to unconstrained
+coordinates are private, and its own helper refuses views such as `prior["theta"]` (**PG-05**).
 The stopgap has two parts: `ParameterBijection.from_prior(prior, "theta")` maps between θ and z
 using each parameter's declared support, and `Coordinates.from_prior(prior, "theta")` adds the
 whitening (`whiten`, `unwhiten`). The problem's `coordinates` are the single source of whitening.
@@ -225,13 +233,22 @@ G(θ) = A x(θ), where x(θ) is SIPNET's 3-hourly NEE in µmol m⁻² s⁻¹ and
 operator:
 
 ```python
-@function(dispatch="thread", max_workers=8, label="nee_features")
-def nee_features(theta):
-    try:
-        x = sipnet_model(**FIXED, **to_sipnet(theta)).outputs["nee"].values * STEP_TOTAL_TO_RATE
-        return jnp.asarray(A @ x)
-    except SIPNET_FAILURES:                      # an invalid parameter set or a crashed run
-        return jnp.full(A.shape[0], jnp.nan)     # EnsKit's contract: a failed particle is a NaN row (PG-07)
+class _FeatureEvaluator:                         # a bound method, not a closure (PG-14)
+    def features(self, theta):
+        try:
+            rate = self.simulator.nee_rate(self.to_sipnet(theta))
+        except SIMULATION_FAILURES:              # an invalid parameter set or a crashed run
+            return jnp.full(self.operator.shape[0], jnp.nan)   # EnsKit's contract (PG-07)
+        return jnp.asarray(self.operator @ rate)
+
+nee_features = Function(
+    _FeatureEvaluator(simulator, A, to_sipnet).features,
+    label="nee_features",
+    output_spec=NumericArraySpec((400,), jnp.float64),    # lets ProbPipe call it from traced code
+    traceable=False,                                       # SIPNET is an external program
+    executor="thread",
+    executor_options={"max_workers": 8},
+)
 ```
 
 Verified facts that shape this:
@@ -239,15 +256,17 @@ Verified facts that shape this:
 - **One run takes 0.3 s** for the full 2012–2024 3-hourly record (37,992 steps).
 - **The time axes line up exactly.** SIPNET's output time stamps are the 37,992 step ends that A's
   columns refer to (`t1_basics.py`), so G is a single sparse matrix product.
-- **Thread dispatch is real parallelism.** pySIPNET runs SIPNET as a subprocess, so threads do not
-  contend for the GIL during a run. A batch of 32 took 2.1 s with `dispatch="thread",
-  max_workers=8`, against 8.6 s with `"sequential"` (`t2_dispatch.py`).
+- **The thread executor is real parallelism.** pySIPNET runs SIPNET as a subprocess, so threads do
+  not contend for the GIL during a run. A batch of 32 took 2.1 s on 8 threads, against 8.6 s in
+  sequence (`t2_dispatch.py`). The executor applies wherever ProbPipe evaluates the function on
+  many points, including joint sampling of the model (§4.4).
 - **Calling it on a batch just works.** A `NumericRecordBatch` of θ's returns a `NumericArrayBatch`
   of shape (J, 400). A distribution returns the pushforward.
 - **Always load the driver with `ClimateDrivers.from_path`.** A driver held in memory is rewritten to
   disk on every run, which was about 90% of run time in the review's profile.
-- **Always set `dispatch` and `n_broadcast_samples`** (PG-10). Nothing is cached (PG-06): methods
-  therefore keep every evaluation they make in their results, so no diagnostic re-runs SIPNET.
+- **Always declare `traceable`, and set `max_evaluations` when lifting over an ensemble** (PG-10).
+  Nothing is cached (PG-06): methods therefore keep every evaluation they make in their results, so
+  no diagnostic re-runs SIPNET.
 
 ### 4.3 The likelihood, and where the learning rate goes
 
@@ -269,7 +288,8 @@ power likelihood as part of the belief update, not of the data model (Bissiri, H
 
 1. **The model is a proper generative model.** `GaussianSimulatorLikelihood` is the law
    N(G(θ), s²vI). Its draws and its density agree (verified, `t6_tempered.py`: `log_prob` of a draw
-   equals SciPy's; standardized residuals have mean 0.005, sd 1.03). Prior and posterior
+   equals SciPy's; standardized residuals have mean 0.005, sd 1.03; and `tests/test_likelihood.py`).
+   Its sampler and density are JAX code around the forward `Function`, so prior and posterior
    predictives use it directly.
 2. **The learning rate belongs to conditioning.** The problem carries η, and conditioning applies
    it.
@@ -277,17 +297,19 @@ power likelihood as part of the belief update, not of the data model (Bissiri, H
 ```python
 likelihood = GaussianSimulatorLikelihood(          # STOPGAP(PG-02): ProbPipe has no such family yet
     nee_features,                                  # the forward Function above
-    component="nee",
+    output_name="nee",
     theta_spec=THETA_SPEC,
     reference_variance=v,                          # (400,) v_day or v_night per feature
     classes=feature_class,                         # (400,) "day" / "night"
-    scale_slots={"day": "s2_day", "night": "s2_night"},
+    scales={"day": "s2_day", "night": "s2_night"}, # a slot name per class, or a fixed value
 )
-model = likelihood * prior                         # a FactoredDistribution over nee, theta, s2_day, s2_night
+model = likelihood & prior                         # a merge over nee, theta, s2_day, s2_night
 
 # ideal ProbPipe (PG-03):  condition_on.using(learning_rate={"nee": eta}, method=...)(model, data)
 # today:
-posterior = tempered_condition_on(model, data, learning_rate=eta, method="enskit_eki", method_options={...})
+posterior = tempered_condition_on(
+    model, data, learning_rate={"nee": eta}, method="enskit_eki", method_options={...}
+)
 ```
 
 `tempered_condition_on` has the signature the ideal call would have, so removing it is a
@@ -295,15 +317,17 @@ find-and-replace. Inside, it swaps the likelihood factor for a private `Tempered
 claims only the unnormalized density Σᵢ ηᵢ log N(yᵢ | …) and cannot be sampled. It then calls
 `condition_on`. Verified (`t6_tempered.py`): the target's log-density differences between two
 parameter settings equal those of log π + Σᵢ ηᵢ log Nᵢ exactly (0.386083 both ways), and with η = 1
-they equal the ordinary posterior's (8.239780 both ways). EKI and ProbPipe's RWMH both run on it.
+they equal the ordinary posterior's (8.239780 both ways). EKI and ProbPipe's RWMH both run on it,
+and on the linear-Gaussian test model EKI and ProbPipe's NUTS both recover the exact tempered
+posterior (`tests/test_enskit_eki.py`, `tests/test_tempering.py`).
 
 The tempered object never leaves the function, for a reason worth fixing in ProbPipe (PG-12). For a
 kernel, "unnormalized" could allow a normalizer that depends on the given values. Inference ignores
 such a normalizer while sampling respects it, so an object like this would mean different things to
 different operations.
 
-`InverseProblem.condition(**using)` (§4.9) calls `tempered_condition_on` with the problem's η, so
-algorithms never handle η themselves.
+`InverseProblem.condition(method=..., **using)` (§4.9) calls `tempered_condition_on` with the
+problem's η, so algorithms never handle η themselves.
 
 **Why one likelihood factor, not one per class.** A factor per class (`nee_day`, `nee_night`) would
 make η a scalar per factor. Without evaluation reuse (PG-06), however, each factor would run SIPNET
@@ -312,15 +336,17 @@ separately, doubling the cost. So η is an array over the one factor's 400 featu
 
 ### 4.4 What ProbPipe does with the model
 
-- **Automatic selection.** `condition_on.check(model, data).method` is `'blackjax_rwmh'`, because
-  the model has a density but is not JAX-traceable. RWMH runs (2 chains × 30 steps: 67 runs, 26 s,
-  `t5_rwmh.py`) but sequentially (PG-07), so a 100,000-run reference chain would take about 8 hours.
-  Design 04 decides how reference posteriors are produced.
-- **Prior predictives do not go through `sample(model)`.** Joint sampling vmaps every kernel, which
-  cannot run SIPNET (verified for both ways of building the likelihood, `t2_dispatch.py`,
-  `t4_joint.py`; **PG-01**). The stopgap, `lsmas.predictive.prior_predictive(problem, n)`, samples
-  the prior, calls the forward `Function` on the θ batch and adds the likelihood's noise. Sampling the
-  likelihood at fixed parameters works today (`sample(condition_on(likelihood, given))`, verified).
+- **Name the method.** `condition_on.check(model, data).method` is `'blackjax_nuts'`: the density
+  is JAX code that traces, with SIPNET running through a host callback, and ProbPipe's selection
+  does not ask whether gradients exist. NUTS then fails, because gradients cannot pass through
+  SIPNET (verified; **PG-08**). `InverseProblem.condition` therefore requires a method.
+- **RWMH runs, one point per chain at a time.** 2 chains × 30 steps: 67 runs, 24 s, whether or not
+  the call names the thread executor (verified; PG-07). A 100,000-run reference chain would take
+  about 8 hours. Design 04 decides how reference posteriors are produced.
+- **Prior predictives go through `sample(model)`.** `sample(problem.model, n)` draws the parameters
+  and then the observations, running SIPNET on the forward map's threads: 16 draws in about 2 s
+  (verified). This needed ProbPipe `main`, which calls an opaque `Function` from traced code
+  (PG-01, closed).
 
 ### 4.5 Inference methods: the EnsKit seam
 
@@ -333,33 +359,34 @@ class EnsKitEKI(InferenceMethod):
     name = "enskit_eki"                                       # priority None: runs only when named
 
     def supported_types(self):
-        return (UnnormalizedConditional,)                     # STOPGAP(PG-04): private in ProbPipe
+        return (Distribution,)                                # every target is a law
 
     def check(self, target, /, **options):
-        factors = model_factors(target)                       # prior, likelihood, observed value
+        factors = target.factors()                            # prior, likelihood, observed value
         # accepts a GaussianSimulatorLikelihood, or the tempered factor wrapping one (reads its eta)
         ...
 
-    def execute(self, target, /, **options):
-        # 1. draw the initial ensemble from the prior; move it to unconstrained coordinates
+    def execute(self, target, /, *, key, **options):         # condition_on passes the run's key
+        # 1. draw the initial ensemble from the prior with key; move it to unconstrained coordinates
         # 2. run EnsKit's tempered EKI, evaluating the forward Function on the whole ensemble at once
         # 3. call each callback after every evaluation
-        # 4. return make_posterior(...): an EmpiricalDistribution over theta and the scales,
-        #    keeping every step's ensemble and predictions in the result
+        # 4. return make_posterior(target, [vectors], method=..., annotations=...): an
+        #    EmpiricalDistribution over theta, with every step's ensemble and predictions annotated
         ...
 
 inference_method_registry.register(EnsKitEKI())
 ```
 
-Verified end to end (`t3_eki.py`, `t6_tempered.py`):
+Verified end to end on the development problem, at ProbPipe `main`:
 
 ```python
-with workflow_run(seed=7):
-    post = tempered_condition_on(model, data, learning_rate=eta, method="enskit_eki",
-                                 method_options={"n_particles": 40, "callbacks": [accumulator]})
-# 4 adaptive tempering steps (β = 0 → 0.062 → 0.319 → 0.990 → 1), 160 SIPNET runs, 16 s
+problem = load("harvard_forest_dev")                # from lsmas.problems
+with workflow_run(seed=1):
+    post = problem.condition(method="enskit_eki",
+                             method_options={"n_particles": 40, "callbacks": [records.append]})
+# 5 adaptive tempering steps (β = 0 → 0.046 → 0.189 → 0.452 → 0.947 → 1), 200 SIPNET runs, 17 s
 # post: EmpiricalDistribution, provenance method 'enskit_eki', exact False
-# mean(post["theta"]), mean(post["s2_day"]), post["theta/soil_respiration_q10"] all work
+# post.annotations["arviz/eki_history"] holds every step's ensemble and predictions
 ```
 
 Design points:
@@ -369,15 +396,18 @@ Design points:
 - **The batch goes through ProbPipe.** The method evaluates the ensemble by calling the likelihood's
   forward `Function` on a `NumericRecordBatch`, never SIPNET directly. Whatever ProbPipe adds to
   `Function` calls (reuse, backends; #580) then applies to EKI for free.
-- **Step-level API.** EKI with noise scales changes the noise covariance between steps, which
-  `eki.run` cannot do, so the method drives `eki.evaluate`, `schedule.next_increment` and
+- **Step-level API.** With fixed noise scales the method runs EnsKit's `eki.iterate`, which yields
+  after every evaluation. EKI with inferred scales changes the noise covariance between steps,
+  which `eki.run` cannot do, so that method will drive `eki.evaluate`, `schedule.next_increment` and
   `eki.assimilate` itself (verified). Design 03 specifies the update.
 - **Named only.** Priority `None`: automatic selection never picks it, and experiments name their
   method explicitly.
 - **Upstream path.** If ProbPipe gains native ensemble Kalman updates (#299), the method name and
   options stay and only `execute` changes.
-- **Private ProbPipe names** (`UnnormalizedConditional`, `model_factors`, `make_posterior`,
-  `run_seed`) come from one re-export module (PG-04), designed upstream in #580 §9.
+- **Public ProbPipe names only.** `InferenceTarget`, `target.factors()`, `make_posterior` and the
+  `key` argument are public at `main` (PG-04, closed). The one private call left is the keyed draw
+  of the initial ensemble, made through the stopgap `draw_with_key` (PG-15), as ProbPipe's own
+  methods call `prior._sample(key, shape)`.
 
 ### 4.6 Callbacks: how tools see a run
 
@@ -389,7 +419,7 @@ A **callback** is any callable that an inference method calls after each ensembl
 class StepRecord:
     step: int                 # 0, 1, 2, …
     beta: float               # tempering level before this step's update
-    increment: float | None   # Δβ the schedule chose; None after the last evaluation
+    increment: float          # Δβ the step then took; the last one reaches β = 1
     parameter_names: tuple    # the order of theta's last axis
     theta: Array              # (J, d) particles, constrained coordinates
     predictions: Array        # (J, n) G at the particles
@@ -475,18 +505,25 @@ forward `Function`, which ProbPipe already supports.
 @dataclass(frozen=True)
 class InverseProblem:
     name: str
-    model: Distribution              # likelihood * prior: a proper generative model (ProbPipe)
+    description: str                 # one paragraph, shown by problem.describe()
+    likelihood: ConditionalDistribution
+    prior: Distribution
     data: dict[str, Array]           # {"nee": y}
     learning_rate: dict[str, Array]  # {"nee": eta}, (400,); all ones for an ordinary posterior
     coordinates: Coordinates         # §4.1
-    forward: Function                # θ -> features
-    baselines: Mapping[str, Callable[[], Distribution]]   # loaded lazily from baselines/
-    description: str                 # one paragraph, shown by problem.describe()
+    # later: baselines, loaded lazily from baselines/ (design 04)
 
-    def condition(self, **using) -> Distribution:
-        """The (generalized) posterior, by the inference method `using` names."""
-        return tempered_condition_on(self.model, self.data, learning_rate=self.learning_rate["nee"], **using)
+    forward = property(...)          # the likelihood's forward Function, θ -> features
+    model = cached_property(...)     # likelihood & prior: a proper generative model (ProbPipe)
+
+    def condition(self, *, method, **using) -> Distribution:
+        """The (generalized) posterior, by the named inference method (required: PG-08)."""
+        return tempered_condition_on(self.model, self.data, learning_rate=self.learning_rate,
+                                     method=method, **using)
 ```
+
+The problem stores the likelihood and the prior and derives the model, because a model's factors
+cannot yet be split back out reliably (PG-13).
 
 Three problems share the interface, so every algorithm runs on all of them:
 
@@ -522,12 +559,11 @@ lsm-active-subspace/
 │   ├── inference/                 inference methods backed by EnsKit, registered with ProbPipe
 │   ├── tools/                     Subspace, subspace estimators, callbacks (StepRecord), reduced-model builders
 │   ├── algorithms/                complete parameter-reduction algorithms
-│   ├── predictive.py              prior and posterior predictive helpers
 │   ├── experiments/               replicate runner, metrics (design 04)
 │   ├── plots/                     standard figures
 │   └── _stopgaps/                 every ProbPipe workaround; each names its PG id, the gap, the ideal, the removal
 ├── notebooks/
-│   ├── 00_the_inverse_problem.ipynb    walkthrough: model, data, likelihood, prior, prior predictive
+│   ├── 00_the_inverse_problem.ipynb    walkthrough: model, data, likelihood, prior, sample(problem.model)
 │   └── tutorials/                      running SIPNET; ProbPipe models; EKI; subspaces; algorithms
 ├── design/                        these documents, the gap registry, and the prototypes
 └── tests/                         unit tests, plus `-m smoke` end-to-end checks
@@ -545,7 +581,8 @@ A reader who builds algorithms touches `algorithms/`, `tools/` and the notebooks
    ProbPipe's registry for `enskit_eki`.
 2. `check` finds the prior, the likelihood and y, confirms the likelihood carries the structure EKI
    needs, and reads η.
-3. `execute` draws J prior samples under the workflow's seed and maps θ to whitened coordinates.
+3. `execute` draws J prior samples with the run's key, which `condition_on` derives from the
+   workflow's seed, and maps θ to unconstrained coordinates.
 4. Each step evaluates the forward `Function` on the J particles (threads, 8 at a time), calls the
    callbacks, picks the next Δβ, applies the Kalman update and refreshes the scales.
 5. At β = 1 it maps the particles back to θ and returns an `EmpiricalDistribution` whose provenance
@@ -560,9 +597,10 @@ A reader who builds algorithms touches `algorithms/`, `tools/` and the notebooks
 | Operation | Cost (verified on this machine) |
 |---|---|
 | One SIPNET run, 2012–2024 | 0.3 s |
-| 32 runs, thread dispatch (8 workers) | 2.1 s |
-| EKI, J = 40, 4 parameters, to β = 1 | 160 runs, 16 s |
-| RWMH, 2 chains × 30 steps | 67 runs, 26 s (sequential) |
+| 32 runs, thread executor (8 workers) | 2.1 s |
+| `sample(problem.model, 16)` | 16 runs, 2.1 s |
+| EKI, J = 40, 4 parameters, to β = 1 | 200 runs, 17 s |
+| RWMH, 2 chains × 30 steps | 67 runs, 24 s (one point per chain at a time) |
 
 EKI on the full problem (J ≈ 100, perhaps 5–10 steps) should take a minute or two. Reference
 posteriors by MCMC are the expensive part, which is why baselines are precomputed.
@@ -574,24 +612,27 @@ posteriors by MCMC are the expensive part, which is why baselines are precompute
 - **Unit tests** for each piece (coordinates round-trip, `to_sipnet` against known values, subspace
   algebra, callbacks on synthetic records), validated against independent baselines as ProbPipe's
   style guide asks (analytic results, not the code under test).
-- **Smoke tests** (`pytest -m smoke`, a few minutes): one SIPNET run aligned with A; prior
-  predictive; one short `enskit_eki` run on each problem; one algorithm end to end. These are what an
-  upgrade of ProbPipe, EnsKit or pySIPNET must pass.
-- **Inventory tests.** Every `STOPGAP(PG-NN)` tag names an entry in `probpipe-gaps.md`, and every
-  open entry is referenced by at least one tag. Every `@function` in `lsmas` sets `dispatch` (PG-10).
+- **Smoke tests** (`pytest -m smoke`, under a minute today): one SIPNET run aligned with A; draws
+  of the model; one short `enskit_eki` run on each problem; one algorithm end to end. These are
+  what an upgrade of ProbPipe, EnsKit or pySIPNET must pass.
+- **Repository tests** (`tests/test_repository.py`). Every `STOPGAP(PG-NN)` tag names an entry in
+  `probpipe-gaps.md`, every stopgap module carries a tag, no module imports a private ProbPipe
+  module, and every `Function` states whether JAX can trace it (PG-10).
 
 ---
 
 ## 9. ProbPipe gaps
 
-The register is [`probpipe-gaps.md`](probpipe-gaps.md). It has fourteen entries (PG-01 to PG-14)
+The register is [`probpipe-gaps.md`](probpipe-gaps.md). It has fifteen entries (PG-01 to PG-15)
 plus one for EnsKit (EK-01). Each entry gives what happens (with evidence), the effect here, the ideal
-ProbPipe support, the stopgap, how to remove it, and the upstream issue. Seven are covered by open
-upstream issues (#580, #521, #522, #352). Seven are not: the simulator-Gaussian family (PG-02), the
-learning rate on conditioning (PG-03), public coordinates (PG-05, only partly covered by #522), the
-protocol footgun (PG-11), the semantics of an unnormalized conditional density (PG-12), and two bugs
-found while implementing: renamed factors losing their path names (PG-13) and fingerprinting
-recursing on sparse matrices (PG-14).
+ProbPipe support, the stopgap, how to remove it, and the upstream issue or plan. At ProbPipe `main`,
+two are closed: joint sampling of a model whose likelihood runs SIPNET (PG-01) and the public
+inference-method interface (PG-04). Three are partly fixed (PG-05, PG-07, PG-10), and three more
+are designed in ProbPipe issues or plans (PG-06, PG-08, PG-09). Seven have no upstream issue yet:
+the simulator-Gaussian family (PG-02), the learning rate on conditioning (PG-03), the protocol
+footgun (PG-11), the semantics of an unnormalized conditional density (PG-12), and three found while
+implementing: renamed factors losing their path names (PG-13), fingerprinting recursing on sparse
+matrices (PG-14), and the missing keyed draw (PG-15).
 
 ---
 
@@ -599,9 +640,11 @@ recursing on sparse matrices (PG-14).
 
 None block this design. Recorded so they are not lost:
 
-- **Reference posterior for the full problem** (design 04): RWMH is sequential through ProbPipe today
-  (PG-07), so the full-problem baseline may need EnsKit-free MCMC run outside ProbPipe, or a smaller
-  claim than "ground truth".
+- **Reference posterior for the full problem** (design 04): RWMH evaluates one point per chain at a
+  time through ProbPipe today (PG-07), so the full-problem baseline may need many chains run in
+  parallel, MCMC run outside ProbPipe, or a smaller claim than "ground truth". ProbPipe's executors
+  now let a user register a cluster executor (a GridEngine one, say), which helps any method that
+  hands the executor many points at once, as EKI does.
 - **The reduced model's ProbPipe form** (design 03): depends on PG-09.
 
 ## 11. Decisions
@@ -617,7 +660,10 @@ Settled 2026-10-15:
 
 ---
 
-## Appendix: what the prototype verified
+## Appendix: what the prototypes verified
+
+At ProbPipe `638f56bc`, by [`prototypes/01-architecture/`](prototypes/01-architecture/). Rows marked
+† changed at `main`; the table after this one gives the new results.
 
 | Claim | Script | Result |
 |---|---|---|
@@ -625,16 +671,29 @@ Settled 2026-10-15:
 | A's columns = SIPNET's time axis | `t1_basics.py` | equal (37,992 steps, 2012-01-01T00 to 2024-12-31T21) |
 | IG(2, 1.678) median ≈ 1 | `t1_basics.py` | 0.991 (4000 draws) |
 | Model construction runs no simulation | `t1_basics.py` | 0 runs |
-| Auto-selected method | `t2_dispatch.py` | `blackjax_rwmh` |
-| `sample(model)` fails | `t2_dispatch.py`, `t4_joint.py` | `TracerArrayConversionError`, both likelihood styles |
+| Auto-selected method † | `t2_dispatch.py` | `blackjax_rwmh` |
+| `sample(model)` fails † | `t2_dispatch.py`, `t4_joint.py` | `TracerArrayConversionError`, both likelihood styles |
 | Batch call, thread vs sequential | `t2_dispatch.py` | 32 runs: 2.1 s vs 8.6 s |
 | Pushforward of the prior | `t2_dispatch.py` | `EmpiricalDistribution` via `sampling_lift` |
 | No caching | `t2_dispatch.py` | an identical batch re-ran 32 simulations |
 | The likelihood is one law | `t6_tempered.py` | `log_prob` of a draw equals SciPy's; residuals mean 0.005, sd 1.03 |
 | Tempered target density | `t6_tempered.py` | differences equal log π + Σ ηᵢ log Nᵢ (0.386083); plain: 8.239780 |
-| `enskit_eki` through tempered conditioning | `t3_eki.py`, `t6_tempered.py` | 4 steps, 160 runs, 16 s, `EmpiricalDistribution` |
-| RWMH through tempered conditioning | `t5_rwmh.py`, `t6_tempered.py` | runs (67 runs, 26 s); fails if EnsKit is imported after the prior is built |
+| `enskit_eki` through tempered conditioning † | `t3_eki.py`, `t6_tempered.py` | 4 steps, 160 runs, 16 s, `EmpiricalDistribution` |
+| RWMH through tempered conditioning † | `t5_rwmh.py`, `t6_tempered.py` | runs (67 runs, 26 s); fails if EnsKit is imported after the prior is built |
 | Linearization callback | `t3_eki.py` | accumulated eigenvalues 323, 24.1, 5.05, 0.06 |
 | Laws are immutable | (session check) | a memo on a law raises `AttributeError` |
 | Both method names needed for a density claim | (session check, PG-11) | `_log_prob` alone: "does not implement SupportsLogProb" |
 | Corrected driver passes pySIPNET's strict checks | (session check) | `ClimateDrivers.from_file` OK; 0.29 s/run |
+
+At ProbPipe `main` (`9158a50e`), by the repository's tests, by
+[`prototypes/01c-probpipe-main/gaps_at_main.py`](prototypes/01c-probpipe-main/gaps_at_main.py), and by
+the timings in [`01c-probpipe-main-report.md`](01c-probpipe-main-report.md):
+
+| Claim | Evidence | Result |
+|---|---|---|
+| Auto-selected method | `gaps_at_main.py` (PG-08) | `blackjax_nuts`, which fails: no gradients through SIPNET |
+| `sample(model)` works | `tests/test_likelihood.py`, `tests/test_problems.py` | draws follow the likelihood; 16 SIPNET draws in 2.1 s |
+| `enskit_eki` on the development problem | report timing | 5 steps, 200 runs, 17 s, no failed runs |
+| RWMH on the development problem | report timing | 67 runs, 24 s; 22 s with the thread executor named |
+| NUTS on the tempered linear model | `tests/test_tempering.py` | recovers the exact tempered posterior |
+| EnsKit import order | `gaps_at_main.py` (EK-01) | unchanged: still fails if EnsKit is imported after the prior is built |

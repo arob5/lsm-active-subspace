@@ -26,6 +26,24 @@ uv run pytest
 
 The first run builds SIPNET, which takes a minute.
 
+## A first look
+
+```python
+from probpipe import sample, workflow_run
+
+from lsmas.problems import load
+
+problem = load("harvard_forest_dev")
+print(problem.describe())
+
+with workflow_run(seed=1):
+    draws = sample(problem.model, 16)              # prior predictive: runs SIPNET 16 times
+    posterior = problem.condition(method="enskit_eki", method_options={"n_particles": 40})
+```
+
+`condition` requires an inference method: ProbPipe's automatic choice assumes gradients, which
+SIPNET does not have.
+
 ## Layout
 
 ```
@@ -37,7 +55,6 @@ src/lsmas/
     priors.py          prior families specified by intervals
     learning_rate.py   the likelihood's learning rate
     problems/          inverse problems, ready to condition
-    predictive.py      prior predictive draws
     inference/         ensemble Kalman inversion, registered with ProbPipe
     _stopgaps/         temporary code that fills gaps in ProbPipe
 tests/                 unit tests; `-m smoke` selects the end-to-end checks that run SIPNET

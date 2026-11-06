@@ -26,8 +26,8 @@ class StepRecord:
     beta : float
         The tempering level $\beta$ when the particles were evaluated.
     increment : float
-        The increment $\Delta\beta$ the step then took; 0 for the final evaluation, after which no
-        update is made.
+        The increment $\Delta\beta$ the step then took. The last step's increment reaches
+        $\beta = 1$, so the final particles, which make up the result, appear in no record.
     parameter_names : tuple of str
         The names of the parameters, in the order of the last axis of :attr:`theta`.
     theta : numpy.ndarray

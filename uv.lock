@@ -317,7 +317,7 @@ requires-dist = [
     { name = "enskit", git = "https://github.com/TARPS-group/EnsKit.git?rev=f7dc7eea0575b4d3b2fce91eee1eb69afb1c9341" },
     { name = "numpy", specifier = ">=2.0" },
     { name = "pandas", specifier = ">=2.0" },
-    { name = "probpipe-core", git = "https://github.com/TARPS-group/prob-pipe.git?rev=638f56bc89e0264c1543f723b1d2addd58df1c56" },
+    { name = "probpipe-core", git = "https://github.com/TARPS-group/prob-pipe.git?rev=9158a50e7ae9d60d21f57ebc10889605026cbd26" },
     { name = "pydantic", specifier = ">=2" },
     { name = "pysipnet", git = "https://github.com/TARPS-group/pySIPNET.git?rev=08bab7b04cf281b4c4b5e41ca18bbd604d30e46f" },
     { name = "scipy", specifier = ">=1.11" },
@@ -575,10 +575,11 @@ wheels = [
 [[package]]
 name = "probpipe-core"
 version = "0.2.0.dev0"
-source = { git = "https://github.com/TARPS-group/prob-pipe.git?rev=638f56bc89e0264c1543f723b1d2addd58df1c56#638f56bc89e0264c1543f723b1d2addd58df1c56" }
+source = { git = "https://github.com/TARPS-group/prob-pipe.git?rev=9158a50e7ae9d60d21f57ebc10889605026cbd26#9158a50e7ae9d60d21f57ebc10889605026cbd26" }
 dependencies = [
     { name = "arviz" },
     { name = "blackjax" },
+    { name = "cloudpickle" },
     { name = "jax" },
     { name = "jaxlib" },
     { name = "tfp-nightly" },

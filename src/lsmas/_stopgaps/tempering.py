@@ -39,27 +39,27 @@ def tempered_condition_on(
     learning_rate: Mapping[str, Any],
     **using: Any,
 ) -> Distribution:
-    r"""Condition *model* on *data*, tempering each observed component's likelihood.
+    r"""Condition *model* on *data*, tempering each observed output's likelihood.
 
     For a model $p(y \mid \theta)\, \pi(\theta)$ and learning rates $\eta_i$ for the elements
-    $y_i$ of an observed component, the target is
+    $y_i$ of an observed output, the target is
 
     $$
     \pi_\eta(\theta \mid y) \propto \pi(\theta) \prod_i p(y_i \mid \theta)^{\eta_i}.
     $$
 
-    A scalar rate tempers the whole component's density; an array of rates, one per element,
+    A scalar rate tempers the whole output's density; an array of rates, one per element,
     needs a likelihood with independent elements (see :class:`TemperedLikelihood`). An observed
-    component without a rate is not tempered.
+    output without a rate is not tempered.
 
     Parameters
     ----------
     model : Distribution
-        A product ``likelihood * prior`` whose likelihood factors produce the observed components.
+        A merge ``likelihood & prior`` whose likelihood factors produce the observed outputs.
     data : Mapping of str to array_like
-        The observed value of each component.
+        The observed value of each output.
     learning_rate : Mapping of str to float or array_like
-        The rate for each observed component to temper.
+        The rate for each observed output to temper.
     **using
         Controls of ``condition_on``, such as ``method`` and ``method_options``.
 
@@ -71,16 +71,16 @@ def tempered_condition_on(
     Raises
     ------
     ValueError
-        If a learning rate names a component that is not observed.
+        If a learning rate names an output that is not observed.
     """
     unknown = sorted(set(learning_rate) - set(data))
     if unknown:
-        raise ValueError(f"learning rates given for components that are not observed: {unknown}")
+        raise ValueError(f"learning rates given for outputs that are not observed: {unknown}")
     factors = [
         _tempered_factor(factor, learning_rate) if _produces_any(factor, learning_rate) else factor
         for factor in model.factors
     ]
-    tempered_model = functools.reduce(operator.mul, factors)
+    tempered_model = functools.reduce(operator.and_, factors)
     return condition_on.using(**using)(tempered_model, data)
 
 
@@ -126,7 +126,7 @@ class TemperedLikelihood(ConditionalDistribution):
         if self.learning_rate.ndim == 0:
             return self.learning_rate * self.likelihood._conditional_log_prob(given, value)
         pointwise = self.likelihood.pointwise_log_prob(given, value)
-        return jnp.asarray(np.sum(self.learning_rate * pointwise))
+        return jnp.sum(self.learning_rate * pointwise)
 
 
 class _TemperedFactor(Distribution):
@@ -141,15 +141,15 @@ class _TemperedFactor(Distribution):
         return self._tempered._conditional_unnormalized_log_prob(self._given, value)
 
 
-def _produces_any(factor: Any, components: Mapping[str, Any]) -> bool:
-    """Whether *factor* produces at least one of *components*."""
-    return bool(set(factor.event_spec.components) & set(components))
+def _produces_any(factor: Any, outputs: Mapping[str, Any]) -> bool:
+    """Whether *factor* produces at least one of *outputs*."""
+    return bool(set(factor.event_spec.outputs) & set(outputs))
 
 
 def _tempered_factor(factor: Any, learning_rate: Mapping[str, Any]) -> TemperedLikelihood:
-    """*factor* tempered by the rate of the one component it produces."""
-    (component,) = factor.event_spec.components
-    return TemperedLikelihood(factor, learning_rate[component])
+    """*factor* tempered by the rate of the one output it produces."""
+    (output,) = factor.event_spec.outputs
+    return TemperedLikelihood(factor, learning_rate[output])
 
 
 def _check_can_temper(likelihood: Any, learning_rate: np.ndarray) -> None:

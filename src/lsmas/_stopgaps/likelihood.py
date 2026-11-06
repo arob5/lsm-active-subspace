@@ -38,13 +38,18 @@ class GaussianSimulatorLikelihood(ConditionalDistribution):
     where $G$ is the forward map. A class's scale is either a given slot of the kernel, so that a
     prior can be placed on it, or a fixed number.
 
+    A model ``likelihood & prior`` can be sampled directly: ``sample(model, n)`` draws the
+    parameters and then the observations, evaluating $G$ once per draw.
+
     Parameters
     ----------
     forward : Function
         The forward map $G$: a ProbPipe ``Function`` of the parameter record ``theta`` returning an
-        array of shape $(n,)$. Calling it on a batch of records evaluates it once per record.
-    component : str
-        The name of the observations, such as ``"nee"``.
+        array of shape $(n,)$. Calling it on a batch of records evaluates it once per record. If
+        JAX cannot trace it, it must declare that (``traceable=False``) and an output spec with a
+        concrete shape and dtype, so that ProbPipe can call it from inside traced code.
+    output_name : str
+        The name of the output that holds the observations, such as ``"nee"``.
     theta_spec : NumericRecordSpec
         The declaration of the parameter record.
     reference_variance : array_like
@@ -61,7 +66,7 @@ class GaussianSimulatorLikelihood(ConditionalDistribution):
         self,
         forward: Any,
         *,
-        component: str,
+        output_name: str,
         theta_spec: Any,
         reference_variance: Any,
         classes: Any,
@@ -69,7 +74,8 @@ class GaussianSimulatorLikelihood(ConditionalDistribution):
         label: str = "likelihood",
     ) -> None:
         self.forward = forward
-        self.component = component
+        self._untracked_forward = forward.using(raw=True)
+        self.output_name = output_name
         self.reference_variance = np.asarray(reference_variance, dtype=float)
         self.classes = np.asarray(classes)
         self.scales = dict(scales)
@@ -79,7 +85,7 @@ class GaussianSimulatorLikelihood(ConditionalDistribution):
         given_spec = {"theta": theta_spec} | {
             slot: NumericArraySpec(()) for slot in self.random_scale_slots
         }
-        event_spec = OutputSpec(**{component: NumericArraySpec((n_observations,))})
+        event_spec = OutputSpec(**{output_name: NumericArraySpec((n_observations,))})
         super().__init__(given_spec, event_spec, label=label)
 
     @property
@@ -87,7 +93,7 @@ class GaussianSimulatorLikelihood(ConditionalDistribution):
         """The given slots that hold scales, in class order."""
         return tuple(scale for scale in self.scales.values() if isinstance(scale, str))
 
-    def noise_variances(self, scale_values: Mapping[str, Any] | None = None) -> np.ndarray:
+    def noise_variances(self, scale_values: Mapping[str, Any] | None = None) -> jax.Array:
         r"""The noise variances $s^2_{k(i)} v_i$.
 
         Parameters
@@ -98,20 +104,20 @@ class GaussianSimulatorLikelihood(ConditionalDistribution):
 
         Returns
         -------
-        numpy.ndarray
+        jax.Array
             Shape $(n,)$, or $(m, n)$ for batched scale values.
         """
         scale_values = {} if scale_values is None else scale_values
-        per_class = np.broadcast_arrays(
+        per_class = jnp.broadcast_arrays(
             *(
-                np.asarray(scale_values[scale] if isinstance(scale, str) else scale, dtype=float)
+                jnp.asarray(scale_values[scale] if isinstance(scale, str) else scale)
                 for scale in self.scales.values()
             )
         )
-        class_scales = np.stack(per_class, axis=-1)
+        class_scales = jnp.stack(per_class, axis=-1)
         return class_scales[..., self._class_index] * self.reference_variance
 
-    def pointwise_log_prob(self, given: Mapping[str, Any], value: Any) -> np.ndarray:
+    def pointwise_log_prob(self, given: Mapping[str, Any], value: Any) -> jax.Array:
         r"""Each observation's log-density, shape $(n,)$.
 
         $$
@@ -119,25 +125,25 @@ class GaussianSimulatorLikelihood(ConditionalDistribution):
         \qquad i = 1, \dots, n.
         $$
         """
-        residuals = np.asarray(value) - np.asarray(self._conditional_mean(given))
+        residuals = jnp.asarray(value) - self._conditional_mean(given)
         variances = self.noise_variances(given)
-        return -0.5 * (residuals**2 / variances + np.log(2.0 * np.pi * variances))
+        return -0.5 * (residuals**2 / variances + jnp.log(2.0 * jnp.pi * variances))
 
     def _condition_on(self, given: Mapping[str, Any], /, **options: Any) -> Distribution:
         return _GaussianSimulatorLaw(self, given)
 
-    def _conditional_mean(self, given: Mapping[str, Any]) -> Any:
-        return self.forward(given["theta"]).raw()
+    def _conditional_mean(self, given: Mapping[str, Any]) -> jax.Array:
+        return jnp.asarray(self._untracked_forward(given["theta"]))
 
     def _conditional_sample(
         self, given: Mapping[str, Any], key: Any, sample_shape: tuple[int, ...] = ()
-    ) -> Any:
-        mean = np.asarray(self._conditional_mean(given))
-        noise = np.asarray(jax.random.normal(key, (*sample_shape, mean.shape[-1])))
-        return jnp.asarray(mean + np.sqrt(self.noise_variances(given)) * noise)
+    ) -> jax.Array:
+        mean = self._conditional_mean(given)
+        noise = jax.random.normal(key, (*sample_shape, *mean.shape))
+        return mean + jnp.sqrt(self.noise_variances(given)) * noise
 
-    def _conditional_log_prob(self, given: Mapping[str, Any], value: Any) -> Any:
-        return jnp.asarray(np.sum(self.pointwise_log_prob(given, value)))
+    def _conditional_log_prob(self, given: Mapping[str, Any], value: Any) -> jax.Array:
+        return jnp.sum(self.pointwise_log_prob(given, value))
 
     def _conditional_unnormalized_log_prob(self, given: Mapping[str, Any], value: Any) -> Any:
         return self._conditional_log_prob(given, value)
