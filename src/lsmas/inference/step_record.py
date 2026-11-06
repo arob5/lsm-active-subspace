@@ -18,6 +18,8 @@ class StepRecord:
     The method moves an ensemble of $J$ particles from the prior ($\beta = 0$) to the posterior
     ($\beta = 1$) in increments $\Delta\beta$. Each step evaluates the forward map $G$ at every
     particle and then conditions on the data with noise covariance $\Gamma / \Delta\beta$.
+    When noise scales are inferred, each particle carries its own scales and $\Gamma$ is built from
+    the ensemble's common scales, so it changes from step to step.
 
     Attributes
     ----------
@@ -33,10 +35,16 @@ class StepRecord:
     theta : numpy.ndarray
         The evaluated particles in constrained coordinates, shape $(J, d)$.
     predictions : numpy.ndarray
-        $G$ at each particle, shape $(J, n)$; a row of NaN where the forward map failed, which
-        the method replaces before updating.
+        $G$ at each particle, shape $(J, n)$. A particle at which the forward map failed has been
+        moved, with its predictions, to the centre of the valid particles.
     noise_variance : numpy.ndarray
-        The diagonal of $\Gamma$, the noise covariance at $\beta = 1$, shape $(n,)$.
+        The diagonal of $\Gamma$, the noise covariance at $\beta = 1$ that this step's update
+        used, shape $(n,)$.
+    noise_scales : dict of str to numpy.ndarray
+        Each inferred scale's value at each particle, shape $(J,)$, by the scale's name, such as
+        ``"s2_day"``; empty when every scale is fixed.
+    n_failed : int
+        How many particles the forward map failed at.
     """
 
     step: int
@@ -46,11 +54,8 @@ class StepRecord:
     theta: np.ndarray
     predictions: np.ndarray
     noise_variance: np.ndarray
-
-    @property
-    def n_failed(self) -> int:
-        """How many particles' predictions were not finite."""
-        return int(np.sum(~np.all(np.isfinite(self.predictions), axis=-1)))
+    noise_scales: dict[str, np.ndarray]
+    n_failed: int
 
 
 #: A callable an ensemble method calls with every :class:`StepRecord`, in order.
@@ -59,7 +64,7 @@ StepCallback = Callable[[StepRecord], None]
 
 def history_dataset(records: Sequence[StepRecord]) -> xr.Dataset:
     """A run's step records as one dataset, with dimensions ``step``, ``member``, ``parameter``
-    and ``observation``.
+    and ``observation``, and one variable per inferred noise scale.
 
     Parameters
     ----------
@@ -79,7 +84,18 @@ def history_dataset(records: Sequence[StepRecord]) -> xr.Dataset:
                 ("step", "member", "observation"),
                 np.stack([record.predictions for record in records]),
             ),
-            "noise_variance": ("observation", records[0].noise_variance),
+            "noise_variance": (
+                ("step", "observation"),
+                np.stack([record.noise_variance for record in records]),
+            ),
+            "n_failed": ("step", [record.n_failed for record in records]),
+            **{
+                slot: (
+                    ("step", "member"),
+                    np.stack([record.noise_scales[slot] for record in records]),
+                )
+                for slot in records[0].noise_scales
+            },
         },
         coords={"step": [record.step for record in records], "parameter": names},
     )
