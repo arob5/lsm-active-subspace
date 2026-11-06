@@ -1,6 +1,7 @@
 # Design 02 — The inverse problem: calibration parameters, prior, and problems
 
-*Draft 1, 2026-11-06.*
+*Draft 2, 2026-11-06. Draft 2 settles the prior's breadth, replaces the small problem (§6.2), and
+says why allocation is not a Dirichlet (§2).*
 
 Design 01 fixed how the pieces fit together, and used a four-parameter development problem to build
 them. This design fixes the inverse problem itself: **which SIPNET parameters are calibrated, in
@@ -24,8 +25,9 @@ The prior predictive covers the observed features (95% of day and 94% of night f
 90% interval) with no failed runs. Averaged over the prior, the data inform twelve directions more
 than the prior does, five of them strongly, and leave the rest weak: the structure the algorithms
 must discover. A second,
-smaller problem fixes all but 9 of the 46, so that a trustworthy reference posterior is
-affordable.
+smaller problem calibrates 10 of the 46, chosen so that a trustworthy reference posterior is
+affordable and its informative directions mix its parameters: three directions hold 92% of its
+information, the best three parameters only 65%.
 
 ---
 
@@ -114,7 +116,21 @@ independently and in units an ecologist recognizes:
 4. **Allocation by stick-breaking**: the leaf fraction ℓ; the wood share w of the rest; the fine-root
    share f of what remains; coarse roots take the remainder. Any three values in (0, 1) give a valid
    allocation, so SIPNET's exit on an invalid allocation (`ensureAllocation`, `sipnet.c:1111-1123`)
-   cannot happen.
+   cannot happen. The three shares are three scalar parameters with independent priors, and the map
+   is three lines: `leafAllocation = ℓ`, `woodAllocation = (1 − ℓ)w`,
+   `fineRootAllocation = (1 − ℓ)(1 − w)f`. No bijector is implemented.
+
+   *Why not a Dirichlet on ProbPipe's simplex.* ProbPipe has a `Dirichlet` law on its `simplex`
+   support, with a centred-softmax map to unconstrained coordinates, so the four shares could be
+   one vector parameter. A Dirichlet has a single total concentration α₀, which fixes every share's
+   spread relative to its mean, Var xᵢ = mᵢ(1 − mᵢ)/(α₀ + 1). The sources do not agree with that:
+   BETY pins the leaf share (sd 0.019, which needs α₀ ≈ 400), while the wood and root shares are
+   uncertain (sds 0.064, 0.029, 0.058, which need α₀ ≈ 60–80). At α₀ = 400 the wood share's sd
+   would be 0.025 instead of 0.064; at α₀ = 60 the leaf share's would be 0.049 instead of 0.019
+   (verified, 200,000 draws). Independent shares are the generalized-Dirichlet construction, with
+   logit-normal sticks in place of beta ones; ProbPipe does not offer it, and it needs nothing
+   beyond scalar laws. Scalar parameters also keep the one-row-per-parameter prior table (§7) and
+   the coordinate stopgap, which handles scalar parameters only (PG-05).
 5. **Initial carbon pools** replace (`plantWoodInit`, `fineRootFrac`, `coarseRootFrac`):
    above-ground wood W, coarse roots C and fine roots F, each in g C m⁻², with
    `plantWoodInit = W + C + F` and the fractions C/(W + C + F) and F/(W + C + F).
@@ -129,6 +145,9 @@ axes the likelihood is piecewise constant, and a gradient is zero almost everywh
 calibrated anyway: leaf-on timing was phase 2's largest single error, and `leafOffDay` is the
 parameter that moves the features most at the reference point. Methods that read gradients must
 treat them with care; ensemble linearizations, whose differences span many time steps, see them.
+A finite difference sees them too, but what it sees depends on its width: their activity scores
+grow by factors 1.3 and 2.1 when the width shrinks from 0.2 to 0.05 prior sds, while every smooth
+parameter's changes by at most 4% (`t9_small_problem.py`).
 `frozenSoilThreshold` is switch-like too, but its effect is rare (§1.1).
 
 The full list, with priors, is in §3.
@@ -263,9 +282,10 @@ draws each). The largest single contributor is `half_saturation_light`, whose BE
 factor of 5.7 (its rank correlation with NEE across the draws is 0.72 when only the non-phase-2
 parameters vary).
 
-Whether to tighten the prior here is a judgement for you (decision 3, §8). A broad prior costs
-nothing in the likelihood, which dominates it, but it shapes the whitened coordinates in which
-subspaces are measured, and it sets where EKI's ensemble starts.
+The prior stays this broad (decided, §8). A broad prior costs nothing in the likelihood, which
+dominates it, but it shapes the whitened coordinates in which subspaces are measured, and it sets
+where EKI's ensemble starts; the walkthrough notebook shows the prior predictive so that this is
+visible.
 
 ---
 
@@ -319,7 +339,8 @@ The ten largest account for 84% of the trace. Three things here are worth an alg
   They form the approximate ridge of the parameter-structure note (§3.5), which a good subspace
   estimator should find as a few combinations rather than five axes.
 - **Two of the five largest are step functions** (`gddLeafOn`, `leafOffDay`). A finite difference
-  of width 0.4 prior sds sees them; a gradient would not.
+  of width 0.4 prior sds sees them; a gradient would not. Their two scores here are properties of
+  that width, not of the model (§2).
 - **Night respiration is spread thinly**: soil, root and wood respiration each score 1–3, and the
   base-rate–Q10 pairs are the classic weak ridge.
 
@@ -366,28 +387,57 @@ problem.coordinates.dimension     # 46
 ### 6.2 `harvard_forest_small`: a problem with a trustworthy reference
 
 The full problem's reference posterior will be hard to trust (design 04). The small problem keeps
-the same data, likelihood and prior, and fixes all but **nine** calibration parameters at their prior
-medians, so that long MCMC is affordable: at 0.3 s per run, 100,000 runs take about an hour with 8
-chains running in parallel (ProbPipe's RWMH evaluates one point per chain at a time).
+the same data, likelihood and prior, and fixes all but **ten** calibration parameters at their prior
+medians. Four requirements chose the ten:
 
-The nine are the **eight with the largest activity scores** (§4), plus
-**`soil_respiration_flux_at_10c`**, so that night respiration has a parameter of its own (the eight
-reach night NEE only through foliar respiration):
+1. **Tractable.** Long MCMC must be affordable: at 0.3 s per run, 100,000 runs take about an hour
+   with 8 chains running in parallel (ProbPipe's RWMH evaluates one point per chain at a time).
+2. **Important.** Calibration should be worth doing: six of the eight largest activity scores (§4)
+   are in, and the ten hold 71% of the full problem's trace of C.
+3. **A reduction is more than a selection.** The parameters are chosen in groups that act
+   together through the model (the correlations of C, §4), so that the informative directions mix
+   parameters: photosynthetic capacity, the light half-saturation and the extinction coefficient
+   (correlations −0.92 and +0.95 in C); the VPD slope and exponent (+0.96); the water-holding
+   capacity and water-use efficiency (+0.84); the foliar respiration share and the soil flux
+   (+0.55).
+4. **Smooth.** The two leaf-timing parameters are fixed at their medians, because their
+   derivatives are not defined and their finite-difference scores depend on the width (§2). The
+   small problem is where gradient-based and gradient-free estimators are compared against a
+   reference they can trust; a target that depends on the step width would confound that
+   comparison. The full problem keeps them.
 
-`photosynthetic_capacity`, `soil_water_holding_capacity`, `leaf_on_growing_degree_days`,
-`half_saturation_light`, `leaf_off_day`, `leaf_on_growth`, `respiration_share`,
-`water_use_efficiency`, `soil_respiration_flux_at_10c`.
+The ten: `photosynthetic_capacity`, `half_saturation_light`, `light_extinction_coefficient`,
+`leaf_on_growth`, `vapor_pressure_deficit_slope`, `vapor_pressure_deficit_exponent`,
+`soil_water_holding_capacity`, `water_use_efficiency`, `respiration_share`,
+`soil_respiration_flux_at_10c`.
 
-Together they hold 81% of the trace of C, the full problem's prior-averaged information. Two of them are step
-functions, which MCMC handles (it reads only densities) and gradient methods do not; the small
-problem keeps them because they matter, and because it should show the same difficulties as the
-full one at a size where the answer is known. (Alternative: replace the two step functions by the
-next two smooth parameters, `vapor_pressure_deficit_slope` and `vapor_pressure_deficit_exponent`.)
+`t9_small_problem.py` checks the choice on the small problem itself: C computed with the other 36
+parameters at their medians, at 40 prior draws, at widths 0.2 and 0.05 (the two agree to 2%). Its
+eigenvalues are
+
+| | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| eigenvalue | 63.1 | 27.6 | 14.0 | 3.2 | 2.3 | 1.8 | 1.3 | 0.32 | 0.17 | 0.09 |
+
+and the information each reduction leaves out is
+
+| dimension r | 1 | 2 | 3 | 4 |
+|---|---|---|---|---|
+| outside the top r eigenvectors | 45% | 20% | 8% | 5% |
+| outside the best r parameters | 66% | 45% | 35% | 26% |
+
+Three directions dominate, and each mixes parameters: carbon uptake (photosynthetic capacity −0.77,
+half-saturation +0.40, leaf growth −0.29, water-holding capacity +0.23), water (water-holding
+capacity +0.83, water-use efficiency +0.44) and respiration (respiration share +0.80, soil flux
++0.32). Four more exceed 1, so choosing the dimension is a real trade-off. The last three are the
+near-ridges, and carry almost nothing: the VPD slope against the exponent (−0.72, +0.68), the
+half-saturation against capacity and leaf growth, and the extinction coefficient against leaf
+growth.
 
 ```python
 small = load("harvard_forest_small")
 small.coordinates.names
-# ('photosynthetic_capacity', 'soil_water_holding_capacity', ..., 'soil_respiration_flux_at_10c')
+# ('photosynthetic_capacity', 'half_saturation_light', ..., 'soil_respiration_flux_at_10c')
 ```
 
 ### 6.3 The development problem retires
@@ -436,11 +486,10 @@ logistic function.
    or exactly degenerate, including the step functions and the three frozen-soil parameters.
    (Alternative: fix the frozen-soil parameters too, at 43, since they act only in rare corners.)
 2. **The reparameterizations of §2**, all bijective, none tying parameters.
-3. **How broad the prior should be.** As drafted, 43% of prior runs are net sources (phase 2: 34%).
-   Options: (a) keep it, since the data lie in the bulk and broadness is honest; (b) tighten
-   `half_saturation_light` and the reasoned intervals that drive the tail, and check again.
-   My recommendation is (a), with the prior predictive shown in the walkthrough notebook.
-4. **The small problem** (§6.2): which parameters, and how many.
+3. **How broad the prior should be.** *Decided: keep it as drafted* (43% of prior runs are net
+   sources; phase 2: 34%), with the prior predictive shown in the walkthrough notebook.
+4. **The small problem** (§6.2). *Decided: chosen by the four requirements of §6.2*, which give
+   the ten parameters listed there.
 5. **c = 3 with 46 parameters** (§5): keep it for now, and run the c = 2 and c = 4 check in the
    experiments.
 6. **Retiring `harvard_forest_dev`** (§6.3) and **deferring the toy problem** to design 03 (§6.4).
@@ -461,4 +510,6 @@ logistic function.
 | Spread by group | `t6_group_spread.py` | sources: 30% (phase-2 group), 16% (others), 46% (all) |
 | Prior-averaged information | `t7_prior_importance.py` | 80 draws: 12 eigenvalues above 1, leading 74.6; the eight fixed-as-inert parameters inert at every draw |
 | Frozen-soil parameters live in parts of the prior | `t8_frozen_soil.py` | moved the features at 9, 6, 6 of 30 draws |
+| A single Dirichlet cannot hold the allocation prior | (session check) | each share's sd needs α₀ ≈ 400 (leaf) or 59–77 (wood, roots) |
+| The small problem's directions mix its parameters; the leaf-timing scores depend on the width | `t9_small_problem.py` | 3 directions leave 8% outside, the best 3 parameters 35%; score ratios (h 0.05 / 0.2) 1.31 and 2.05 for the leaf timing, ≤ 1.04 otherwise |
 | ProbPipe with 46 parameters | (session check) | build 0.24 s, coordinates 1 s, `Uniform` supported |

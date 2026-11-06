@@ -15,6 +15,7 @@ It runs in the repository's own environment and is not the repository's code. Ou
 | `t6_group_spread.py` | How much of the prior predictive spread comes from the phase-2 parameters and from the rest |
 | `t7_prior_importance.py` | Prior-averaged information matrix in whitened coordinates (activity scores, spectrum); every fixed-as-inert parameter checked across the prior |
 | `t8_frozen_soil.py` | The three frozen-soil parameters act in parts of the prior, though inert at the reference point |
+| `t9_small_problem.py` | The small problem's information matrix, with the other parameters at their medians: reduction against selection, and the leaf-timing parameters' dependence on the step width |
 | `make_tables.py` | Prints the design's table of calibration parameters and priors from `prior_table.py` |
 
 ```bash
@@ -22,4 +23,5 @@ cd design/prototypes/02-inverse-problem
 uv run python -W ignore t1_active_set.py          # ~10 s
 uv run python -W ignore t4_prior_predictive.py 400 final   # ~30 s
 uv run python -W ignore t7_prior_importance.py 80 3   # ~8 min
+uv run python -W ignore t9_small_problem.py 40 5    # ~4 min
 ```

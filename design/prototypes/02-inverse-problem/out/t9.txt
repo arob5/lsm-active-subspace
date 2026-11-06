@@ -1,0 +1,43 @@
+h=0.2: draw 10/40, 18 s
+h=0.2: draw 20/40, 37 s
+h=0.2: draw 30/40, 55 s
+h=0.2: draw 40/40, 73 s
+h=0.05: draw 10/40, 18 s
+h=0.05: draw 20/40, 36 s
+h=0.05: draw 30/40, 56 s
+h=0.05: draw 40/40, 74 s
+
+activity score at h = 0.2 and h = 0.05 (others at prior medians, N = 40):
+  photosynthetic_capacity                  39.2     39.8  ratio  1.01
+  half_saturation_light                    12.3     12.4  ratio  1.01
+  light_extinction_coefficient              2.6     2.63  ratio  1.01
+  leaf_on_growth                           7.81     7.83  ratio  1.00
+  vapor_pressure_deficit_slope             4.19     4.22  ratio  1.01
+  vapor_pressure_deficit_exponent          3.29     3.32  ratio  1.01
+  soil_water_holding_capacity                23     23.9  ratio  1.04
+  water_use_efficiency                     8.15     8.17  ratio  1.00
+  respiration_share                        10.2     10.2  ratio  1.00
+  soil_respiration_flux_at_10c             3.34     3.34  ratio  1.00
+  leaf_on_growing_degree_days              19.2     25.2  ratio  1.31
+  leaf_off_day                             13.6     27.8  ratio  2.05
+
+proposed problem, h = 0.2: trace 114.0; eigenvalues [63.149 27.627 13.999  3.187  2.313  1.798  1.32   0.32   0.174  0.094]
+  eigenvalue / trace [0.554 0.242 0.123 0.028 0.02  0.016 0.012 0.003 0.002 0.001]
+  r = 1: outside top-r eigenvectors 0.45, outside best r parameters 0.66
+  r = 2: outside top-r eigenvectors 0.20, outside best r parameters 0.45
+  r = 3: outside top-r eigenvectors 0.08, outside best r parameters 0.35
+  r = 4: outside top-r eigenvectors 0.05, outside best r parameters 0.26
+  eigenvector 1: photosynthetic_capacity -0.77, half_saturation_light +0.40, leaf_on_growth -0.29, soil_water_holding_capacity +0.23
+  eigenvector 2: soil_water_holding_capacity +0.83, water_use_efficiency +0.44, photosynthetic_capacity +0.21, half_saturation_light -0.18
+  eigenvector 3: respiration_share +0.80, soil_respiration_flux_at_10c +0.32, leaf_on_growth +0.26, half_saturation_light +0.21
+
+proposed problem, h = 0.05: trace 115.8; eigenvalues [6.435e+01 2.819e+01 1.401e+01 3.214e+00 2.317e+00 1.828e+00 1.361e+00 2.947e-01 1.733e-01 5.960e-02]
+  eigenvalue / trace [5.557e-01 2.434e-01 1.210e-01 2.776e-02 2.001e-02 1.578e-02 1.175e-02
+ 2.545e-03 1.497e-03 5.147e-04]
+  r = 1: outside top-r eigenvectors 0.44, outside best r parameters 0.66
+  r = 2: outside top-r eigenvectors 0.20, outside best r parameters 0.45
+  r = 3: outside top-r eigenvectors 0.08, outside best r parameters 0.34
+  r = 4: outside top-r eigenvectors 0.05, outside best r parameters 0.25
+  eigenvector 1: photosynthetic_capacity -0.77, half_saturation_light +0.40, leaf_on_growth -0.29, soil_water_holding_capacity +0.24
+  eigenvector 2: soil_water_holding_capacity +0.83, water_use_efficiency +0.44, photosynthetic_capacity +0.22, half_saturation_light -0.19
+  eigenvector 3: respiration_share +0.80, soil_respiration_flux_at_10c +0.32, leaf_on_growth +0.27, half_saturation_light +0.20
