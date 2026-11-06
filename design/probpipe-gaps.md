@@ -38,8 +38,8 @@ stopgap removed).
 | [PG-14](#pg-14) | Fingerprinting a closure that captures a sparse matrix recurses without end | Low (bug) | to file | open |
 | [PG-15](#pg-15) | No public operation draws from a law with a given key | Low | to file | open |
 
-Not ProbPipe, but tracked the same way: **EK-01**, EnsKit switches JAX to 64-bit floats on import
-(below).
+Not ProbPipe, but tracked the same way (below): **EK-01**, EnsKit switches JAX to 64-bit floats on
+import; **SP-01**, SIPNET writes NEE to three decimals.
 
 ---
 
@@ -334,3 +334,21 @@ Not ProbPipe, but tracked the same way: **EK-01**, EnsKit switches JAX to 64-bit
 - **Stopgap.** `lsmas/__init__.py` imports EnsKit before anything else, so 64-bit is on everywhere.
   The forward map's declared float64 output needs this too: ProbPipe requires 64-bit mode for a
   declared float64 output.
+
+## SP-01
+
+**SIPNET writes NEE to three decimals.**
+
+- **What happens.** SIPNET's output file prints its fluxes with `%8.3f` (`sipnet.c:461-466` at
+  `v2.2.0-alpha.1`), and pySIPNET reads that file. NEE is therefore quantized at 0.001 g C m⁻² per
+  3-hour step, 0.0077 µmol m⁻² s⁻¹, about 0.4% of a typical value (verified).
+- **Effect here.** Negligible for the likelihood: a feature's rounding error has sd about
+  5 × 10⁻⁴ µmol m⁻² s⁻¹, against noise sds of 1.2–2.8. Not negligible for numerical derivatives:
+  a central difference of width 2h in a whitened coordinate carries rounding noise of about 0.002/h
+  in information-weighted units, so finite differences with h below about 0.05 resolve nothing in
+  the weak directions, and an exact degeneracy that is not a ratio shows at that floor instead of
+  at round-off (design 02, §1.2).
+- **Ideal.** SIPNET writes full precision (`%.9g`, say), or pySIPNET reads SIPNET's state another
+  way.
+- **Stopgap.** None in code. Algorithms that difference SIPNET use h ≥ 0.1 in whitened
+  coordinates; ensemble linearizations, whose spread is the prior's, are unaffected.

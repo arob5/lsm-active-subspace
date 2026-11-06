@@ -1,0 +1,33 @@
+400 runs in 27 s
+failures: 0 ()
+non-finite feature rows: 0
+
+coverage of the 90% interval    inside below above   z
+  day   all (n=214)            0.95  0.03  0.01  -0.40
+  day   DJF (n= 53)            0.94  0.00  0.06  +0.10
+  day   MAM (n= 54)            1.00  0.00  0.00  -0.34
+  day   JJA (n= 54)            0.89  0.11  0.00  -1.03
+  day   SON (n= 53)            0.98  0.02  0.00  -0.31
+  night all (n=186)            0.94  0.01  0.06  +0.30
+  night DJF (n= 50)            0.96  0.00  0.04  +0.50
+  night MAM (n= 53)            0.91  0.00  0.09  +0.73
+  night JJA (n= 32)            0.97  0.00  0.03  -0.41
+  night SON (n= 51)            0.92  0.02  0.06  +0.10
+
+plausibility, 5 / 50 / 95%
+  gpp                546  1.18e+03  2.04e+03
+  reco               679   1.1e+03   1.7e+03
+  nee               -711     -59.3       451
+  ra_over_gpp      0.396     0.626      1.01
+  peak_lai          3.03      5.97      9.85
+  wood_change  -1.95e+03  1.26e+03  5.02e+03
+  soil_change  -4.21e+03       280   5.2e+03
+
+fraction outside plausible bounds
+  GPP < 1000         0.35
+  GPP > 1800         0.11
+  NEE > 0 (source)   0.43
+  NEE < -700         0.06
+  peak LAI > 8       0.19
+  peak LAI < 3       0.05
+  Ra > GPP           0.06
