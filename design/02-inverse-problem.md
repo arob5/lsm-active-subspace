@@ -455,23 +455,29 @@ estimators against exact Jacobians), so it is specified with them, in design 03.
 ## 7. Code shape
 
 One source of truth for the prior: **`data/harvard_forest/prior.csv`**, one row per calibration
-parameter with its units, family, the family's two numbers, its median and its source (the table of
-§3.2). `lsmas` reads it; nothing else states a prior value.
+parameter with its units, its family, the family's own numbers (`lower` and `upper` for the
+interval families and the uniform, `mean` and `sd` for the normal) and its source (the table of
+§3.2). `lsmas` reads it; nothing else states a prior value. The medians are not stored: they are
+computed exactly from each law, which for a transformed law needs a stopgap (PG-16), since ProbPipe
+estimates its quantiles by Monte Carlo.
 
 | Module | Holds |
 |---|---|
 | `data/harvard_forest/prior.csv` | the 46 priors (new) |
 | `data/harvard_forest/sipnet_fixed.csv` | the 12 fixed SIPNET values, each with its reason (updated: it now holds exactly the fixed parameters) |
 | `lsmas.data` | `HarvardForestData.prior_table`, read from the CSV (new) |
-| `lsmas.priors` | the families by interval (exists), plus `prior_from_table(rows)`: the merged ProbPipe law, grouped under `theta` (new) |
-| `lsmas.parameters` | the maps of §2, one small function each, all exact: `photosynthesis_to_sipnet`, `soil_respiration_to_sipnet` (exist), `photosynthesis_temperatures_to_sipnet`, `respiration_rates_to_sipnet`, `allocation_to_sipnet`, `initial_pools_to_sipnet` (new), and `calibration_to_sipnet(theta, fixed)`, which composes them into the 58 SIPNET values |
-| `lsmas.problems.harvard_forest` | `harvard_forest(scales=..., data=...)` and `harvard_forest_small(...)` (new) |
+| `lsmas.priors` | the families by interval (exists), plus `laws_from_table(table)`, one ProbPipe law per row, and `independent_prior(laws)`, their product grouped under `theta` (new) |
+| `lsmas._stopgaps.quantiles` | `median(law)`, exact for a law transformed by a monotone bijector (PG-16, new) |
+| `lsmas.parameters` | the maps of §2, one small function each, all exact: `photosynthesis_to_sipnet`, `soil_respiration_to_sipnet` (exist), `photosynthesis_temperatures_to_sipnet`, `respiration_rates_to_sipnet`, `allocation_to_sipnet`, `initial_pools_to_sipnet` (new), and `calibration_to_sipnet(theta, fixed)`, which composes them into the 58 SIPNET values and refuses a set that misses or repeats one |
+| `lsmas.problems.harvard_forest` | `harvard_forest(scales=..., data=...)`, `harvard_forest_small(...)` and `SMALL_PROBLEM_PARAMETERS` (new) |
 | `lsmas.problems.harvard_forest_dev` | deleted |
 
 Each map in `lsmas.parameters` states its formula in its docstring and has a unit test against a
-hand-computed value; `calibration_to_sipnet` has a test that every one of the 58 SIPNET parameters
-is set exactly once. A smoke test runs the prior predictive at a handful of draws and checks that
-no run fails.
+hand-computed value. Tests check that the prior table names exactly the parameters
+`calibration_to_sipnet` reads, that each of them reaches SIPNET, and that every one of the 58 SIPNET
+parameters is set exactly once. Smoke tests run the full problem's prior predictive at 16 draws and
+check that no run fails, and check that the small problem's forward map is the full one's with the
+other 36 parameters at their medians.
 
 ProbPipe handles a 46-parameter prior without trouble: merging the 46 laws and renaming them under
 `theta` takes 0.24 s, 100 draws 0.6 s, a `log_prob` 0.2 s, and `Coordinates.from_prior` (50,000
