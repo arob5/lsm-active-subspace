@@ -1,7 +1,7 @@
 # Design 02 — The inverse problem: calibration parameters, prior, and problems
 
-*Draft 2, 2026-11-06. Draft 2 settles the prior's breadth, replaces the small problem (§6.2), and
-says why allocation is not a Dirichlet (§2).*
+*Approved 2026-11-06 (draft 2). Draft 2 settled the prior's breadth, replaced the small problem
+(§6.2), and said why allocation is not a Dirichlet (§2).*
 
 Design 01 fixed how the pieces fit together, and used a four-parameter development problem to build
 them. This design fixes the inverse problem itself: **which SIPNET parameters are calibrated, in
@@ -480,19 +480,18 @@ logistic function.
 
 ---
 
-## 8. Decisions for you
+## 8. Decisions (approved 2026-11-06)
 
 1. **The parameter set.** 46 calibration parameters as in §1–2: everything that is not exactly inert
    or exactly degenerate, including the step functions and the three frozen-soil parameters.
-   (Alternative: fix the frozen-soil parameters too, at 43, since they act only in rare corners.)
-2. **The reparameterizations of §2**, all bijective, none tying parameters.
-3. **How broad the prior should be.** *Decided: keep it as drafted* (43% of prior runs are net
-   sources; phase 2: 34%), with the prior predictive shown in the walkthrough notebook.
-4. **The small problem** (§6.2). *Decided: chosen by the four requirements of §6.2*, which give
-   the ten parameters listed there.
-5. **c = 3 with 46 parameters** (§5): keep it for now, and run the c = 2 and c = 4 check in the
+2. **The reparameterizations of §2**, all bijective, none tying parameters; allocation as three
+   scalar shares, not a Dirichlet.
+3. **The prior's breadth**: kept as drafted (43% of prior runs are net sources; phase 2: 34%),
+   with the prior predictive shown in the walkthrough notebook.
+4. **The small problem** (§6.2): the ten parameters chosen by the four requirements there.
+5. **c = 3 with 46 parameters** (§5): kept for now; the c = 2 and c = 4 check runs in the
    experiments.
-6. **Retiring `harvard_forest_dev`** (§6.3) and **deferring the toy problem** to design 03 (§6.4).
+6. **`harvard_forest_dev` retires** (§6.3), and **the toy problem moves** to design 03 (§6.4).
 
 ---
 
