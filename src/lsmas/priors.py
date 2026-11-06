@@ -8,8 +8,6 @@ combines such laws into the prior of a block of calibration parameters.
 
 from __future__ import annotations
 
-import functools
-import operator
 from collections.abc import Mapping
 
 import numpy as np
@@ -23,6 +21,7 @@ from probpipe import (
     bijector_for,
     unit_interval,
 )
+from probpipe.distributions import FactoredDistribution
 from scipy import stats
 
 from lsmas._stopgaps.quantiles import median
@@ -99,7 +98,7 @@ def independent_prior(laws: Mapping[str, Distribution], group: str = "theta") ->
     """
     if not laws:
         raise ValueError("an independent prior needs at least one law")
-    product = functools.reduce(operator.and_, laws.values())
+    product = FactoredDistribution(list(laws.values()))
     return product.rename({name: f"{group}/{name}" for name in laws})
 
 

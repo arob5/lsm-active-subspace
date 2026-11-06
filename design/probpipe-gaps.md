@@ -39,6 +39,7 @@ stopgap removed).
 | [PG-15](#pg-15) | No public operation draws from a law with a given key | Low | to file | open |
 | [PG-16](#pg-16) | A transformed law's quantiles fall back to Monte Carlo | Low | to file | open |
 | [PG-17](#pg-17) | One MCMC run's chains share one initial state | Low | to file | open |
+| [PG-18](#pg-18) | A `Function`'s declared traceability cannot be read back | Low | to file | open |
 
 Not ProbPipe, but tracked the same way (below): **EK-01**, EnsKit switches JAX to 64-bit floats on
 import; **SP-01**, SIPNET writes NEE to three decimals.
@@ -358,6 +359,21 @@ import; **SP-01**, SIPNET writes NEE to three decimals.
   own prior draw.
 - **Stopgap.** None: the chains start from the projection of EKI's ensemble mean.
 - **Removal.** Pass one projected EKI particle per chain.
+
+## PG-18
+
+**A `Function`'s declared traceability cannot be read back.**
+
+- **What happens.** A `Function` is built with `traceable=True` or `False`, and ProbPipe stores the
+  claim (`Function._execution_claims.traceable`), but no public property returns it (read at the
+  pin).
+- **Effect here.** A reduced problem's forward map wraps the full problem's, and must make the same
+  claim: traceable for the toy, so NUTS and the fast random-walk path apply; not traceable for
+  SIPNET, so ProbPipe calls it on concrete values.
+- **Ideal ProbPipe.** A public, read-only view of a `Function`'s declared claims.
+- **Stopgap.** `lsmas._stopgaps.functions.declares_traceable(function)`, the one place that reads
+  the private attribute.
+- **Removal.** Replace its calls with the public property; delete the module.
 
 ---
 
