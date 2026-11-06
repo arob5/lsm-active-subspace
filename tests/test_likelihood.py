@@ -40,14 +40,14 @@ def test_density_is_the_gaussian_density(observations):
     mean = FORWARD_MATRIX @ np.array([THETA["a"], THETA["b"]])
     sd = np.sqrt(expected_variances(SCALES["s2_day"], SCALES["s2_night"]))
     expected = stats.norm(mean, sd).logpdf(observations).sum()
-    assert float(log_prob(law, observations).raw()) == pytest.approx(expected, rel=1e-12)
+    assert float(log_prob(law, observations).raw) == pytest.approx(expected, rel=1e-12)
 
 
 def test_draws_follow_the_same_law():
     likelihood = linear_likelihood({"day": "s2_day", "night": "s2_night"})
     with workflow_run(seed=3):
         law = condition_on(likelihood, {"theta": THETA, **SCALES})
-        draws = np.asarray(sample(law, 20_000).raw())
+        draws = np.asarray(sample(law, 20_000).raw)
     mean = FORWARD_MATRIX @ np.array([THETA["a"], THETA["b"]])
     variances = expected_variances(SCALES["s2_day"], SCALES["s2_night"])
     standard_errors = np.sqrt(variances / draws.shape[0])

@@ -21,14 +21,12 @@ SCALES = np.array([0.5, 0.4, 2.5])
 def prior():
     theta = (
         LogNormal("a", LOCATIONS[0], SCALES[0])
-        * BijectorTransformedDistribution(
+        & BijectorTransformedDistribution(
             "r", Normal("z", LOCATIONS[1], SCALES[1]), bijector_for(unit_interval)
         )
-        * Normal("t", LOCATIONS[2], SCALES[2])
+        & Normal("t", LOCATIONS[2], SCALES[2])
     )
-    return theta.with_path_names({name: f"theta/{name}" for name in "art"}) * InverseGamma(
-        "s2", 2.0, 1.678
-    )
+    return theta.rename({name: f"theta/{name}" for name in "art"}) & InverseGamma("s2", 2.0, 1.678)
 
 
 @pytest.fixture(scope="module")
@@ -71,11 +69,11 @@ def test_draws_and_batches_round_trip(prior, coordinates):
     theta = coordinates.array_from_draws(draws)
     assert theta.shape == (6, 3)
 
-    @function(dispatch="sequential")
+    @function(traceable=True)
     def total(theta):
         return theta["a"] + theta["r"] + theta["t"]
 
-    totals = np.asarray(total(coordinates.bijection.record_batch(theta)).raw())
+    totals = np.asarray(total(coordinates.bijection.record_batch(theta)).raw)
     np.testing.assert_allclose(totals, theta.sum(axis=1))
 
 

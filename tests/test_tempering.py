@@ -24,10 +24,10 @@ def model():
     likelihood = linear_likelihood({"day": "s2_day", "night": "s2_night"})
     prior = (
         linear_theta_prior()
-        * InverseGamma("s2_day", 2.0, 1.678)
-        * InverseGamma("s2_night", 2.0, 1.678)
+        & InverseGamma("s2_day", 2.0, 1.678)
+        & InverseGamma("s2_night", 2.0, 1.678)
     )
-    return likelihood * prior, prior
+    return likelihood & prior, prior
 
 
 def point(a, b, day, night):
@@ -39,7 +39,7 @@ def expected_log_density(prior, value, observations, learning_rate):
     mean = FORWARD_MATRIX @ np.array([value["theta"]["a"], value["theta"]["b"]])
     variances = np.where(CLASSES == "day", value["s2_day"], value["s2_night"]) * REFERENCE_VARIANCE
     pointwise = stats.norm(mean, np.sqrt(variances)).logpdf(observations)
-    return float(np.sum(learning_rate * pointwise) + log_prob(prior, value).raw())
+    return float(np.sum(learning_rate * pointwise) + log_prob(prior, value).raw)
 
 
 @pytest.mark.parametrize("learning_rate", [LEARNING_RATE, 0.3, 1.0])
@@ -49,8 +49,8 @@ def test_target_density_is_prior_plus_tempered_log_likelihood(model, observation
         joint, {"y": observations}, learning_rate={"y": learning_rate}, method="unnormalized"
     )
     first, second = point(0.8, -0.6, 1.5, 0.7), point(-0.2, 0.4, 0.6, 2.0)
-    difference = float(unnormalized_log_prob(target, first).raw()) - float(
-        unnormalized_log_prob(target, second).raw()
+    difference = float(unnormalized_log_prob(target, first).raw) - float(
+        unnormalized_log_prob(target, second).raw
     )
     expected = expected_log_density(prior, first, observations, learning_rate) - (
         expected_log_density(prior, second, observations, learning_rate)
@@ -66,8 +66,8 @@ def test_rate_one_gives_the_ordinary_posterior_target(model, observations):
     first, second = point(0.8, -0.6, 1.5, 0.7), point(-0.2, 0.4, 0.6, 2.0)
 
     def difference(target):
-        return float(unnormalized_log_prob(target, first).raw()) - float(
-            unnormalized_log_prob(target, second).raw()
+        return float(unnormalized_log_prob(target, first).raw) - float(
+            unnormalized_log_prob(target, second).raw
         )
 
     assert difference(tempered) == pytest.approx(difference(plain), rel=1e-10)

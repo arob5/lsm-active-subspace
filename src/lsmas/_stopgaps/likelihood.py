@@ -127,7 +127,7 @@ class GaussianSimulatorLikelihood(ConditionalDistribution):
         return _GaussianSimulatorLaw(self, given)
 
     def _conditional_mean(self, given: Mapping[str, Any]) -> Any:
-        return self.forward(given["theta"]).raw()
+        return self.forward(given["theta"]).raw
 
     def _conditional_sample(
         self, given: Mapping[str, Any], key: Any, sample_shape: tuple[int, ...] = ()

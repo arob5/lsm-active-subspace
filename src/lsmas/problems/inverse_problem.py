@@ -19,7 +19,7 @@ __all__ = ["InverseProblem"]
 class InverseProblem:
     r"""A fixed inverse problem: a generative model, observed data, and how much the data count.
 
-    The model is $p(y \mid \theta, s^2)\, \pi(\theta, s^2)$, a ProbPipe ``likelihood * prior``, and
+    The model is $p(y \mid \theta, s^2)\, \pi(\theta, s^2)$, a ProbPipe ``likelihood & prior``, and
     conditioning it on the observed $y$ with learning rates $\eta$ gives the generalized posterior
 
     $$
@@ -62,8 +62,8 @@ class InverseProblem:
 
     @functools.cached_property
     def model(self) -> Distribution:
-        """The generative model ``likelihood * prior``."""
-        return (self.likelihood * self.prior).with_label(self.name)
+        """The generative model ``likelihood & prior``."""
+        return (self.likelihood & self.prior).with_label(self.name)
 
     def condition(self, **using: Any) -> Distribution:
         """The generalized posterior, computed as ``condition_on.using(**using)`` computes it.

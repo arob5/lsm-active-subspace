@@ -77,7 +77,7 @@ class ParameterBijection:
 
     def to_constrained(self, z: Any) -> np.ndarray:
         r"""$\theta = b(z)$ for unconstrained coordinates *z*, shape $(\ldots, d)$."""
-        return self._apply_columnwise(z, [bijector.raw() for bijector in self._bijectors])
+        return self._apply_columnwise(z, [bijector.raw for bijector in self._bijectors])
 
     def record_batch(self, theta: Any, level: str = "member") -> NumericRecordBatch:
         """Constrained parameters *theta*, shape $(n, d)$, as a ProbPipe batch of records.
@@ -156,6 +156,7 @@ class Coordinates:
             The seed of those draws. The draws do not touch any surrounding ``workflow_run``.
         """
         bijection = ParameterBijection.from_prior(prior, block)
+        # STOPGAP(PG-15): no public operation draws from a law with a given key.
         draws = prior._sample(jax.random.key(seed), (n_moment_draws,))
         unconstrained = bijection.to_unconstrained(block_values(draws, block, bijection.names))
         covariance = np.atleast_2d(np.cov(unconstrained, rowvar=False))
@@ -210,7 +211,7 @@ def block_values(draws: Any, block: str, names: tuple[str, ...]) -> np.ndarray:
     names : tuple of str
         The parameters, in the order of the result's last axis.
     """
-    raw = draws.raw() if hasattr(draws, "raw") else draws
+    raw = draws.raw if hasattr(draws, "raw") else draws
     # STOPGAP(PG-13): a prior taken back out of a joint draws its block's fields ungrouped.
     values = raw.get(block, raw)
     return np.stack([np.asarray(values[name], dtype=float) for name in names], axis=-1)
@@ -218,7 +219,7 @@ def block_values(draws: Any, block: str, names: tuple[str, ...]) -> np.ndarray:
 
 def _block_spec(prior: Any, block: str) -> Any:
     """The record spec of *block* in *prior*'s event declaration."""
-    components = prior.event_spec.components
+    components = prior.event_spec.outputs
     if block not in components or not hasattr(components[block], "fields"):
         raise ValueError(f"the prior has no block of named parameters called {block!r}")
     return components[block]

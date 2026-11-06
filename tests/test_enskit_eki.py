@@ -21,7 +21,7 @@ LEARNING_RATE = np.where(CLASSES == "day", 0.5, 0.8)
 
 
 def linear_model():
-    return linear_likelihood(FIXED_SCALES) * linear_theta_prior()
+    return linear_likelihood(FIXED_SCALES) & linear_theta_prior()
 
 
 def exact_tempered_posterior(observations):
@@ -38,8 +38,8 @@ def exact_tempered_posterior(observations):
 
 
 def posterior_moments(posterior):
-    posterior_mean = np.array([float(v) for v in mean(posterior["theta"]).raw().values()])
-    return posterior_mean, np.asarray(cov(posterior["theta"]).raw())
+    posterior_mean = np.array([float(v) for v in mean(posterior["theta"]).raw.values()])
+    return posterior_mean, np.asarray(cov(posterior["theta"]).raw)
 
 
 def test_eki_recovers_the_linear_gaussian_tempered_posterior(observations):
@@ -87,8 +87,8 @@ def test_runs_are_reproducible_under_a_seed(observations):
 
 
 def test_inferred_noise_scales_are_refused(observations):
-    model = linear_likelihood({"day": "s2_day", "night": 1.0}) * (
-        linear_theta_prior() * InverseGamma("s2_day", 2.0, 1.0)
+    model = linear_likelihood({"day": "s2_day", "night": 1.0}) & (
+        linear_theta_prior() & InverseGamma("s2_day", 2.0, 1.0)
     )
     target = condition_on.using(method="unnormalized")(model, {"y": observations})
     feasibility = EnsKitEKI().check(target)

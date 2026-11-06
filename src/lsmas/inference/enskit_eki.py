@@ -19,23 +19,17 @@ import xarray as xr
 from enskit import kalman, linalg
 from enskit.algorithms import eki
 from enskit.distribution import Ensemble
-from probpipe import Distribution
-from probpipe.inference import Feasibility, InferenceMethod
+from probpipe import Distribution, NumericRecordBatch
+from probpipe.inference import Feasibility, InferenceMethod, InferenceTarget, make_posterior
 
 from lsmas._stopgaps.coordinates import ParameterBijection, block_values
 from lsmas._stopgaps.likelihood import GaussianSimulatorLikelihood
-from lsmas._stopgaps.probpipe_private import (
-    UnnormalizedConditional,
-    make_posterior,
-    model_factors,
-    run_seed,
-)
 from lsmas._stopgaps.tempering import TemperedLikelihood
 from lsmas.inference.step_record import StepCallback, StepRecord, history_dataset
 
 __all__ = ["EnsKitEKI"]
 
-#: The prior component that holds the calibration parameters.
+#: The prior's output that holds the calibration parameters.
 _PARAMETER_BLOCK = "theta"
 
 
@@ -82,7 +76,7 @@ class EnsKitEKI(InferenceMethod):
     The result is the empirical law of the final particles. Its annotations hold the run's history
     as the group ``arviz/eki_history`` (see :func:`~lsmas.inference.step_record.history_dataset`).
 
-    Applies to a model ``likelihood * prior`` whose likelihood is a Gaussian simulator likelihood
+    Applies to a model ``likelihood & prior`` whose likelihood is a Gaussian simulator likelihood
     with fixed noise scales, possibly tempered by a learning rate, and whose prior is over the
     parameter record ``theta`` alone.
     """
@@ -93,26 +87,29 @@ class EnsKitEKI(InferenceMethod):
     def name(self) -> str:
         return "enskit_eki"
 
-    def supported_types(self) -> tuple[type, ...]:
-        return (UnnormalizedConditional,)
+    @property
+    def description(self) -> str:
+        return "Tempered ensemble Kalman inversion (EnsKit) for Gaussian simulator likelihoods."
 
-    def check(self, target: Any, /, **options: Any) -> Feasibility:
+    def supported_types(self) -> tuple[type, ...]:
+        return (Distribution,)
+
+    def check(self, target: InferenceTarget, /, **options: Any) -> Feasibility:
         reason = _infeasibility_reason(target)
         return Feasibility(reason is None, reason or "")
 
-    def execute(self, target: Any, /, **options: Any) -> Distribution:
+    def execute(self, target: InferenceTarget, /, *, key: Any, **options: Any) -> Distribution:
         self._check_options(options)
         problem = _GaussianInverseProblem.from_target(target)
-        key_prior, key_state = jax.random.split(run_seed(self.name))
+        key_prior, key_state = jax.random.split(key)
         particles = problem.prior_draws(key_prior, options.get("n_particles", 100))
         initial = eki.EKIState(Ensemble(u=jnp.asarray(particles)), key=key_state)
         final, records = _run(problem, initial, options)
         theta = problem.bijection.to_constrained(np.asarray(final.ensemble["u"]))
         return make_posterior(
-            [jnp.asarray(theta)],
-            parents=(target,),
+            target,
+            [_vectors_of_target(target, problem.bijection.names, theta)],
             method=self.name,
-            event_spec=target.event_spec,
             annotations=xr.DataTree.from_dict({"eki_history": history_dataset(records)}),
             n_particles=theta.shape[0],
             n_steps=len(records),
@@ -130,8 +127,8 @@ class _GaussianInverseProblem:
     bijection: ParameterBijection
 
     @classmethod
-    def from_target(cls, target: Any) -> _GaussianInverseProblem:
-        factors = model_factors(target)
+    def from_target(cls, target: InferenceTarget) -> _GaussianInverseProblem:
+        factors = target.factors()
         likelihood, learning_rate = _untempered(factors.likelihood)
         return cls(
             likelihood=likelihood,
@@ -148,6 +145,7 @@ class _GaussianInverseProblem:
 
     def prior_draws(self, key: Any, n_particles: int) -> np.ndarray:
         """*n_particles* prior draws in unconstrained coordinates, shape $(J, d)$."""
+        # STOPGAP(PG-15): no public operation draws from a law with a given key.
         draws = self.prior._sample(key, (int(n_particles),))
         theta = block_values(draws, _PARAMETER_BLOCK, self.bijection.names)
         return self.bijection.to_unconstrained(theta)
@@ -155,7 +153,7 @@ class _GaussianInverseProblem:
     def forward_in_unconstrained_coordinates(self, z: Any) -> np.ndarray:
         """$G$ at each row of unconstrained coordinates *z*, shape $(J, n)$; EnsKit's simulator."""
         theta = self.bijection.to_constrained(np.asarray(z))
-        return np.asarray(self.likelihood.forward(self.bijection.record_batch(theta)).raw())
+        return np.asarray(self.likelihood.forward(self.bijection.record_batch(theta)).raw)
 
 
 def _run(
@@ -207,11 +205,22 @@ def _untempered(likelihood: Any) -> tuple[Any, np.ndarray]:
     return likelihood, np.asarray(1.0)
 
 
-def _infeasibility_reason(target: Any) -> str | None:
+def _vectors_of_target(
+    target: InferenceTarget, names: tuple[str, ...], theta: np.ndarray
+) -> jnp.ndarray:
+    """Particles *theta*, shape $(J, d)$ with columns *names*, as vectors of the target's event."""
+    columns = {name: jnp.asarray(theta[:, index]) for index, name in enumerate(names)}
+    particles = NumericRecordBatch(
+        {_PARAMETER_BLOCK: columns}, "draw", element=target.event_spec.term_spec
+    )
+    return particles.to_vector()
+
+
+def _infeasibility_reason(target: InferenceTarget) -> str | None:
     """Why EKI cannot condition *target*, or None if it can."""
-    factors = model_factors(target)
+    factors = target.factors()
     if factors is None:
-        return "the model must be a product likelihood * prior, conditioned on its observations"
+        return "the model must be a merge likelihood & prior, conditioned on its observations"
     likelihood, _ = _untempered(factors.likelihood)
     if not isinstance(likelihood, GaussianSimulatorLikelihood):
         return "the likelihood must be a Gaussian simulator likelihood"
@@ -220,6 +229,6 @@ def _infeasibility_reason(target: Any) -> str | None:
             "the noise scales must be fixed; inferring them "
             f"({', '.join(likelihood.random_scale_slots)}) is not supported yet"
         )
-    if set(factors.prior.event_spec.components) != {_PARAMETER_BLOCK}:
+    if set(factors.prior.event_spec.outputs) != {_PARAMETER_BLOCK}:
         return f"the prior must be over the parameter record {_PARAMETER_BLOCK!r} alone"
     return None

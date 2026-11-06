@@ -27,8 +27,8 @@ THETA = {
 
 
 def test_noise_scales_are_parameters_only_when_inferred(fixed, inferred):
-    assert list(fixed.prior.event_spec.components) == ["theta"]
-    assert list(inferred.prior.event_spec.components) == ["theta", "s2_day", "s2_night"]
+    assert list(fixed.prior.event_spec.outputs) == ["theta"]
+    assert list(inferred.prior.event_spec.outputs) == ["theta", "s2_day", "s2_night"]
     assert fixed.coordinates.names == inferred.coordinates.names
 
 
@@ -41,15 +41,15 @@ def test_describe_names_the_parameters_and_data(fixed):
 def test_conditioning_target_is_the_generalized_posterior(fixed):
     target = fixed.condition(method="unnormalized")
     other = THETA | {"soil_respiration_q10": 1.6}
-    difference = float(unnormalized_log_prob(target, {"theta": THETA}).raw()) - float(
-        unnormalized_log_prob(target, {"theta": other}).raw()
+    difference = float(unnormalized_log_prob(target, {"theta": THETA}).raw) - float(
+        unnormalized_log_prob(target, {"theta": other}).raw
     )
 
     def expected(theta):
-        predicted = np.asarray(fixed.forward(theta).raw())
+        predicted = np.asarray(fixed.forward(theta).raw)
         variances = fixed.likelihood.noise_variances()
         pointwise = stats.norm(predicted, np.sqrt(variances)).logpdf(fixed.data["nee"])
-        prior = float(log_prob(fixed.prior, {"theta": theta}).raw())
+        prior = float(log_prob(fixed.prior, {"theta": theta}).raw)
         return np.sum(fixed.learning_rate["nee"] * pointwise) + prior
 
     assert difference == pytest.approx(expected(THETA) - expected(other), rel=1e-8)

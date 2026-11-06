@@ -55,8 +55,8 @@ def _to_sipnet(theta):
 def test_feature_map_runs_a_batch_in_threads_as_it_would_in_sequence(data, simulator):
     forward = feature_map(simulator, data.operator, _to_sipnet, max_workers=4)
     batch = NumericRecordBatch({"optimum_temperature": np.array([18.0, 22.0, 26.0])}, "member")
-    threaded = np.asarray(forward(batch).raw())
-    sequential = np.asarray(forward.using(dispatch="sequential", max_workers=None)(batch).raw())
+    threaded = np.asarray(forward(batch).raw)
+    sequential = np.asarray(forward.using(executor="sequential")(batch).raw)
     assert threaded.shape == (3, 400)
     np.testing.assert_array_equal(threaded, sequential)
     assert not np.allclose(threaded[0], threaded[2])
@@ -73,7 +73,7 @@ def test_a_failed_run_gives_a_row_of_nan_and_a_warning(data, simulator, caplog):
     forward = feature_map(simulator, data.operator, impossible_allocation)
     batch = NumericRecordBatch({"leaf": np.array([0.1, 0.9])}, "member")
     with caplog.at_level(logging.WARNING, logger="lsmas.sipnet"):
-        features = np.asarray(forward(batch).raw())
+        features = np.asarray(forward(batch).raw)
     assert np.all(np.isfinite(features[0]))
     assert np.all(np.isnan(features[1]))
     assert "SIPNET produced no output" in caplog.text

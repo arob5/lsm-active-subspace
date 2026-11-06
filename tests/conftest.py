@@ -19,7 +19,7 @@ PRIOR_SD = np.array([1.0, 2.0])
 THETA_SPEC = NumericRecordSpec(a=NumericArraySpec(()), b=NumericArraySpec(()))
 
 
-@function(dispatch="jax", label="linear_forward")
+@function(label="linear_forward", traceable=True)
 def linear_forward(theta):
     return jnp.asarray(FORWARD_MATRIX @ jnp.stack([theta["a"], theta["b"]]))
 
@@ -36,8 +36,8 @@ def linear_likelihood(scales):
 
 
 def linear_theta_prior():
-    theta = Normal("a", PRIOR_MEAN[0], PRIOR_SD[0]) * Normal("b", PRIOR_MEAN[1], PRIOR_SD[1])
-    return theta.with_path_names({"a": "theta/a", "b": "theta/b"})
+    theta = Normal("a", PRIOR_MEAN[0], PRIOR_SD[0]) & Normal("b", PRIOR_MEAN[1], PRIOR_SD[1])
+    return theta.rename({"a": "theta/a", "b": "theta/b"})
 
 
 @pytest.fixture

@@ -55,7 +55,7 @@ def tempered_condition_on(
     Parameters
     ----------
     model : Distribution
-        A product ``likelihood * prior`` whose likelihood factors produce the observed components.
+        A merge ``likelihood & prior`` whose likelihood factors produce the observed components.
     data : Mapping of str to array_like
         The observed value of each component.
     learning_rate : Mapping of str to float or array_like
@@ -80,7 +80,7 @@ def tempered_condition_on(
         _tempered_factor(factor, learning_rate) if _produces_any(factor, learning_rate) else factor
         for factor in model.factors
     ]
-    tempered_model = functools.reduce(operator.mul, factors)
+    tempered_model = functools.reduce(operator.and_, factors)
     return condition_on.using(**using)(tempered_model, data)
 
 
@@ -143,12 +143,12 @@ class _TemperedFactor(Distribution):
 
 def _produces_any(factor: Any, components: Mapping[str, Any]) -> bool:
     """Whether *factor* produces at least one of *components*."""
-    return bool(set(factor.event_spec.components) & set(components))
+    return bool(set(factor.event_spec.outputs) & set(components))
 
 
 def _tempered_factor(factor: Any, learning_rate: Mapping[str, Any]) -> TemperedLikelihood:
     """*factor* tempered by the rate of the one component it produces."""
-    (component,) = factor.event_spec.components
+    (component,) = factor.event_spec.outputs
     return TemperedLikelihood(factor, learning_rate[component])
 
 

@@ -8,7 +8,7 @@ mark the entry **closed**. This is how the debt shrinks to zero.
 **Ids.** Entries are numbered `PG-01`, `PG-02`, … and never renumbered. The `PG-` prefix keeps them
 distinct from the gap numbers inside ProbPipe issues (for example "G3" in #580).
 
-**Pinned ProbPipe.** `dev/overhaul` at `638f56bc` (2026-10-14). File and line references are to that
+**Pinned ProbPipe.** `main` at `9158a50e` (2026-11-02). File and line references are to that
 commit. "Verified" means a script in [`prototypes/`](prototypes/) reproduces the behaviour.
 
 **Status values.** `open` (no upstream fix yet) · `planned` (an upstream issue designs the fix) ·
@@ -21,7 +21,7 @@ commit. "Verified" means a script in [`prototypes/`](prototypes/) reproduces the
 | [PG-01](#pg-01) | Non-JAX kernels cannot be sampled jointly | High: prior predictive | #580 G1 | planned |
 | [PG-02](#pg-02) | No "simulator plus Gaussian noise" likelihood family | High: the EnsKit seam | to file | open |
 | [PG-03](#pg-03) | No learning rate (power likelihood) on conditioning | High: the likelihood | to file | open |
-| [PG-04](#pg-04) | The inference-method extension surface is private | Medium | #580 G8, design §9 | planned |
+| [PG-04](#pg-04) | The inference-method extension surface is private | Medium | #580 G8, design §9 | closed |
 | [PG-05](#pg-05) | No public flat/unconstrained coordinates; views cannot be flattened | Medium | #522 (partly) | open |
 | [PG-06](#pg-06) | No reuse of evaluations (caching) | Low today, high on a cluster | #580 G6, #352 | planned |
 | [PG-07](#pg-07) | No pluggable backend; inference loops bypass `Function`; no failure contract | Low today | #580 G3, G5 | planned |
@@ -32,6 +32,7 @@ commit. "Verified" means a script in [`prototypes/`](prototypes/) reproduces the
 | [PG-12](#pg-12) | "Unnormalized conditional density" does not say what may depend on the given | Medium (semantics) | to file | open |
 | [PG-13](#pg-13) | A renamed factor taken from a joint loses its path names in `log_prob` | Medium (bug) | to file | open |
 | [PG-14](#pg-14) | Fingerprinting a closure that captures a sparse matrix recurses without end | Low (bug) | to file | open |
+| [PG-15](#pg-15) | No public operation draws from a law with a given key | Low | to file | open |
 
 Not ProbPipe, but tracked the same way: **EK-01**, EnsKit switches JAX to 64-bit floats on import
 (below).
@@ -103,17 +104,19 @@ Not ProbPipe, but tracked the same way: **EK-01**, EnsKit switches JAX to 64-bit
 
 ## PG-04
 
-**The inference-method extension surface is private.**
+**The inference-method extension surface is private.** *Closed at `9158a50e`.*
 
-- **What happens.** `InferenceMethod`, `Feasibility` and `inference_method_registry` are public,
-  but every method that reads a model's structure needs `_UnnormalizedConditional`
-  (`operations/_condition.py:481`), `model_factors` (`inference/_inference_utils.py:577`),
-  `make_posterior` (`inference/_approximate_distribution.py:393`) and `run_seed`
-  (`inference/_inference_utils.py:221`).
-- **Ideal ProbPipe.** A documented public target interface (#580 design §9 item 3).
-- **Stopgap.** `lsmas._stopgaps.probpipe_private` re-exports the four names; it is the only module
-  that imports from a ProbPipe underscore module.
-- **Removal.** Import the public names; delete the module.
+- **What happened.** At `638f56bc`, `InferenceMethod`, `Feasibility` and
+  `inference_method_registry` were public, but a method that reads a model's structure needed four
+  private names: the conditioning target class, `model_factors`, `make_posterior` and `run_seed`.
+- **Fixed upstream.** `probpipe.inference` now exports `InferenceTarget`, whose `factors()` returns
+  `ModelFactors(prior, likelihood, observed)`, and `make_posterior(target, chains, *, method,
+  annotations, …)`, which reads chains in the `to_vector` layout of the target's event.
+  `condition_on` passes the run's random key to `execute(target, /, *, key, **options)`. A method's
+  `supported_types` is `(Distribution,)`, since every target is a law.
+- **Done here.** `EnsKitEKI` uses only these names, and `lsmas._stopgaps.probpipe_private` is
+  deleted. Drawing the initial ensemble from the prior with the run's key still needs a private
+  method: [PG-15](#pg-15).
 
 ## PG-05
 
@@ -196,8 +199,9 @@ Not ProbPipe, but tracked the same way: **EK-01**, EnsKit switches JAX to 64-bit
   call). Lifting a `Function` over an `EmpiricalDistribution` with more atoms than
   `n_broadcast_samples` (default 256) samples instead of enumerating, without warning.
 - **Ideal ProbPipe.** #580 G2 and defect 6.
-- **Stopgap.** Always set `dispatch` and `n_broadcast_samples` explicitly. A repository test
-  (`tests/test_repository.py`) checks that every `Function` built in `lsmas` sets `dispatch`.
+- **Stopgap.** Every `Function` states whether JAX can trace it (`traceable=`), so ProbPipe never
+  probes it. A repository test (`tests/test_repository.py`) checks this for every `Function` built
+  in `lsmas` and in the tests.
 
 ## PG-11
 
@@ -270,6 +274,24 @@ Not ProbPipe, but tracked the same way: **EK-01**, EnsKit switches JAX to 64-bit
   the pattern ProbPipe's documentation recommends for functions that use an object's state; a
   bound method is fingerprinted without walking the operator.
 - **Removal.** Nothing to remove; recorded so the bug gets fixed.
+
+## PG-15
+
+**No public operation draws from a law with a given key.**
+
+- **What happens.** `condition_on` hands an inference method the run's random key, and ProbPipe's
+  guide says a method draws all its randomness from it. But `sample(law, n)` takes its key from the
+  enclosing `workflow_run` and accepts none (`sample.using(key=...)` is refused as an unknown
+  control). ProbPipe's own methods call the method a family implements, `law._sample(key, shape)`
+  (for example `inference/_bayesflow_common.py:275`). Opening a nested `workflow_run` instead is no
+  substitute: it shifts the outer run's random stream (verified).
+- **Effect here.** Two places draw with a key of their own: `EnsKitEKI`'s initial ensemble (the
+  run's key) and `Coordinates.from_prior`'s whitening draws (a fixed key, so the coordinates neither
+  depend on nor disturb the caller's run).
+- **Ideal ProbPipe.** A documented keyed draw for extension code, such as a `key` control on
+  `sample`, or a public function `draw(law, key, sample_shape)`.
+- **Stopgap.** Both places call `_sample(key, sample_shape)` directly.
+- **Removal.** Call the public operation.
 
 ---
 
