@@ -32,6 +32,12 @@ def test_output_steps_are_the_observation_operators_columns(data, simulator):
     assert pd.DatetimeIndex(totals["time"].values).equals(data.step_ends)
 
 
+def test_a_parameter_left_unset_is_refused(data):
+    partial = SIPNETSimulator(data.driver_path, data.fixed_sipnet_parameters)
+    with pytest.raises(ValueError, match=r"not set: .*'leaf_off_day'"):
+        partial.run_nee({})
+
+
 def test_rate_is_the_step_total_per_second_in_micromoles(simulator):
     totals = simulator.run_nee({}).values
     expected = totals / (3 * 3600) * 1e6 / 12.011

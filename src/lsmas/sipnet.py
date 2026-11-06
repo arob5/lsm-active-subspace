@@ -28,6 +28,8 @@ from pysipnet import (
     niwot_reference_parameters,
 )
 
+from lsmas.parameters import SIPNET_PARAMETERS
+
 __all__ = ["SIMULATION_FAILURES", "SIPNETSimulator", "feature_map"]
 
 logger = logging.getLogger(__name__)
@@ -43,8 +45,9 @@ _MICROMOLES_CO2_PER_GRAM_CARBON = 1e6 / 12.011
 class SIPNETSimulator:
     """SIPNET at one site: a driver, fixed parameter values, and model options.
 
-    A parameter that is neither passed to :meth:`nee_rate` nor among the fixed values takes
-    pySIPNET's reference value for Niwot Ridge.
+    Between them, the fixed values and the values passed to a run must set every SIPNET parameter
+    (:data:`~lsmas.parameters.SIPNET_PARAMETERS`), so that no value is left at pySIPNET's
+    reference values for Niwot Ridge, which only serve as the template every run overrides.
 
     Parameters
     ----------
@@ -77,8 +80,16 @@ class SIPNETSimulator:
         ----------
         parameters : Mapping of str to float
             SIPNET parameters, keyed by pySIPNET's names, overriding the fixed values.
+
+        Raises
+        ------
+        ValueError
+            If the fixed values and *parameters* leave a SIPNET parameter unset.
         """
-        return self._model(**(self.fixed_parameters | dict(parameters))).outputs["nee"]
+        complete = self.fixed_parameters | dict(parameters)
+        if missing := sorted(SIPNET_PARAMETERS - complete.keys()):
+            raise ValueError(f"these SIPNET parameters are not set: {missing}")
+        return self._model(**complete).outputs["nee"]
 
     def nee_rate(self, parameters: Mapping[str, float]) -> np.ndarray:
         r"""SIPNET's NEE as a rate in µmol CO₂ m⁻² s⁻¹, one value per output step.
