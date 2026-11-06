@@ -96,6 +96,12 @@ class Subspace:
         return len(self.eigenvalues)
 
     @property
+    def information(self) -> np.ndarray:
+        r"""The information matrix the subspace came from,
+        $H = \sum_i \lambda_i v_i v_i^\top$, shape $(d, d)$."""
+        return (self.eigenvectors * self.eigenvalues) @ self.eigenvectors.T
+
+    @property
     def basis(self) -> np.ndarray:
         """$W$: the leading $r$ eigenvectors as columns, shape $(d, r)$."""
         return self.eigenvectors[:, : self.rank]

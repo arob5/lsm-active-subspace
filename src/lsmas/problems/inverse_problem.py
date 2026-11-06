@@ -3,6 +3,7 @@ r"""A Bayesian inverse problem, ready to condition: model, data, learning rate a
 from __future__ import annotations
 
 import functools
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -86,6 +87,23 @@ class InverseProblem:
         return tempered_condition_on(
             self.model, self.data, learning_rate=self.learning_rate, method=method, **using
         )
+
+    def noise_variance(self, scale_values: Mapping[str, Any] | None = None) -> np.ndarray:
+        r"""The diagonal of the tempered noise covariance,
+        $\Gamma = \operatorname{diag}\!\left(s^2_{k(i)} v_i / \eta_i\right)$, shape $(n,)$.
+
+        $\Gamma^{-1}$ weights the observations in the generalized posterior and in the
+        information matrices of :mod:`lsmas.tools`.
+
+        Parameters
+        ----------
+        scale_values : Mapping of str to float, optional
+            A value for each inferred noise scale, such as ``{"s2_day": 1.0, "s2_night": 1.0}``.
+            Not needed when every scale is fixed.
+        """
+        variances = np.asarray(self.likelihood.noise_variances(scale_values))
+        (observed,) = self.data
+        return variances / self.learning_rate[observed]
 
     def describe(self) -> str:
         """A short readable summary: the description, the parameters and the data."""

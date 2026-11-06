@@ -6,9 +6,11 @@ import pytest
 from probpipe import Normal, NumericArraySpec, NumericRecordSpec, cov, function, mean
 
 import lsmas  # noqa: F401  (sets JAX's precision before any test builds an array)
+from lsmas._stopgaps.coordinates import Coordinates
 from lsmas._stopgaps.likelihood import GaussianSimulatorLikelihood
+from lsmas.problems.inverse_problem import InverseProblem
 
-#: The forward map G(θ) = H θ of the linear model, for θ = (a, b) and six observations.
+#: The forward map G(θ) = F θ of the linear model, for θ = (a, b) and six observations.
 FORWARD_MATRIX = np.array(
     [[1.0, 0.5], [0.2, 1.0], [1.5, -0.3], [0.7, 0.7], [-1.0, 0.4], [0.3, 2.0]]
 )
@@ -38,6 +40,31 @@ def linear_likelihood(scales):
 def linear_theta_prior():
     theta = Normal("a", PRIOR_MEAN[0], PRIOR_SD[0]) & Normal("b", PRIOR_MEAN[1], PRIOR_SD[1])
     return theta.rename({"a": "theta/a", "b": "theta/b"})
+
+
+def linear_problem(observations, scales, learning_rate):
+    """The linear model as an InverseProblem, with fixed scales."""
+    prior = linear_theta_prior()
+    return InverseProblem(
+        name="linear",
+        description="the linear-Gaussian test model",
+        likelihood=linear_likelihood(scales),
+        prior=prior,
+        data={"y": np.asarray(observations)},
+        learning_rate={"y": np.asarray(learning_rate)},
+        coordinates=Coordinates.from_prior(prior, "theta"),
+    )
+
+
+def exact_linear_information(scales, learning_rate, whitening_factor):
+    r"""H = Lᵀ Fᵀ Γ⁻¹ F L: the linear model's information, whitened by the factor L."""
+    noise_variance = (
+        np.where(CLASSES == "day", scales["day"], scales["night"])
+        * REFERENCE_VARIANCE
+        / learning_rate
+    )
+    jacobian = FORWARD_MATRIX @ whitening_factor
+    return jacobian.T @ (jacobian / noise_variance[:, None])
 
 
 def exact_linear_posterior(observations, scales, learning_rate):

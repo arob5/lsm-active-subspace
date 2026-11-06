@@ -81,6 +81,19 @@ class ParameterBijection:
         r"""$\theta = b(z)$ for unconstrained coordinates *z*, shape $(\ldots, d)$."""
         return self._apply_columnwise(z, [bijector.raw for bijector in self._bijectors])
 
+    def record_from_unconstrained(self, z: jax.Array) -> dict[str, jax.Array]:
+        r"""The parameter record $\theta = b(z)$ at one point, written in JAX so it can be traced.
+
+        Parameters
+        ----------
+        z : jax.Array
+            Unconstrained coordinates of one point, shape $(d,)$.
+        """
+        return {
+            name: bijector.raw(z[index])
+            for index, (name, bijector) in enumerate(zip(self.names, self._bijectors, strict=True))
+        }
+
     def record_batch(self, theta: Any, level: str = "member") -> NumericRecordBatch:
         """Constrained parameters *theta*, shape $(n, d)$, as a ProbPipe batch of records.
 
@@ -188,6 +201,34 @@ class Coordinates:
     def unwhiten(self, xi: Any) -> np.ndarray:
         r"""$z = m + L \xi$ for whitened coordinates *xi*, shape $(\ldots, d)$."""
         return self.whitening_mean + np.asarray(xi, dtype=float) @ self.whitening_factor.T
+
+    def whitened_from_parameters(self, theta: Any) -> np.ndarray:
+        r"""$\xi = L^{-1}(b^{-1}(\theta) - m)$ for constrained parameters *theta*, shape
+        $(\ldots, d)$."""
+        return self.whiten(self.bijection.to_unconstrained(theta))
+
+    def parameters_from_whitened(self, xi: Any) -> np.ndarray:
+        r"""$\theta = b(m + L \xi)$ for whitened coordinates *xi*, shape $(\ldots, d)$."""
+        return self.bijection.to_constrained(self.unwhiten(xi))
+
+    def parameter_record(self, xi: jax.Array) -> dict[str, jax.Array]:
+        r"""The parameter record $\theta(\xi) = b(m + L \xi)$ at one point, written in JAX.
+
+        Unlike :meth:`unwhiten` and :meth:`ParameterBijection.to_constrained`, this map can be
+        traced, so a forward map composed with it can be differentiated in whitened coordinates.
+
+        Parameters
+        ----------
+        xi : jax.Array
+            Whitened coordinates of one point, shape $(d,)$.
+
+        Returns
+        -------
+        dict of str to jax.Array
+            Each parameter's value, a scalar, by name.
+        """
+        z = jnp.asarray(self.whitening_mean) + jnp.asarray(self.whitening_factor) @ xi
+        return self.bijection.record_from_unconstrained(z)
 
     def array_from_draws(self, draws: Any) -> np.ndarray:
         """The parameters' values in *draws*, as an array of shape $(n, d)$ in :attr:`names` order.
