@@ -1,6 +1,6 @@
 # Design 03 — The algorithms: subspaces, reduced posteriors, and the first algorithm
 
-*Draft 2, 2026-11-06. Draft 2 states how the toy differs from SIPNET (§1) and records two decisions:
+*Approved 2026-11-06 (draft 2). Draft 2 states how the toy differs from SIPNET (§1) and records two decisions:
 the toy's docstring explains its model in full, and the sampler's sequential chains wait (§6).*
 
 Designs 01 and 02 fixed the pieces and the inverse problem. This design fixes the algorithmic side:
@@ -389,7 +389,7 @@ function that composes them, so that a variant is a change of one argument or on
 
 ---
 
-## 9. Decisions for you
+## 9. Decisions (approved 2026-11-06, as recommended)
 
 1. **The toy problem** (§1): SIPNET's canopy equations in JAX with 14 calibration parameters, on the
    real data; a synthetic-twin option if you want a known truth.
