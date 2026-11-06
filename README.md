@@ -7,8 +7,9 @@ The inverse problem (the model, the data, the likelihood and the prior) is fixed
 the repository. The work done here is algorithmic: building, combining and comparing parameter
 reduction methods.
 
-> **Status:** under construction. The probability model, the SIPNET forward map and ensemble
-> Kalman inversion work; parameter-reduction tools, algorithms and tutorials are next.
+> **Status:** under construction. The probability model, the SIPNET forward map, ensemble Kalman
+> inversion, the parameter-reduction tools and the first algorithm work; the experiment harness and
+> tutorials are next.
 
 ## Setup
 
@@ -41,10 +42,29 @@ with workflow_run(seed=1):
     posterior = problem.condition(method="enskit_eki", method_options={"n_particles": 40})
 ```
 
-Two problems ship. `harvard_forest` calibrates all 46 parameters. `harvard_forest_small`
+Three problems ship. `harvard_forest` calibrates all 46 parameters. `harvard_forest_small`
 calibrates ten of them and holds the rest at their prior medians, so that a long MCMC run, and with
-it a trustworthy reference posterior, is affordable. [Design 02](design/02-inverse-problem.md)
-explains how both were chosen.
+it a trustworthy reference posterior, is affordable. `toy` is a simplified SIPNET written in JAX:
+it can be differentiated exactly and sampled with NUTS, so it is where methods are checked.
+[Design 02](design/02-inverse-problem.md) explains how the Harvard Forest problems were chosen.
+
+## The first algorithm
+
+```python
+from lsmas.algorithms import active_subspace_mcmc
+
+result = active_subspace_mcmc(load("toy", scales="inferred"), seed=1)
+result.subspace.rank                    # how many directions the data inform
+result.subspace.activity_scores()       # which parameters matter, and how much
+result.posterior                        # draws of every parameter and the noise scales
+result.forward_runs                     # {'exploration': 600, 'sampling': 6004}
+```
+
+It explores with ensemble Kalman inversion, estimates the active subspace from the ensemble's
+linearizations along the way, samples the reduced posterior of the active variables with
+random-walk Metropolis, and lifts the draws back to every parameter. Each step is a tool in
+`lsmas.tools` that can be swapped: another estimator of the subspace, another rank, another
+sampler. [Design 03](design/03-algorithms.md) explains the choices.
 
 `condition` requires an inference method: ProbPipe's automatic choice assumes gradients, which
 SIPNET does not have.
@@ -59,8 +79,10 @@ src/lsmas/
     parameters.py      maps calibration parameters to SIPNET parameters
     priors.py          prior families specified by intervals; the prior from a table
     learning_rate.py   the likelihood's learning rate
-    problems/          inverse problems, ready to condition
+    problems/          inverse problems, ready to condition: harvard_forest, harvard_forest_small, toy
     inference/         ensemble Kalman inversion, registered with ProbPipe
+    tools/             subspaces, their estimators, and reduced problems
+    algorithms/        complete parameter-reduction algorithms built from the tools
     _stopgaps/         temporary code that fills gaps in ProbPipe
 tests/                 unit tests; `-m smoke` selects the end-to-end checks that run SIPNET
 docs/notation.md       the mathematical notation every docstring uses

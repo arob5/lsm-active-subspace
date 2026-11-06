@@ -101,19 +101,16 @@ is cheap to add if a known truth is wanted (decision 1).
 
 ## 2. What a subspace estimates
 
+The notation is that of [`docs/notation.md`](../docs/notation.md), which every docstring follows.
 Algorithms work in whitened coordinates $\xi$ (design 01 §4.1), where the prior is close to
-$\mathcal N(0, I)$ (exactly, for the log-normal, logit-normal and normal priors). With $J(\xi)$ the
-Jacobian of the 400 features and
+$\mathcal N(0, I)$ (exactly, for the log-normal, logit-normal and normal priors). With $DG(\xi)$ the
+Jacobian of the 400 features and $\Gamma = \operatorname{diag}(s^2_{k(i)} v_i / \eta_i)$ the
+tempered noise covariance, the tempered likelihood's Gauss–Newton information at $\xi$ is
+$DG(\xi)^\top \Gamma^{-1} DG(\xi)$. An active subspace is the span of the top eigenvectors of its
+average over some law $\mu$,
 
 $$
-\Lambda = \operatorname{diag}\!\left(\frac{\eta_i}{s^2_{k(i)}\, v_{k(i)}}\right),
-$$
-
-the tempered likelihood's Gauss–Newton information at $\xi$ is $J(\xi)^\top \Lambda J(\xi)$. An
-active subspace is the span of the top eigenvectors of its average over some law $\mu$,
-
-$$
-H(\mu) = \mathbb E_{\mu}\!\left[J(\xi)^\top \Lambda\, J(\xi)\right].
+H(\mu) = \mathbb E_{\mu}\!\left[DG(\xi)^\top \Gamma^{-1} DG(\xi)\right].
 $$
 
 Because the prior's information in these coordinates is the identity, an eigenvalue above 1 means
@@ -121,15 +118,17 @@ the data inform that direction more than the prior does. **The reference is the 
 $H_{\mathrm{post}} = H(\pi(\cdot \mid y))$: it is the Gauss–Newton likelihood-informed subspace of
 Cui et al. (2014). Zahm et al. (2022) bound the KL error of the reduced posterior of §4 by half the
 discarded eigenvalues of the posterior average of $\nabla \log L\, \nabla \log L^\top$; $H$ is its
-usual Gauss–Newton stand-in, which needs no data residuals. The prior average $H(\pi)$, the classical global active subspace, is a second reference.
+usual Gauss–Newton stand-in, which needs no data residuals. The prior average $H(\pi)$, the
+classical global active subspace, is a second reference.
 
 **What one statistical linearization gives.** EnsKit's statistical linearization of an ensemble,
-$A = C_{G\xi}\, C_{\xi\xi}^{-1}$, equals the average Jacobian $\mathbb E_\mu[J]$ when the ensemble is
-Gaussian (Stein's lemma; EnsKit's documentation states it). So $A^\top \Lambda A$ estimates
+$\widehat{DG} = C_{G\xi}\, C_{\xi\xi}^{-1}$, equals the average Jacobian $\mathbb E_\mu[DG]$ when
+the ensemble is Gaussian (Stein's lemma; EnsKit's documentation states it). So
+$\widehat{DG}^\top \Gamma^{-1} \widehat{DG}$ estimates
 
 $$
-\bar H(\mu) = \mathbb E_\mu[J]^\top \Lambda\, \mathbb E_\mu[J]
-= H(\mu) - \mathbb E_\mu\!\left[(J - \mathbb E_\mu J)^\top \Lambda\, (J - \mathbb E_\mu J)\right]
+\bar H(\mu) = \mathbb E_\mu[DG]^\top \Gamma^{-1}\, \mathbb E_\mu[DG]
+= H(\mu) - \mathbb E_\mu\!\left[(DG - \mathbb E_\mu DG)^\top \Gamma^{-1} (DG - \mathbb E_\mu DG)\right]
 \;\preceq\; H(\mu),
 $$
 
@@ -148,7 +147,7 @@ Tempered EKI evaluates the forward map on an ensemble at levels $0 = \beta_0 < \
 and takes increments $\Delta\beta_t$. A callback linearizes each step's ensemble and accumulates
 
 $$
-\hat H_{\mathrm{ladder}} = \sum_{t=0}^{T} \Delta\beta_t\, A_t^\top \Lambda A_t,
+\hat H_{\mathrm{ladder}} = \sum_{t=0}^{T} \Delta\beta_t\, \widehat{DG}_t^\top \Gamma_t^{-1} \widehat{DG}_t,
 $$
 
 a Riemann sum over the ladder of $\bar H(\mu_\beta)$, with $\mu_\beta$ the tempered posterior EKI's
@@ -272,26 +271,26 @@ With inferred scales the reduced sampler's noise-scale intervals match NUTS's (d
 The full likelihood infers the day and night noise scales with $\mathrm{IG}(2, 1.678)$ priors, and
 `enskit_eki` today refuses that. The extension is the EKI-Gibbs algorithm of the Harvard Forest work
 (Botha et al. 2023, with the noise step an exact draw), with the learning rate folded in. The
-tempered target at level $\varphi$ is
+tempered target at level $\beta$ is
 
 $$
-\pi_\varphi(z, s^2) \propto \pi(z) \prod_k \mathrm{IG}(s^2_k; a_0, b_0)
-\prod_i \mathcal N\!\left(y_i;\, G_i(z),\, s^2_{k(i)} v_i\right)^{\varphi\, \eta_i}.
+\pi_\beta(z, s^2) \propto \pi(z) \prod_k \mathrm{IG}(s^2_k; \alpha_k, b_k)
+\prod_i \mathcal N\!\left(y_i;\, G_i(z),\, s^2_{k(i)} v_i\right)^{\beta\, \eta_i}.
 $$
 
 Each step, at an ensemble $(z_j, s^2_j)$ whose predictions $g_j$ are known, with
 $n_k = \sum_{i \in k} \eta_i$ and $q_{jk} = \sum_{i \in k} \eta_i (y_i - g_{ji})^2 / v_i$:
 
-1. **Increment**: the largest $\Delta\varphi \le 1 - \varphi$ keeping the effective sample size of
-   the weights $\log w_j = \sum_k [A_k(\varphi) \log B_{jk}(\varphi) - A_k(\varphi')
-   \log B_{jk}(\varphi')]$ at least $J/2$, with $A_k(\varphi) = a_0 + \varphi n_k / 2$ and
-   $B_{jk}(\varphi) = b_0 + \varphi q_{jk} / 2$: the ratio of the targets with the scales integrated
+1. **Increment**: the largest $\Delta\beta \le 1 - \beta$ keeping the effective sample size of
+   the weights $\log w_j = \sum_k [A_k(\beta) \log B_{jk}(\beta) - A_k(\beta')
+   \log B_{jk}(\beta')]$ at least $J/2$, with $A_k(\beta) = \alpha_k + \beta n_k / 2$ and
+   $B_{jk}(\beta) = b_k + \beta q_{jk} / 2$: the ratio of the targets with the scales integrated
    out.
-2. **Parameter step**: EnsKit's `eki.assimilate` with noise $R(\bar s)/\Delta\varphi$,
+2. **Parameter step**: EnsKit's `eki.assimilate` with noise $R(\bar s)/\Delta\beta$,
    $R(s)_{ii} = s^2_{k(i)} v_i / \eta_i$, for the common scales
    $\bar s^2_k = (\frac1J \sum_j s^{-2}_{jk})^{-1}$ (the "common gain").
 3. **Evaluate** the new particles: EnsKit's `eki.evaluate`, the step's one batch of runs.
-4. **Scale step**, exact: $s^2_{jk} \sim \mathrm{IG}(A_k(\varphi'), B_{jk}(\varphi'))$.
+4. **Scale step**, exact: $s^2_{jk} \sim \mathrm{IG}(A_k(\beta'), B_{jk}(\beta'))$.
 
 It is built from EnsKit's step-level API (`evaluate`, `assimilate`); EnsKit needs no change. The
 final ensemble is evaluated once more, for its scale draws, so a run costs one batch more than
@@ -303,7 +302,7 @@ night 0.87–0.96 / 1.39–1.49 / 2.27–2.43 against 0.89 / 1.42 / 2.41), and t
 accurate as fixed-scale EKI's (0.20–0.37 / 0.09–0.11).
 
 **Step records gain the scales.** `StepRecord` adds `noise_scales`, the $(J, K)$ draws the step used,
-and the accumulator of §3.1 uses $\bar s^2$ in $\Lambda$.
+and the accumulator of §3.1 uses $\bar s^2$ in $\Gamma_t$.
 
 ---
 
@@ -357,20 +356,28 @@ only for the algorithms' own runs, and 40 minutes is acceptable there for now.
 
 ## 7. Code shape
 
+As built:
+
 | Module | Holds |
 |---|---|
-| `lsmas.problems.toy` | `toy(scales=..., data=...)`: the model of §1 in JAX, a traceable forward `Function`, registered as `"toy"` (new) |
-| `lsmas.inference.enskit_eki` | inferred noise scales by EKI-Gibbs (§5); `StepRecord.noise_scales` (updated) |
-| `lsmas.tools.subspace` | `Subspace` (design 01 §4.7) with `rank`, `suggest_rank(eigenvalues, discarded=0.5)`, loadings and activity scores (new) |
-| `lsmas.tools.estimators` | `LadderLinearization` (the callback of §3.1, with its weighting a choice), `exact_information` (toy), `finite_difference_information` (SIPNET), `covariance_informed` (new) |
-| `lsmas.tools.reduced` | `reduced_problem(problem, subspace)`, the plug-in problem of §4; `lift(posterior, subspace, key)` (new) |
+| `docs/notation.md` | the notation every docstring follows (new) |
+| `lsmas.problems.nee_likelihood` | `nee_problem(name, description, forward, laws, scales=..., data=...)`: the likelihood, noise-scale priors and learning rate every problem shares (new; the Harvard Forest problems use it) |
+| `lsmas.problems.toy` | `toy(scales=..., data=...)` and `ToyCanopyModel`, the model of §1, whose module docstring states its equations and its departures from SIPNET; registered as `"toy"` (new) |
+| `lsmas.inference.noise_scales` | `NoiseScaleConditionals`: the scales' conditional laws, the increment weights with the scales integrated out, the common scales (new) |
+| `lsmas.inference.enskit_eki` | one loop on EnsKit's step API for fixed and inferred scales (§5); `StepRecord` gains `noise_scales` and an `n_failed` read from EnsKit (updated) |
+| `lsmas.tools.subspace` | `Subspace` (eigenvalues, eigenvectors, rank, `basis`, `complement`, active and inactive variables, loadings, activity scores, `information`) and `suggest_rank` (new) |
+| `lsmas.tools.estimators` | `LadderLinearization` (weighting `"increment"`, `"uniform"` or `"last"`), `exact_subspace`, `finite_difference_subspace`, `covariance_subspace`, `statistical_linearization` (new) |
+| `lsmas.tools.reduced` | `reduced_problem(problem, subspace)` and `ReducedProblem.lift(posterior, key=...)` (new) |
 | `lsmas.algorithms` | `active_subspace_mcmc` and `AlgorithmResult` (new) |
-| `lsmas._stopgaps.coordinates` | a JAX version of the map $\xi \mapsto \theta$, for exact Jacobians (updated) |
+| `lsmas.problems.inverse_problem` | `InverseProblem.noise_variance(scale_values)`, the diagonal of $\Gamma$ (updated) |
+| `lsmas._stopgaps.coordinates` | maps between $\theta$ and $\xi$ in one call, and `parameter_record(xi)`, which JAX can trace (updated) |
+| `lsmas._stopgaps.functions` | `declares_traceable(function)`, PG-18 (new) |
 
-Each tool is a small function or class with its formula in its docstring; the algorithm is a short
-function that composes them, so that a variant is a change of one argument or one line.
-
----
+The sampler starts at the projection of EKI's ensemble mean and keeps ProbPipe's adaptive warmup.
+On the toy that was both the most accurate and the steadiest of the variants tried (mean error
+0.131–0.137, acceptance 0.29–0.31, against 0.141–0.144 and 0.14–0.27 from a prior draw); handing
+it EKI's covariance as the proposal with a 100-step warmup was as accurate for 27% fewer runs, a
+variant to try through `sampler_options`.
 
 ## 8. ProbPipe gaps
 
@@ -383,6 +390,8 @@ function that composes them, so that a variant is a change of one argument or on
   or draws a single prior point, and starts every chain there (`_inference_utils.get_init_state`).
   Chains cannot start from EKI's particles, and R-hat cannot reveal a dependence on the start.
   (Minor: its `proposal_cov` option is documented both as a covariance and as a Cholesky factor.)
+- **PG-18 (new): a `Function`'s declared traceability cannot be read back.** The reduced forward map
+  must make the full one's claim; a stopgap reads the private attribute.
 - **PG-09** (linear pushforward of a law) still decides the reduced model's ideal form, a law over
   $(a, b)$ pushed through $W$; the reparameterized forward `Function` works today, as design 01
   expected.
