@@ -105,8 +105,8 @@ Not ProbPipe, but tracked the same way: **EK-01**, EnsKit switches JAX to 64-bit
   cannot be sampled, then calls `condition_on`. The tempered object never leaves the function.
   Tested (`tests/test_tempering.py`, `tests/test_enskit_eki.py`): the target's log-density
   differences equal log π + Σ ηᵢ log Nᵢ exactly, and on the linear-Gaussian test model both EKI
-  and ProbPipe's default sampler (NUTS, since that model's forward map traces) recover the exact
-  tempered posterior.
+  and ProbPipe's NUTS (usable since that model's forward map traces) recover the exact tempered
+  posterior.
 - **Removal.** Replace calls with `condition_on.using(learning_rate=..., ...)`.
 - **Related.** PG-12, which is why the private object must not escape.
 

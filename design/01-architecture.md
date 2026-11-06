@@ -326,8 +326,8 @@ kernel, "unnormalized" could allow a normalizer that depends on the given values
 such a normalizer while sampling respects it, so an object like this would mean different things to
 different operations.
 
-`InverseProblem.condition(method=..., **using)` (§4.9) calls `tempered_condition_on` with the problem's η, so
-algorithms never handle η themselves.
+`InverseProblem.condition(method=..., **using)` (§4.9) calls `tempered_condition_on` with the
+problem's η, so algorithms never handle η themselves.
 
 **Why one likelihood factor, not one per class.** A factor per class (`nee_day`, `nee_night`) would
 make η a scalar per factor. Without evaluation reuse (PG-06), however, each factor would run SIPNET

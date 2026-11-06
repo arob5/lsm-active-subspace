@@ -7,8 +7,8 @@ since then. This round moves the repository's pin from `638f56bc` (`dev/overhaul
 `9158a50e` (`main`, 2026-11-02). ProbPipe is still `0.2.0.dev0`, with no PyPI release, so the pin
 stays a commit. EnsKit (`f7dc7ee`) and pySIPNET (`08bab7b`) are unchanged.
 
-- `uv run pytest` passes: 51 tests in about 29 s.
-- `uv run pytest -m smoke` passes: 11 tests in about 17 s.
+- `uv run pytest` passes: 53 tests in about 28 s.
+- `uv run pytest -m smoke` passes: 13 tests in about 17 s.
 - Two gaps closed, three are partly fixed, and one new gap was found (PG-15).
 
 ## What changed
@@ -18,10 +18,17 @@ stays a commit. EnsKit (`f7dc7ee`) and pySIPNET (`08bab7b`) are unchanged.
 | `6d8ef54` | The pin. ProbPipe's renames: `&` for merging laws, `.raw` as a property, `rename`, `event_spec.outputs`, and `traceable=` / `executor=` / `executor_options=` on every `Function`. `EnsKitEKI` on the public inference-method interface; the module of private ProbPipe names deleted (**PG-04 closed**) |
 | `c12ca9f` | The likelihood's sampler and density in JAX around the forward map; `sample(problem.model, n)` replaces `lsmas.predictive` (**PG-01 closed**) |
 | `5deab50` | ProbPipe's word "output" for a law's named draws: `output_name=` on the interval priors and the likelihood |
-| `255c0eb` | A test that ProbPipe's default sampler (NUTS) recovers the exact tempered posterior on the linear model; the closed form shared in `conftest.py` |
+| `255c0eb` | A test that NUTS recovers the exact tempered posterior on the linear model; the closed form shared in `conftest.py` |
 | `0453c77` | A correction to `StepRecord.increment`'s docstring |
 | `e375ed8` | The gap registry re-verified at `9158a50e`, with [`prototypes/01c-probpipe-main/`](prototypes/01c-probpipe-main/) |
-| (this commit) | Design 01, the README and this report |
+| `fa24032` | Design 01, the README and this report |
+| `22c5273` | `InverseProblem.condition` requires `method` (see PG-08 below) |
+| `4c46c0d` | One stopgap for keyed draws, `draw_with_key` (PG-15) |
+| `2ab4736` | `StepRecord.noise_variance` kept a NumPy array, as documented |
+| `3a3c093` | Tests: no private ProbPipe name imported in any form; model draws reproducible under a seed; the NUTS test names its method |
+| (this commit) | This report brought up to date after the review |
+
+The last four commits address a review of the branch; see "Review" below.
 
 **How the main pieces changed:**
 
@@ -41,8 +48,8 @@ stays a commit. EnsKit (`f7dc7ee`) and pySIPNET (`08bab7b`) are unchanged.
 
 - **EKI is unchanged where it matters.** On the linear-Gaussian model it still matches the
   closed-form tempered posterior. On the development problem, 40 particles take 5 tempering steps
-  (β = 0, 0.046, 0.189, 0.452, 0.947, then 1): 200 SIPNET runs in 17 s, none failed. Seeded draws
-  changed with the pin, so step counts differ from the first round's.
+  (β = 0, 0.046, 0.189, 0.452, 0.947, then 1): 200 SIPNET runs in 17 s, none failed. The first
+  round reported 4 steps and 160 runs, from a different seed, so the two are not comparable.
 - **ProbPipe's own samplers now work on the tempered target** when the forward map traces: NUTS
   recovers the exact tempered posterior on the linear model.
 - **RWMH on the development problem**, 2 chains × 30 steps: 67 runs in 24 s, or 22 s with the thread
@@ -94,6 +101,23 @@ the registry gained a `partly` status.
   alike. That only matters once ProbPipe reuses evaluations (PG-06).
 
 Seven entries have no upstream issue yet: PG-02, PG-03, PG-11, PG-12, PG-13, PG-14 and PG-15.
+
+## Review
+
+A review of the whole branch found seven problems, all now fixed:
+
+1. `problem.condition()` without a method failed inside NUTS (PG-08). `method` is now a required
+   argument, so the mistake fails at the call.
+2. The keyed draw of PG-15 was written out twice, once outside `_stopgaps/`. It is now one function.
+3. Writing the likelihood in JAX turned `StepRecord.noise_variance` into a JAX array, against its
+   documentation. EKI converts it back.
+4. This report credited the change in EKI's step count to the pin, but the runs used different
+   seeds.
+5. Deleting the prior-predictive tests dropped the check that draws are reproducible under a seed.
+   It is back, for `sample(problem.model, n)` on the SIPNET problem.
+6. The private-import test missed `import probpipe.x._y` and `from probpipe.x import _y`.
+7. The NUTS test asserted ProbPipe's automatic choice of method, so an upstream policy change could
+   fail it with nothing in `lsmas` broken.
 
 ## Noticed, not acted on
 
