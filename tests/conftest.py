@@ -27,7 +27,7 @@ def linear_forward(theta):
 def linear_likelihood(scales):
     return GaussianSimulatorLikelihood(
         linear_forward,
-        component="y",
+        output_name="y",
         theta_spec=THETA_SPEC,
         reference_variance=REFERENCE_VARIANCE,
         classes=CLASSES,

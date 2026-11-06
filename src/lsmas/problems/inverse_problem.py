@@ -40,9 +40,9 @@ class InverseProblem:
         $\pi(\theta, s^2)$, the law of the parameters, with the calibration parameters grouped
         under ``theta``.
     data : dict of str to numpy.ndarray
-        The observed value of each observed component.
+        The observed value of each observed output.
     learning_rate : dict of str to numpy.ndarray
-        $\eta$ for each observed component, one rate per element.
+        $\eta$ for each observed output, one rate per element.
     coordinates : Coordinates
         Constrained, unconstrained and whitened coordinates of ``theta``.
     """

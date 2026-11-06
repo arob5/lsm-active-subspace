@@ -73,7 +73,7 @@ def test_rate_one_gives_the_ordinary_posterior_target(model, observations):
     assert difference(tempered) == pytest.approx(difference(plain), rel=1e-10)
 
 
-def test_rates_must_name_observed_components_and_lie_in_unit_interval(model, observations):
+def test_rates_must_name_observed_outputs_and_lie_in_unit_interval(model, observations):
     joint, _ = model
     with pytest.raises(ValueError, match="not observed"):
         tempered_condition_on(joint, {"y": observations}, learning_rate={"z": 0.5})

@@ -51,12 +51,12 @@ class ParameterBijection:
         prior : Distribution
             A ProbPipe law whose event declares *block* as a record of scalar parameters.
         block : str
-            The component holding the parameters.
+            The output holding the parameters.
 
         Raises
         ------
         ValueError
-            If *block* is not a record component of *prior*, or a parameter is not a scalar.
+            If *block* is not an output of *prior* holding a record, or a parameter is not a scalar.
         """
         record_spec = _block_spec(prior, block)
         names = tuple(record_spec.fields)
@@ -124,7 +124,7 @@ class Coordinates:
     Attributes
     ----------
     block : str
-        The prior component that holds the parameters, such as ``"theta"``.
+        The prior's output that holds the parameters, such as ``"theta"``.
     bijection : ParameterBijection
         The map between constrained and unconstrained coordinates.
     whitening_mean : numpy.ndarray
@@ -149,7 +149,7 @@ class Coordinates:
         prior : Distribution
             A ProbPipe law whose event declares *block* as a record of scalar parameters.
         block : str
-            The component of *prior* to describe.
+            The output of *prior* to describe.
         n_moment_draws : int
             How many prior draws estimate $m$ and $L$.
         seed : int
@@ -207,7 +207,7 @@ def block_values(draws: Any, block: str, names: tuple[str, ...]) -> np.ndarray:
     draws : RecordBatch or Mapping
         Draws, tracked or raw.
     block : str
-        The component holding the parameters.
+        The output holding the parameters.
     names : tuple of str
         The parameters, in the order of the result's last axis.
     """
@@ -219,7 +219,7 @@ def block_values(draws: Any, block: str, names: tuple[str, ...]) -> np.ndarray:
 
 def _block_spec(prior: Any, block: str) -> Any:
     """The record spec of *block* in *prior*'s event declaration."""
-    components = prior.event_spec.outputs
-    if block not in components or not hasattr(components[block], "fields"):
+    outputs = prior.event_spec.outputs
+    if block not in outputs or not hasattr(outputs[block], "fields"):
         raise ValueError(f"the prior has no block of named parameters called {block!r}")
-    return components[block]
+    return outputs[block]

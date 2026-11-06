@@ -48,8 +48,8 @@ class GaussianSimulatorLikelihood(ConditionalDistribution):
         array of shape $(n,)$. Calling it on a batch of records evaluates it once per record. If
         JAX cannot trace it, it must declare that (``traceable=False``) and an output spec with a
         concrete shape and dtype, so that ProbPipe can call it from inside traced code.
-    component : str
-        The name of the observations, such as ``"nee"``.
+    output_name : str
+        The name of the output that holds the observations, such as ``"nee"``.
     theta_spec : NumericRecordSpec
         The declaration of the parameter record.
     reference_variance : array_like
@@ -66,7 +66,7 @@ class GaussianSimulatorLikelihood(ConditionalDistribution):
         self,
         forward: Any,
         *,
-        component: str,
+        output_name: str,
         theta_spec: Any,
         reference_variance: Any,
         classes: Any,
@@ -75,7 +75,7 @@ class GaussianSimulatorLikelihood(ConditionalDistribution):
     ) -> None:
         self.forward = forward
         self._untracked_forward = forward.using(raw=True)
-        self.component = component
+        self.output_name = output_name
         self.reference_variance = np.asarray(reference_variance, dtype=float)
         self.classes = np.asarray(classes)
         self.scales = dict(scales)
@@ -85,7 +85,7 @@ class GaussianSimulatorLikelihood(ConditionalDistribution):
         given_spec = {"theta": theta_spec} | {
             slot: NumericArraySpec(()) for slot in self.random_scale_slots
         }
-        event_spec = OutputSpec(**{component: NumericArraySpec((n_observations,))})
+        event_spec = OutputSpec(**{output_name: NumericArraySpec((n_observations,))})
         super().__init__(given_spec, event_spec, label=label)
 
     @property

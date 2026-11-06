@@ -114,7 +114,7 @@ def harvard_forest_dev(
     scale_values = _scale_values(scales)
     likelihood = GaussianSimulatorLikelihood(
         forward,
-        component="nee",
+        output_name="nee",
         theta_spec=NumericRecordSpec(**{name: NumericArraySpec(()) for name in PARAMETER_NAMES}),
         reference_variance=np.vectorize(REFERENCE_VARIANCE.get)(data.feature_classes),
         classes=data.feature_classes,
