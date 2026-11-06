@@ -38,6 +38,8 @@ stopgap removed).
 | [PG-14](#pg-14) | Fingerprinting a closure that captures a sparse matrix recurses without end | Low (bug) | to file | open |
 | [PG-15](#pg-15) | No public operation draws from a law with a given key | Low | to file | open |
 | [PG-16](#pg-16) | A transformed law's quantiles fall back to Monte Carlo | Low | to file | open |
+| [PG-17](#pg-17) | One MCMC run's chains share one initial state | Low | to file | open |
+| [PG-18](#pg-18) | A `Function`'s declared traceability cannot be read back | Low | to file | open |
 
 Not ProbPipe, but tracked the same way (below): **EK-01**, EnsKit switches JAX to 64-bit floats on
 import; **SP-01**, SIPNET writes NEE to three decimals.
@@ -178,6 +180,12 @@ import; **SP-01**, SIPNET writes NEE to three decimals.
   row of NaN for a failed run, which is EnsKit's contract. Our EnsKit methods always evaluate the
   ensemble through the forward `Function`, so it runs in parallel.
 - **Removal.** Drop the NaN convention once a tolerant failure mode exists.
+- **Also (design 03).** With a forward map that is not traceable, `blackjax_rwmh` runs its chains
+  one after another as well (the eager path loops over chains,
+  `inference/_blackjax_rwmh.py:533-551`): the reduced SIPNET problem samples at 0.41 s per step for
+  every chain in turn. It also warns, for any forward map with a named executor, that the map "is
+  staged by a user's JAX transformation while executor 'thread' is named"; the staging is the
+  sampler's own (verified with `harvard_forest_small` and its reduced problem).
 
 ## PG-08
 
@@ -339,6 +347,37 @@ import; **SP-01**, SIPNET writes NEE to three decimals.
 - **Stopgap.** `lsmas._stopgaps.quantiles.median(law)`: the base's exact median pushed through
   the bijector, or `quantile(law, 0.5)` under `exact_only` for any other law.
 - **Removal.** Replace its calls with `quantile(law, 0.5)` under `exact_only`; delete the module.
+
+## PG-17
+
+**One MCMC run's chains share one initial state.**
+
+- **What happens.** `blackjax_rwmh` resolves one initial state, the `init` option or a single prior
+  draw (`inference/_inference_utils.get_init_state`), and starts every chain from it (read at the
+  pin). Its option named `proposal_cov` is used as the proposal's Cholesky factor, as given, without
+  the $2.38/\sqrt d$ scaling and with adaptation switched off; its docstring says so, but the name
+  says covariance.
+- **Effect here.** The reduced sampler of design 03 cannot start its chains from different EKI
+  particles, and R-hat across chains cannot reveal a dependence on where they started.
+- **Ideal ProbPipe.** `init` accepts one state per chain, and by default each chain starts from its
+  own prior draw.
+- **Stopgap.** None: the chains start from the projection of EKI's ensemble mean.
+- **Removal.** Pass one projected EKI particle per chain.
+
+## PG-18
+
+**A `Function`'s declared traceability cannot be read back.**
+
+- **What happens.** A `Function` is built with `traceable=True` or `False`, and ProbPipe stores the
+  claim (`Function._execution_claims.traceable`), but no public property returns it (read at the
+  pin).
+- **Effect here.** A reduced problem's forward map wraps the full problem's, and must make the same
+  claim: traceable for the toy, so NUTS and the fast random-walk path apply; not traceable for
+  SIPNET, so ProbPipe calls it on concrete values.
+- **Ideal ProbPipe.** A public, read-only view of a `Function`'s declared claims.
+- **Stopgap.** `lsmas._stopgaps.functions.declares_traceable(function)`, the one place that reads
+  the private attribute.
+- **Removal.** Replace its calls with the public property; delete the module.
 
 ---
 

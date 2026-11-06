@@ -1,0 +1,12 @@
+EKI: 600 SIPNET runs, 72 s
+eigenvalues of the ladder matrix: [39.06  8.45  6.03  1.71  0.92  0.29  0.15  0.12  0.07  0.04]
+rank (discarded <= 1/2): 6
+  direction 1: photosynthetic_capacity -0.78, half_saturation_light +0.51, light_extinction_coefficient +0.24
+  direction 2: soil_water_holding_capacity -0.84, water_use_efficiency -0.50, soil_respiration_flux_at_10c -0.18
+  direction 3: respiration_share +0.64, soil_respiration_flux_at_10c +0.60, leaf_on_growth +0.29
+r=1: share of the prior finite-difference matrix's best rank-r information captured: 0.914
+r=2: share of the prior finite-difference matrix's best rank-r information captured: 0.945
+r=3: share of the prior finite-difference matrix's best rank-r information captured: 0.961
+r=6: share of the prior finite-difference matrix's best rank-r information captured: 0.986
+blackjax_rwmh, 2 chains x 120 steps: 99 s, 0.41 s per step
+acceptance: 0.09166666666666666

@@ -6,9 +6,9 @@ $$
 \pi_\eta(\theta \mid y) \propto \pi(\theta)\, p(y \mid \theta)^{\eta},
 $$
 
-which treats the data as worth fewer independent observations than they number. This is a property
-of the update, not of the data model: $p(y \mid \theta)^{\eta}$ is not the density of a law of $y$,
-so the model itself stays an ordinary generative model.
+so that with $\eta < 1$ the data carry less information, as fewer independent observations would.
+This is a property of the update, not of the data model: $p(y \mid \theta)^{\eta}$ is not the
+density of a law of $y$, so the model itself stays an ordinary generative model.
 
 ProbPipe's ``condition_on`` does not accept a learning rate yet. Ideally one would write
 ``condition_on.using(learning_rate={"nee": eta}, method=...)(model, data)``.
@@ -77,7 +77,9 @@ def tempered_condition_on(
     if unknown:
         raise ValueError(f"learning rates given for outputs that are not observed: {unknown}")
     factors = [
-        _tempered_factor(factor, learning_rate) if _produces_any(factor, learning_rate) else factor
+        _tempered_factor(factor, learning_rate)
+        if _factor_produces_any_of(factor, learning_rate)
+        else factor
         for factor in model.factors
     ]
     tempered_model = functools.reduce(operator.and_, factors)
@@ -100,8 +102,8 @@ class TemperedLikelihood(ConditionalDistribution):
 
     the second requiring a likelihood whose elements are independent and which reports
     ``pointwise_log_prob``. $\ell_\eta$ is not the log-density of a law of $y$: it can be used to
-    condition on observed data, and it cannot be sampled. It therefore claims an unnormalized
-    density and nothing else.
+    condition on observed data, and it cannot be sampled. It therefore provides an unnormalized
+    density only.
 
     Parameters
     ----------
@@ -130,7 +132,7 @@ class TemperedLikelihood(ConditionalDistribution):
 
 
 class _TemperedFactor(Distribution):
-    """A tempered likelihood at fixed given values: an unnormalized density and nothing else."""
+    """A tempered likelihood at fixed given values, which provides an unnormalized density only."""
 
     def __init__(self, tempered: TemperedLikelihood, given: Mapping[str, Any]) -> None:
         super().__init__(tempered.event_spec, label=f"{tempered.label} at given values")
@@ -141,7 +143,7 @@ class _TemperedFactor(Distribution):
         return self._tempered._conditional_unnormalized_log_prob(self._given, value)
 
 
-def _produces_any(factor: Any, outputs: Mapping[str, Any]) -> bool:
+def _factor_produces_any_of(factor: Any, outputs: Mapping[str, Any]) -> bool:
     """Whether *factor* produces at least one of *outputs*."""
     return bool(set(factor.event_spec.outputs) & set(outputs))
 

@@ -4,7 +4,7 @@ Most calibration parameters are SIPNET parameters under the same name. The other
 SIPNET's, for one of two reasons. Some remove an exact redundancy: SIPNET's output depends on its
 photosynthesis parameters only through two combinations, and those are calibrated instead. The rest
 are bijective changes of coordinates, chosen so that each parameter's prior can be stated on its
-own and in units an ecologist recognizes: respiration rates at 10 °C instead of 0 °C, allocation as
+own and in the units measurements report: respiration rates at 10 °C instead of 0 °C, allocation as
 successive shares, initial carbon pools as amounts. Each function here returns pySIPNET keyword
 arguments; :func:`calibration_to_sipnet` combines them into a complete set.
 """

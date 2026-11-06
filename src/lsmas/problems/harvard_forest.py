@@ -1,10 +1,10 @@
 r"""The Harvard Forest inverse problems: all 46 calibration parameters, or a small problem of ten.
 
 Both calibrate SIPNET against the same 400 half-monthly day and night NEE features from Harvard
-Forest, 2012–2020, with the same likelihood and the same independent prior, from the shipped prior
-table. :func:`harvard_forest` calibrates every parameter. :func:`harvard_forest_small` calibrates
-ten and holds the rest at their prior medians, so that a long MCMC run, and with it a trustworthy
-reference posterior, is affordable.
+Forest, 2012–2020, with the likelihood every problem shares (:mod:`lsmas.problems.nee_likelihood`)
+and the same independent prior, from the shipped prior table. :func:`harvard_forest` calibrates
+every parameter. :func:`harvard_forest_small` calibrates ten and holds the rest at their prior
+medians, so that a long MCMC run, and with it a trustworthy reference posterior, is affordable.
 """
 
 from __future__ import annotations
@@ -13,16 +13,11 @@ import functools
 from collections.abc import Mapping, Sequence
 from typing import Any, Literal
 
-import numpy as np
-from probpipe import Distribution, InverseGamma, NumericArraySpec, NumericRecordSpec
-
-from lsmas._stopgaps.coordinates import Coordinates
-from lsmas._stopgaps.likelihood import GaussianSimulatorLikelihood
 from lsmas.data import HarvardForestData, load_harvard_forest
-from lsmas.learning_rate import effective_sample_size_learning_rate
 from lsmas.parameters import calibration_to_sipnet
-from lsmas.priors import independent_prior, laws_from_table, prior_medians
+from lsmas.priors import laws_from_table, prior_medians
 from lsmas.problems.inverse_problem import InverseProblem
+from lsmas.problems.nee_likelihood import nee_problem
 from lsmas.sipnet import SIPNETSimulator, feature_map
 
 __all__ = ["SMALL_PROBLEM_PARAMETERS", "harvard_forest", "harvard_forest_small"]
@@ -43,15 +38,6 @@ SMALL_PROBLEM_PARAMETERS = (
     "soil_respiration_flux_at_10c",
 )
 
-#: The reference variances $v_k$ of the day and night features, in (µmol CO₂ m⁻² s⁻¹)².
-REFERENCE_VARIANCE = {"day": 8.0, "night": 1.5}
-
-#: Effective independent observations per class-year of data, which sets the learning rate.
-OBSERVATIONS_PER_CLASS_YEAR = 3.0
-
-#: The inverse-gamma prior on each class's noise scale: shape 2, scale 1.678, so median 1.
-NOISE_SCALE_PRIOR = {"concentration": 2.0, "scale": 1.678}
-
 
 def harvard_forest(
     scales: Literal["fixed", "inferred"] = "fixed",
@@ -64,16 +50,7 @@ def harvard_forest(
     The calibration parameters $\theta$ have independent priors, one per row of the shipped prior
     table (:attr:`~lsmas.data.HarvardForestData.prior_table`), and reach SIPNET through
     :func:`~lsmas.parameters.calibration_to_sipnet`. The likelihood of the 400 day and night NEE
-    features is
-
-    $$
-    y_i \mid \theta, s^2 \sim \mathcal N\!\left(G_i(\theta),\; s^2_{k(i)}\, v_{k(i)}\right),
-    \qquad v_{\mathrm{day}} = 8,\; v_{\mathrm{night}} = 1.5,
-    $$
-
-    tempered by the learning rate of
-    :func:`~lsmas.learning_rate.effective_sample_size_learning_rate` with 3 observations per
-    class-year.
+    features is the one every problem shares (:mod:`lsmas.problems.nee_likelihood`).
 
     Parameters
     ----------
@@ -86,7 +63,7 @@ def harvard_forest(
         How many SIPNET runs the forward map runs at a time.
     """
     data = load_harvard_forest() if data is None else data
-    return _problem(
+    return _harvard_forest_problem(
         "harvard_forest",
         f"Harvard Forest NEE, 2012-2020, with all {len(data.prior_table)} calibration parameters "
         f"(noise scales {scales}).",
@@ -106,8 +83,9 @@ def harvard_forest_small(
     r"""The small problem: ten calibration parameters, the rest held at their prior medians.
 
     The data, the likelihood and the priors of the ten are those of :func:`harvard_forest`. The
-    ten, :data:`SMALL_PROBLEM_PARAMETERS`, come in groups that act together through the model, so
-    that the directions the data inform most mix parameters rather than follow them one by one.
+    ten, :data:`SMALL_PROBLEM_PARAMETERS`, are chosen in groups whose parameters affect the
+    predictions jointly, so that the leading directions of the subspace combine several parameters
+    rather than lining up with single parameters.
     None of them acts as a step function: the leaf-on and leaf-off timing parameters, which switch
     on whole days, are held fixed. So a finite difference of the forward map, once its width is
     well above the rounding of SIPNET's output (NEE is written to three decimals), estimates the
@@ -123,7 +101,7 @@ def harvard_forest_small(
         How many SIPNET runs the forward map runs at a time.
     """
     data = load_harvard_forest() if data is None else data
-    return _problem(
+    return _harvard_forest_problem(
         "harvard_forest_small",
         f"Harvard Forest NEE, 2012-2020, with {len(SMALL_PROBLEM_PARAMETERS)} of the "
         f"{len(data.prior_table)} calibration parameters; the others are held at their prior "
@@ -135,12 +113,12 @@ def harvard_forest_small(
     )
 
 
-def _problem(
+def _harvard_forest_problem(
     name: str,
     description: str,
     calibrated: Sequence[str],
     *,
-    scales: str,
+    scales: Literal["fixed", "inferred"],
     data: HarvardForestData,
     max_workers: int,
 ) -> InverseProblem:
@@ -157,39 +135,24 @@ def _problem(
         SIPNETSimulator(data.driver_path, {}),
         data.operator,
         functools.partial(
-            _sipnet_parameters,
+            _sipnet_parameters_with_held_values,
             calibrated=tuple(calibrated),
             held=held,
             fixed=data.fixed_sipnet_parameters,
         ),
         max_workers=max_workers,
     )
-    likelihood = GaussianSimulatorLikelihood(
+    return nee_problem(
+        name,
+        description,
         forward,
-        output_name="nee",
-        theta_spec=NumericRecordSpec(
-            **{parameter: NumericArraySpec(()) for parameter in calibrated}
-        ),
-        reference_variance=np.vectorize(REFERENCE_VARIANCE.get)(data.feature_classes),
-        classes=data.feature_classes,
-        scales=_scale_values(scales),
-        label="nee_likelihood",
-    )
-    prior = _prior(
-        {parameter: laws[parameter] for parameter in calibrated}, likelihood.random_scale_slots
-    )
-    return InverseProblem(
-        name=name,
-        description=description,
-        likelihood=likelihood,
-        prior=prior,
-        data={"nee": data.observations},
-        learning_rate={"nee": _learning_rate(data)},
-        coordinates=Coordinates.from_prior(prior, "theta"),
+        {parameter: laws[parameter] for parameter in calibrated},
+        scales=scales,
+        data=data,
     )
 
 
-def _sipnet_parameters(
+def _sipnet_parameters_with_held_values(
     theta: Mapping[str, Any],
     *,
     calibrated: Sequence[str],
@@ -199,31 +162,4 @@ def _sipnet_parameters(
     """All SIPNET parameters, from the calibrated values in *theta* and the held values *held*."""
     return calibration_to_sipnet(
         held | {parameter: theta[parameter] for parameter in calibrated}, fixed
-    )
-
-
-def _prior(laws: Mapping[str, Distribution], random_scale_slots: Sequence[str]) -> Distribution:
-    """The prior of the calibration parameters and of any noise scales that are inferred."""
-    prior = independent_prior(laws)
-    for slot in random_scale_slots:
-        prior = prior & InverseGamma(slot, **NOISE_SCALE_PRIOR)
-    return prior
-
-
-def _scale_values(scales: str) -> dict[str, str | float]:
-    """The likelihood's scale for each class: a slot name when inferred, 1 when fixed."""
-    if scales == "fixed":
-        return {"day": 1.0, "night": 1.0}
-    if scales == "inferred":
-        return {"day": "s2_day", "night": "s2_night"}
-    raise ValueError(f"scales must be 'fixed' or 'inferred', got {scales!r}")
-
-
-def _learning_rate(data: HarvardForestData) -> np.ndarray:
-    """The per-feature learning rate of the NEE features."""
-    return effective_sample_size_learning_rate(
-        data.feature_classes,
-        data.features["year"].to_numpy(),
-        data.features["month"].to_numpy(),
-        observations_per_class_year=OBSERVATIONS_PER_CLASS_YEAR,
     )

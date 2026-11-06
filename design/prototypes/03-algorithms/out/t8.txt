@@ -1,0 +1,3 @@
+blackjax_rwmh, full toy: 14 s
+mean |mean error| / sd: 0.352
+mean |log sd ratio|: 0.365

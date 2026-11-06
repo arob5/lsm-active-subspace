@@ -1,8 +1,9 @@
-r"""A Bayesian inverse problem, ready to condition: model, data, learning rate and coordinates."""
+r"""The inverse-problem class: prior, likelihood, observed data and learning rates."""
 
 from __future__ import annotations
 
 import functools
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -17,7 +18,7 @@ __all__ = ["InverseProblem"]
 
 @dataclass(frozen=True, eq=False)
 class InverseProblem:
-    r"""A fixed inverse problem: a generative model, observed data, and how much the data count.
+    r"""An inverse problem: the prior, the likelihood and the observed data.
 
     The model is $p(y \mid \theta, s^2)\, \pi(\theta, s^2)$, a ProbPipe ``likelihood & prior``, and
     conditioning it on the observed $y$ with learning rates $\eta$ gives the generalized posterior
@@ -86,6 +87,32 @@ class InverseProblem:
         return tempered_condition_on(
             self.model, self.data, learning_rate=self.learning_rate, method=method, **using
         )
+
+    def noise_variance(self, scale_values: Mapping[str, Any] | None = None) -> np.ndarray:
+        r"""The diagonal of the tempered noise covariance,
+        $\Gamma = \operatorname{diag}\!\left(s^2_{k(i)} v_i / \eta_i\right)$, shape $(n,)$.
+
+        $\Gamma^{-1}$ weights the observations in the generalized posterior and in the
+        information matrices of :mod:`lsmas.tools`.
+
+        Parameters
+        ----------
+        scale_values : Mapping of str to float, optional
+            A value for each inferred noise scale, such as ``{"s2_day": 1.0, "s2_night": 1.0}``.
+            Not needed when every scale is fixed.
+
+        Raises
+        ------
+        ValueError
+            If an inferred scale has no value, or the problem has more than one observed output.
+        """
+        if missing := sorted(set(self.likelihood.random_scale_slots) - set(scale_values or {})):
+            raise ValueError(f"the noise scales are inferred; give values for {missing}")
+        if len(self.data) != 1:
+            raise ValueError(f"defined for one observed output; this problem has {list(self.data)}")
+        (observed,) = self.data
+        variances = np.asarray(self.likelihood.noise_variances(scale_values))
+        return variances / self.learning_rate[observed]
 
     def describe(self) -> str:
         """A short readable summary: the description, the parameters and the data."""

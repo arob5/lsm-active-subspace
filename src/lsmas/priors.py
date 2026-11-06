@@ -1,6 +1,6 @@
 r"""Priors: families specified by a central interval, and independent priors built from a table.
 
-Expert knowledge usually comes as "between 140 and 450, most likely". The interval constructors
+Prior knowledge of a parameter is often an interval, such as 140 to 450. The interval constructors
 return the ProbPipe law whose central interval of the given probability is exactly that range.
 :func:`laws_from_table` builds one law per row of a prior table, and :func:`independent_prior`
 combines such laws into the prior of a block of calibration parameters.
@@ -8,9 +8,7 @@ combines such laws into the prior of a block of calibration parameters.
 
 from __future__ import annotations
 
-import functools
-import operator
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 
 import numpy as np
 import pandas as pd
@@ -23,11 +21,13 @@ from probpipe import (
     bijector_for,
     unit_interval,
 )
+from probpipe.distributions import FactoredDistribution
 from scipy import stats
 
 from lsmas._stopgaps.quantiles import median
 
 __all__ = [
+    "factors_over",
     "independent_prior",
     "laws_from_table",
     "log_normal_from_interval",
@@ -65,7 +65,7 @@ def laws_from_table(table: pd.DataFrame) -> dict[str, Distribution]:
         or gives numbers that state no law: an interval or bounds out of order, or a standard
         deviation that is not positive.
     """
-    return {str(name): _law(str(name), row) for name, row in table.iterrows()}
+    return {str(name): _law_from_row(str(name), row) for name, row in table.iterrows()}
 
 
 def prior_medians(table: pd.DataFrame) -> dict[str, float]:
@@ -99,8 +99,31 @@ def independent_prior(laws: Mapping[str, Distribution], group: str = "theta") ->
     """
     if not laws:
         raise ValueError("an independent prior needs at least one law")
-    product = functools.reduce(operator.and_, laws.values())
+    product = FactoredDistribution(list(laws.values()))
     return product.rename({name: f"{group}/{name}" for name in laws})
+
+
+def factors_over(prior: Distribution, outputs: Iterable[str]) -> dict[str, Distribution]:
+    """The factors of a product prior that are laws of exactly one of *outputs*, by that output.
+
+    A prior built with ``&``, such as ``theta_prior & InverseGamma("s2_day", 2.0, 1.678)``, is a
+    product of factors; this finds, for instance, the prior of each noise scale. An output with no
+    factor of its own is left out.
+
+    Parameters
+    ----------
+    prior : Distribution
+        A product of factors, such as an inverse problem's prior.
+    outputs : iterable of str
+        The outputs to look for, such as ``("s2_day", "s2_night")``.
+    """
+    outputs_sought = set(outputs)
+    factors_by_output = {}
+    for factor in getattr(prior, "factors", ()):
+        factor_outputs = set(factor.event_spec.outputs)
+        if len(factor_outputs) == 1 and factor_outputs <= outputs_sought:
+            factors_by_output[factor_outputs.pop()] = factor
+    return factors_by_output
 
 
 def log_normal_from_interval(
@@ -126,7 +149,9 @@ def log_normal_from_interval(
     probability : float
         $p \in (0, 1)$.
     """
-    location, scale = _normal_from_interval(np.log(lower), np.log(upper), probability)
+    location, scale = _normal_location_and_scale_from_interval(
+        np.log(lower), np.log(upper), probability
+    )
     return LogNormal(output_name, location, scale)
 
 
@@ -154,43 +179,55 @@ def logit_normal_from_interval(
     probability : float
         $p \in (0, 1)$.
     """
-    location, scale = _normal_from_interval(
+    location, scale = _normal_location_and_scale_from_interval(
         stats.logistic.ppf(lower), stats.logistic.ppf(upper), probability
     )
     base = Normal(f"logit_{output_name}", location, scale)
     return BijectorTransformedDistribution(output_name, base, bijector_for(unit_interval))
 
 
-def _law(name: str, row: pd.Series) -> Distribution:
+def _law_from_row(name: str, row: pd.Series) -> Distribution:
     """The law that one row of a prior table states."""
     family = row["family"]
     if family not in _FAMILY_NUMBERS:
         raise ValueError(f"{name}: unknown family {family!r}; known: {sorted(_FAMILY_NUMBERS)}")
-    first, second = _numbers(name, row, _FAMILY_NUMBERS[family])
+    numbers = _family_numbers_from_row(name, row, _FAMILY_NUMBERS[family])
     if family == "log_normal":
-        return log_normal_from_interval(name, first, second)
+        return log_normal_from_interval(name, numbers["lower"], numbers["upper"])
     if family == "logit_normal":
-        return logit_normal_from_interval(name, first, second)
+        return logit_normal_from_interval(name, numbers["lower"], numbers["upper"])
     if family == "normal":
-        if not second > 0:
-            raise ValueError(f"{name}: the standard deviation must be positive, got {second}")
-        return Normal(name, first, second)
-    if not first < second:
-        raise ValueError(f"{name}: the bounds must have lower < upper, got [{first}, {second}]")
-    return Uniform(name, first, second)
+        if not numbers["sd"] > 0:
+            raise ValueError(
+                f"{name}: the standard deviation must be positive, got {numbers['sd']}"
+            )
+        return Normal(name, numbers["mean"], numbers["sd"])
+    if not numbers["lower"] < numbers["upper"]:
+        raise ValueError(
+            f"{name}: the bounds must have lower < upper, "
+            f"got [{numbers['lower']}, {numbers['upper']}]"
+        )
+    return Uniform(name, numbers["lower"], numbers["upper"])
 
 
-def _numbers(name: str, row: pd.Series, used: tuple[str, ...]) -> list[float]:
-    """The numbers *used* from *row*, after checking that it gives exactly those."""
-    stated = {column for columns in _FAMILY_NUMBERS.values() for column in columns}
-    if missing := [column for column in used if pd.isna(row[column])]:
+def _family_numbers_from_row(
+    name: str, row: pd.Series, used_columns: tuple[str, ...]
+) -> dict[str, float]:
+    """The numbers in *used_columns* of *row*, by column, after checking that it gives exactly
+    those."""
+    every_number_column = {column for columns in _FAMILY_NUMBERS.values() for column in columns}
+    if missing := [column for column in used_columns if pd.isna(row[column])]:
         raise ValueError(f"{name}: family {row['family']!r} needs {missing}")
-    if extra := sorted(column for column in stated - set(used) if pd.notna(row[column])):
+    if extra := sorted(
+        column for column in every_number_column - set(used_columns) if pd.notna(row[column])
+    ):
         raise ValueError(f"{name}: family {row['family']!r} does not use {extra}")
-    return [float(row[column]) for column in used]
+    return {column: float(row[column]) for column in used_columns}
 
 
-def _normal_from_interval(lower: float, upper: float, probability: float) -> tuple[float, float]:
+def _normal_location_and_scale_from_interval(
+    lower: float, upper: float, probability: float
+) -> tuple[float, float]:
     """The mean and standard deviation of the normal law with central interval [lower, upper]."""
     if not lower < upper:
         raise ValueError(f"the interval must have lower < upper, got [{lower}, {upper}]")

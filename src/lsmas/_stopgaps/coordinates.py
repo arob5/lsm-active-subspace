@@ -81,6 +81,19 @@ class ParameterBijection:
         r"""$\theta = b(z)$ for unconstrained coordinates *z*, shape $(\ldots, d)$."""
         return self._apply_columnwise(z, [bijector.raw for bijector in self._bijectors])
 
+    def record_from_unconstrained(self, z: jax.Array) -> dict[str, jax.Array]:
+        r"""The parameter record $\theta = b(z)$ at one point, written in JAX so it can be traced.
+
+        Parameters
+        ----------
+        z : jax.Array
+            Unconstrained coordinates of one point, shape $(d,)$.
+        """
+        return {
+            name: bijector.raw(z[index])
+            for index, (name, bijector) in enumerate(zip(self.names, self._bijectors, strict=True))
+        }
+
     def record_batch(self, theta: Any, level: str = "member") -> NumericRecordBatch:
         """Constrained parameters *theta*, shape $(n, d)$, as a ProbPipe batch of records.
 
@@ -98,11 +111,13 @@ class ParameterBijection:
         fields = {name: jnp.asarray(theta[:, index]) for index, name in enumerate(self.names)}
         return NumericRecordBatch(fields, level)
 
-    def _apply_columnwise(self, values: Any, maps: list[Any]) -> np.ndarray:
-        """Each column of *values* through its own map."""
-        values = np.asarray(values, dtype=float)
-        columns = [np.asarray(apply(jnp.asarray(values[..., j]))) for j, apply in enumerate(maps)]
-        return np.stack(columns, axis=-1)
+    def _apply_columnwise(self, array: Any, maps: list[Any]) -> np.ndarray:
+        """Each column of *array* through its own map."""
+        array = np.asarray(array, dtype=float)
+        mapped_columns = [
+            np.asarray(column_map(jnp.asarray(array[..., j]))) for j, column_map in enumerate(maps)
+        ]
+        return np.stack(mapped_columns, axis=-1)
 
 
 @dataclass(frozen=True, eq=False)
@@ -116,10 +131,11 @@ class Coordinates:
     - **whitened** $\xi = L^{-1}(z - m)$, where $m$ and $L L^\top$ are the prior mean and
       covariance of $z$, so that $\xi$ has prior mean $0$ and covariance $I$.
 
-    Whitened coordinates put every parameter on the same footing whatever its units, which is
-    what subspace methods need. $m$ and $L$ are estimated from a fixed number of prior draws with a
-    fixed seed, so a given prior always yields the same coordinates. Every map acts on the last
-    axis, so arrays of shape $(\ldots, d)$ map row by row.
+    In whitened coordinates every parameter has prior mean 0 and variance 1, whatever its units,
+    so directions in parameter space can be compared; subspace methods need this. $m$ and $L$ are
+    estimated from a fixed number of prior draws with a fixed seed, so a given prior always yields
+    the same coordinates. Every map acts on the last axis, so arrays of shape $(\ldots, d)$ map
+    row by row.
 
     Use :meth:`from_prior` to build one.
 
@@ -189,6 +205,34 @@ class Coordinates:
         r"""$z = m + L \xi$ for whitened coordinates *xi*, shape $(\ldots, d)$."""
         return self.whitening_mean + np.asarray(xi, dtype=float) @ self.whitening_factor.T
 
+    def whitened_from_parameters(self, theta: Any) -> np.ndarray:
+        r"""$\xi = L^{-1}(b^{-1}(\theta) - m)$ for constrained parameters *theta*, shape
+        $(\ldots, d)$."""
+        return self.whiten(self.bijection.to_unconstrained(theta))
+
+    def parameters_from_whitened(self, xi: Any) -> np.ndarray:
+        r"""$\theta = b(m + L \xi)$ for whitened coordinates *xi*, shape $(\ldots, d)$."""
+        return self.bijection.to_constrained(self.unwhiten(xi))
+
+    def parameter_record(self, xi: jax.Array) -> dict[str, jax.Array]:
+        r"""The parameter record $\theta(\xi) = b(m + L \xi)$ at one point, written in JAX.
+
+        Unlike :meth:`unwhiten` and :meth:`ParameterBijection.to_constrained`, this map can be
+        traced, so a forward map composed with it can be differentiated in whitened coordinates.
+
+        Parameters
+        ----------
+        xi : jax.Array
+            Whitened coordinates of one point, shape $(d,)$.
+
+        Returns
+        -------
+        dict of str to jax.Array
+            Each parameter's value, a scalar, by name.
+        """
+        z = jnp.asarray(self.whitening_mean) + jnp.asarray(self.whitening_factor) @ xi
+        return self.bijection.record_from_unconstrained(z)
+
     def array_from_draws(self, draws: Any) -> np.ndarray:
         """The parameters' values in *draws*, as an array of shape $(n, d)$ in :attr:`names` order.
 
@@ -214,8 +258,8 @@ def block_values(draws: Any, block: str, names: tuple[str, ...]) -> np.ndarray:
     """
     raw = draws.raw if hasattr(draws, "raw") else draws
     # STOPGAP(PG-13): a prior taken back out of a joint draws its block's fields ungrouped.
-    values = raw.get(block, raw)
-    return np.stack([np.asarray(values[name], dtype=float) for name in names], axis=-1)
+    block_draws = raw.get(block, raw)
+    return np.stack([np.asarray(block_draws[name], dtype=float) for name in names], axis=-1)
 
 
 def _block_spec(prior: Any, block: str) -> Any:

@@ -1,16 +1,28 @@
 import itertools
 
+import jax.numpy as jnp
 import numpy as np
 import pytest
-from probpipe import InverseGamma, condition_on, workflow_run
+from probpipe import (
+    Function,
+    InverseGamma,
+    LogNormal,
+    NumericArraySpec,
+    condition_on,
+    workflow_run,
+)
 
 from conftest import (
     CLASSES,
+    FORWARD_MATRIX,
+    REFERENCE_VARIANCE,
+    THETA_SPEC,
     exact_linear_posterior,
     linear_likelihood,
     linear_theta_prior,
     posterior_moments,
 )
+from lsmas._stopgaps.likelihood import GaussianSimulatorLikelihood
 from lsmas._stopgaps.tempering import tempered_condition_on
 from lsmas.inference import EnsKitEKI
 
@@ -68,14 +80,61 @@ def test_runs_are_reproducible_under_a_seed(observations):
     np.testing.assert_array_equal(posterior_mean(), posterior_mean())
 
 
-def test_inferred_noise_scales_are_refused(observations):
+def mixed_scale_model():
+    """The linear model with the day scale inferred, IG(3, 2), and the night scale fixed."""
+    return linear_likelihood({"day": "s2_day", "night": 0.7}) & (
+        linear_theta_prior() & InverseGamma("s2_day", 3.0, 2.0)
+    )
+
+
+def test_inferred_noise_scales_match_nuts(observations):
+    def tempered(method, **using):
+        with workflow_run(seed=5):
+            return tempered_condition_on(
+                mixed_scale_model(),
+                {"y": observations},
+                learning_rate={"y": LEARNING_RATE},
+                method=method,
+                **using,
+            )
+
+    eki_posterior = tempered("enskit_eki", method_options={"n_particles": 4000})
+    nuts_posterior = tempered("blackjax_nuts")
+    eki_mean, eki_covariance = posterior_moments(eki_posterior)
+    nuts_mean, nuts_covariance = posterior_moments(nuts_posterior)
+    nuts_sd = np.sqrt(np.diag(nuts_covariance))
+    np.testing.assert_allclose(eki_mean, nuts_mean, atol=0.1 * nuts_sd.max())
+    np.testing.assert_allclose(np.sqrt(np.diag(eki_covariance)), nuts_sd, rtol=0.15)
+    eki_scale = np.asarray(eki_posterior.atoms["s2_day"].raw).ravel()
+    nuts_scale = np.asarray(nuts_posterior.atoms["s2_day"].raw).ravel()
+    np.testing.assert_allclose(
+        np.quantile(eki_scale, [0.1, 0.5, 0.9]), np.quantile(nuts_scale, [0.1, 0.5, 0.9]), rtol=0.15
+    )
+
+
+def test_records_carry_the_inferred_scales(observations):
+    records = []
+    with workflow_run(seed=6):
+        condition_on.using(
+            method="enskit_eki", method_options={"n_particles": 40, "callbacks": [records.append]}
+        )(mixed_scale_model(), {"y": observations})
+    assert set(records[0].noise_scales) == {"s2_day"}
+    assert records[0].noise_scales["s2_day"].shape == (40,)
+    night = CLASSES == "night"
+    assert all(
+        np.allclose(record.noise_variance[night] / REFERENCE_VARIANCE[night], 0.7)
+        for record in records
+    )
+
+
+def test_a_scale_without_an_inverse_gamma_prior_is_refused(observations):
     model = linear_likelihood({"day": "s2_day", "night": 1.0}) & (
-        linear_theta_prior() & InverseGamma("s2_day", 2.0, 1.0)
+        linear_theta_prior() & LogNormal("s2_day", 0.0, 1.0)
     )
     target = condition_on.using(method="unnormalized")(model, {"y": observations})
     feasibility = EnsKitEKI().check(target)
     assert not feasibility.feasible
-    assert "noise scales must be fixed" in feasibility.description
+    assert "inverse-gamma prior" in feasibility.description
 
 
 def test_method_runs_only_when_named(observations):
@@ -98,3 +157,35 @@ def test_eki_runs_on_the_small_harvard_forest_problem():
     assert theta.shape == (1, 16, 10)
     assert records[0].predictions.shape == (16, 400)
     assert sum(record.n_failed for record in records) == 0
+
+
+def failing_linear_forward(theta):
+    """The linear forward map, failing (NaN) wherever a > 1.5."""
+    a, b = float(np.asarray(theta["a"])), float(np.asarray(theta["b"]))
+    values = FORWARD_MATRIX @ np.array([a, b])
+    return np.full(6, np.nan) if a > 1.5 else values
+
+
+def test_failed_runs_are_counted_and_repaired(observations):
+    forward = Function(
+        failing_linear_forward,
+        label="failing_linear",
+        output_spec=NumericArraySpec((6,), jnp.float64),
+        traceable=False,
+    )
+    likelihood = GaussianSimulatorLikelihood(
+        forward,
+        output_name="y",
+        theta_spec=THETA_SPEC,
+        reference_variance=REFERENCE_VARIANCE,
+        classes=CLASSES,
+        scales=FIXED_SCALES,
+    )
+    records = []
+    with workflow_run(seed=7):
+        posterior = condition_on.using(
+            method="enskit_eki", method_options={"n_particles": 50, "callbacks": [records.append]}
+        )(likelihood & linear_theta_prior(), {"y": observations})
+    assert records[0].n_failed > 0
+    assert np.all(np.isfinite(records[0].predictions))
+    assert np.all(np.isfinite(posterior_moments(posterior)[0]))
