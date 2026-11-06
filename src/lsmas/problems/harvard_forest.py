@@ -18,11 +18,10 @@ from probpipe import Distribution, InverseGamma, NumericArraySpec, NumericRecord
 
 from lsmas._stopgaps.coordinates import Coordinates
 from lsmas._stopgaps.likelihood import GaussianSimulatorLikelihood
-from lsmas._stopgaps.quantiles import median
 from lsmas.data import HarvardForestData, load_harvard_forest
 from lsmas.learning_rate import effective_sample_size_learning_rate
 from lsmas.parameters import calibration_to_sipnet
-from lsmas.priors import independent_prior, laws_from_table
+from lsmas.priors import independent_prior, laws_from_table, prior_medians
 from lsmas.problems.inverse_problem import InverseProblem
 from lsmas.sipnet import SIPNETSimulator, feature_map
 
@@ -148,7 +147,9 @@ def _problem(
     if unknown := sorted(set(calibrated) - laws.keys()):
         raise ValueError(f"not calibration parameters: {unknown}")
     held = {
-        parameter: median(law) for parameter, law in laws.items() if parameter not in calibrated
+        parameter: value
+        for parameter, value in prior_medians(data.prior_table).items()
+        if parameter not in calibrated
     }
     forward = feature_map(
         SIPNETSimulator(data.driver_path, {}),

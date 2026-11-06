@@ -10,6 +10,7 @@ from lsmas.priors import (
     laws_from_table,
     log_normal_from_interval,
     logit_normal_from_interval,
+    prior_medians,
 )
 
 TABLE = pd.DataFrame(
@@ -77,6 +78,18 @@ def test_a_row_must_give_exactly_its_familys_numbers():
         laws_from_table(TABLE.assign(family="gamma"))
 
 
+def test_numbers_that_state_no_law_are_refused():
+    with pytest.raises(ValueError, match="temperature: the standard deviation must be positive"):
+        laws_from_table(TABLE.assign(sd=-2.5).loc[["temperature"]])
+    with pytest.raises(ValueError, match=r"fraction: the bounds must have lower < upper"):
+        laws_from_table(TABLE.assign(lower=3.0).loc[["fraction"]])
+
+
+def test_an_empty_independent_prior_is_refused():
+    with pytest.raises(ValueError, match="at least one law"):
+        independent_prior({})
+
+
 def test_independent_prior_groups_the_laws():
     prior = independent_prior({"a": Normal("a", 0.0, 1.0), "b": Normal("b", 5.0, 1.0)})
     assert list(prior.event_spec.outputs) == ["theta"]
@@ -86,10 +99,7 @@ def test_independent_prior_groups_the_laws():
 
 
 def test_shipped_prior_medians_are_the_designs():
-    medians = {
-        name: median(law)
-        for name, law in laws_from_table(load_harvard_forest().prior_table).items()
-    }
+    medians = prior_medians(load_harvard_forest().prior_table)
     assert len(medians) == 46
     assert medians["photosynthetic_capacity"] == pytest.approx(251.0, rel=1e-3)
     assert medians["respiration_share"] == pytest.approx(0.0926, rel=1e-3)

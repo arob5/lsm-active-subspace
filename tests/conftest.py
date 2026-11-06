@@ -7,8 +7,6 @@ from probpipe import Normal, NumericArraySpec, NumericRecordSpec, cov, function,
 
 import lsmas  # noqa: F401  (sets JAX's precision before any test builds an array)
 from lsmas._stopgaps.likelihood import GaussianSimulatorLikelihood
-from lsmas._stopgaps.quantiles import median
-from lsmas.priors import laws_from_table
 
 #: The forward map G(θ) = H θ of the linear model, for θ = (a, b) and six observations.
 FORWARD_MATRIX = np.array(
@@ -40,11 +38,6 @@ def linear_likelihood(scales):
 def linear_theta_prior():
     theta = Normal("a", PRIOR_MEAN[0], PRIOR_SD[0]) & Normal("b", PRIOR_MEAN[1], PRIOR_SD[1])
     return theta.rename({"a": "theta/a", "b": "theta/b"})
-
-
-def prior_medians(prior_table):
-    """Each calibration parameter's prior median, by name."""
-    return {name: median(law) for name, law in laws_from_table(prior_table).items()}
 
 
 def exact_linear_posterior(observations, scales, learning_rate):

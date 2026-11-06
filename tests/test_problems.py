@@ -3,8 +3,8 @@ import pytest
 from probpipe import log_prob, sample, unnormalized_log_prob, workflow_run
 from scipy import stats
 
-from conftest import prior_medians
 from lsmas.data import load_harvard_forest
+from lsmas.priors import prior_medians
 from lsmas.problems import SMALL_PROBLEM_PARAMETERS, load
 
 pytestmark = pytest.mark.smoke

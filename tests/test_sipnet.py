@@ -5,9 +5,9 @@ import pandas as pd
 import pytest
 from probpipe import NumericRecordBatch
 
-from conftest import prior_medians
 from lsmas.data import load_harvard_forest
 from lsmas.parameters import calibration_to_sipnet, photosynthesis_to_sipnet
+from lsmas.priors import prior_medians
 from lsmas.sipnet import SIPNETSimulator, feature_map
 
 pytestmark = pytest.mark.smoke

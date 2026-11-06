@@ -25,11 +25,14 @@ from probpipe import (
 )
 from scipy import stats
 
+from lsmas._stopgaps.quantiles import median
+
 __all__ = [
     "independent_prior",
     "laws_from_table",
     "log_normal_from_interval",
     "logit_normal_from_interval",
+    "prior_medians",
 ]
 
 #: The numbers each family of a prior table is stated by.
@@ -58,9 +61,22 @@ def laws_from_table(table: pd.DataFrame) -> dict[str, Distribution]:
     Raises
     ------
     ValueError
-        If a row names an unknown family, lacks a number its family uses, or gives one it does not.
+        If a row names an unknown family, lacks a number its family uses, gives one it does not,
+        or gives numbers that state no law: an interval or bounds out of order, or a standard
+        deviation that is not positive.
     """
     return {str(name): _law(str(name), row) for name, row in table.iterrows()}
+
+
+def prior_medians(table: pd.DataFrame) -> dict[str, float]:
+    """Each parameter's prior median, exactly, by name.
+
+    Parameters
+    ----------
+    table : pandas.DataFrame
+        A prior table, as :func:`laws_from_table` reads it.
+    """
+    return {name: median(law) for name, law in laws_from_table(table).items()}
 
 
 def independent_prior(laws: Mapping[str, Distribution], group: str = "theta") -> Distribution:
@@ -75,7 +91,14 @@ def independent_prior(laws: Mapping[str, Distribution], group: str = "theta") ->
         Each law, by the name of its output.
     group : str
         The output that holds the parameters as a record.
+
+    Raises
+    ------
+    ValueError
+        If *laws* is empty.
     """
+    if not laws:
+        raise ValueError("an independent prior needs at least one law")
     product = functools.reduce(operator.and_, laws.values())
     return product.rename({name: f"{group}/{name}" for name in laws})
 
@@ -149,7 +172,11 @@ def _law(name: str, row: pd.Series) -> Distribution:
     if family == "logit_normal":
         return logit_normal_from_interval(name, first, second)
     if family == "normal":
+        if not second > 0:
+            raise ValueError(f"{name}: the standard deviation must be positive, got {second}")
         return Normal(name, first, second)
+    if not first < second:
+        raise ValueError(f"{name}: the bounds must have lower < upper, got [{first}, {second}]")
     return Uniform(name, first, second)
 
 
