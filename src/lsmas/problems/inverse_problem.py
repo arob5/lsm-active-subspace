@@ -70,8 +70,13 @@ class InverseProblem:
         """
         return (self.likelihood & self.prior).with_label(self.name)
 
+    # STOPGAP(PG-08): automatic method selection assumes gradients, so callers name a method.
     def condition(self, **using: Any) -> Distribution:
         """The generalized posterior, computed as ``condition_on.using(**using)`` computes it.
+
+        Name the inference method with ``method``, such as ``"enskit_eki"`` or
+        ``"blackjax_rwmh"``. ProbPipe's automatic choice assumes a density it can trace has
+        gradients, and a forward map that runs SIPNET has none, so the automatic choice fails.
 
         Parameters
         ----------
