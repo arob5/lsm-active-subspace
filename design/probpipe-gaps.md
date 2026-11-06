@@ -37,6 +37,7 @@ stopgap removed).
 | [PG-13](#pg-13) | A renamed factor taken from a joint loses its path names | Medium (bug) | to file | open |
 | [PG-14](#pg-14) | Fingerprinting a closure that captures a sparse matrix recurses without end | Low (bug) | to file | open |
 | [PG-15](#pg-15) | No public operation draws from a law with a given key | Low | to file | open |
+| [PG-16](#pg-16) | A transformed law's quantiles fall back to Monte Carlo | Low | to file | open |
 
 Not ProbPipe, but tracked the same way (below): **EK-01**, EnsKit switches JAX to 64-bit floats on
 import; **SP-01**, SIPNET writes NEE to three decimals.
@@ -320,6 +321,24 @@ import; **SP-01**, SIPNET writes NEE to three decimals.
 - **Stopgap.** `lsmas._stopgaps.sampling.draw_with_key(law, key, sample_shape)`, the one place
   that calls `_sample`. Both uses go through it.
 - **Removal.** Replace its calls with the public operation; delete the module.
+
+## PG-16
+
+**A transformed law's quantiles fall back to Monte Carlo.**
+
+- **What happens.** `quantile(law, 0.5)` of a `BijectorTransformedDistribution`, such as the
+  logit-normal that `lsmas.priors.logit_normal_from_interval` builds, takes the Monte Carlo route:
+  for the logit-normal with 95% in [0.04, 0.20] it returned 0.0910 and 0.0897 in two runs against
+  the exact 0.0926, and under `exact_only` it is refused, because the law does not implement
+  `SupportsQuantile` (verified). Yet a quantile passes exactly through a strictly monotone map: for $Y = g(X)$ with
+  $g$ increasing, $q_Y(p) = g(q_X(p))$, and with $g$ decreasing, $q_Y(p) = g(q_X(1 - p))$.
+- **Effect here.** The small Harvard Forest problem holds 36 calibration parameters at their prior
+  medians, which must be exact and the same in every run.
+- **Ideal ProbPipe.** A scalar `BijectorTransformedDistribution` of a base with closed-form
+  quantiles states its own, through the bijector, whenever the bijector is monotone.
+- **Stopgap.** `lsmas._stopgaps.quantiles.median(law)`: the base's exact median pushed through
+  the bijector, or `quantile(law, 0.5)` under `exact_only` for any other law.
+- **Removal.** Replace its calls with `quantile(law, 0.5)` under `exact_only`; delete the module.
 
 ---
 
