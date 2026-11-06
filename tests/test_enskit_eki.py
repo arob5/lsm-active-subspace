@@ -47,6 +47,7 @@ def test_callbacks_see_every_step_up_the_ladder(observations):
     betas = [record.beta for record in records]
     assert betas[0] == 0.0
     assert all(later > earlier for earlier, later in itertools.pairwise(betas))
+    assert all(record.increment > 0 for record in records)
     assert betas[-1] + records[-1].increment == pytest.approx(1.0)
     assert records[0].parameter_names == ("a", "b")
     assert records[0].theta.shape == (50, 2)
