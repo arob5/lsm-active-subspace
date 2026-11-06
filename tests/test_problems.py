@@ -64,6 +64,14 @@ def test_model_draws_run_sipnet(inferred):
     assert np.all(np.isfinite(nee))
 
 
+def test_model_draws_are_reproducible_under_a_seed(fixed):
+    def nee_draws():
+        with workflow_run(seed=4):
+            return np.asarray(sample(fixed.model, 4)["nee"].raw)
+
+    np.testing.assert_array_equal(nee_draws(), nee_draws())
+
+
 def test_conditioning_requires_a_method(fixed):
     with pytest.raises(TypeError, match="method"):
         fixed.condition(method_options={"n_particles": 4})

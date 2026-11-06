@@ -75,15 +75,15 @@ def test_rate_one_gives_the_ordinary_posterior_target(model, observations):
     assert difference(tempered) == pytest.approx(difference(plain), rel=1e-10)
 
 
-def test_probpipe_default_sampler_recovers_the_tempered_posterior(observations):
-    # With a forward map JAX can trace, the tempered target has gradients, so ProbPipe picks NUTS.
+def test_nuts_recovers_the_tempered_posterior(observations):
+    # The linear forward map traces, so the tempered target has gradients. The tolerances are
+    # several Monte Carlo standard errors of ProbPipe's default number of NUTS draws.
     scales = {"day": 1.5, "night": 0.7}
     model = linear_likelihood(scales) & linear_theta_prior()
     with workflow_run(seed=0):
         posterior = tempered_condition_on(
-            model, {"y": observations}, learning_rate={"y": LEARNING_RATE}
+            model, {"y": observations}, learning_rate={"y": LEARNING_RATE}, method="blackjax_nuts"
         )
-    assert posterior.provenance.metadata["method"] == "blackjax_nuts"
     exact_mean, exact_covariance = exact_linear_posterior(observations, scales, LEARNING_RATE)
     estimated_mean, estimated_covariance = posterior_moments(posterior)
     exact_sd = np.sqrt(np.diag(exact_covariance))

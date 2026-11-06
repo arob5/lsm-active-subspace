@@ -36,12 +36,12 @@ def test_every_stopgap_module_names_its_gap():
             assert STOPGAP_TAG.search(path.read_text()), f"{path.name} has no STOPGAP tag"
 
 
-def test_no_private_probpipe_module_is_imported():
+def test_no_private_probpipe_name_is_imported():
     for path in source_files():
         for node in ast.walk(ast.parse(path.read_text())):
-            if isinstance(node, ast.ImportFrom) and node.module and "._" in node.module:
-                assert not node.module.startswith("probpipe"), (
-                    f"{path.name} imports the private module {node.module}"
+            for imported in _probpipe_imports(node):
+                assert not any(part.startswith("_") for part in imported.split(".")), (
+                    f"{path.name}:{node.lineno} imports the private name {imported}"
                 )
 
 
@@ -54,6 +54,17 @@ def test_every_probpipe_function_states_whether_it_is_traceable():
                     f"{path.name}:{node.lineno} builds a Function without stating whether JAX "
                     f"can trace it"
                 )
+
+
+def _probpipe_imports(node):
+    """The dotted names a statement imports from ProbPipe, such as ``probpipe.core._x``."""
+    if isinstance(node, ast.Import):
+        names = [alias.name for alias in node.names]
+    elif isinstance(node, ast.ImportFrom) and node.module:
+        names = [f"{node.module}.{alias.name}" for alias in node.names]
+    else:
+        names = []
+    return [name for name in names if name.split(".")[0] == "probpipe"]
 
 
 def _called_name(call):
