@@ -3,7 +3,7 @@
 import jax.numpy as jnp
 import numpy as np
 import pytest
-from probpipe import Normal, NumericArraySpec, NumericRecordSpec, function
+from probpipe import Normal, NumericArraySpec, NumericRecordSpec, cov, function, mean
 
 import lsmas  # noqa: F401  (sets JAX's precision before any test builds an array)
 from lsmas._stopgaps.likelihood import GaussianSimulatorLikelihood
@@ -38,6 +38,25 @@ def linear_likelihood(scales):
 def linear_theta_prior():
     theta = Normal("a", PRIOR_MEAN[0], PRIOR_SD[0]) & Normal("b", PRIOR_MEAN[1], PRIOR_SD[1])
     return theta.rename({"a": "theta/a", "b": "theta/b"})
+
+
+def exact_linear_posterior(observations, scales, learning_rate):
+    r"""Mean and covariance of π(θ) ∏ N(y_i | (Hθ)_i, s²_k(i) v_i)^{η_i}, for fixed scales s²."""
+    variances = np.where(CLASSES == "day", scales["day"], scales["night"]) * REFERENCE_VARIANCE
+    precision_weights = learning_rate / variances
+    prior_precision = np.diag(1 / PRIOR_SD**2)
+    precision = prior_precision + FORWARD_MATRIX.T @ (precision_weights[:, None] * FORWARD_MATRIX)
+    covariance = np.linalg.inv(precision)
+    posterior_mean = covariance @ (
+        prior_precision @ PRIOR_MEAN + FORWARD_MATRIX.T @ (precision_weights * observations)
+    )
+    return posterior_mean, covariance
+
+
+def posterior_moments(posterior):
+    """The mean and covariance of a posterior's ``theta``, as arrays."""
+    posterior_mean = np.array([float(value) for value in mean(posterior["theta"]).raw.values()])
+    return posterior_mean, np.asarray(cov(posterior["theta"]).raw)
 
 
 @pytest.fixture
