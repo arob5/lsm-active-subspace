@@ -5,8 +5,9 @@ import pandas as pd
 import pytest
 from probpipe import NumericRecordBatch
 
+from conftest import prior_medians
 from lsmas.data import load_harvard_forest
-from lsmas.parameters import photosynthesis_to_sipnet
+from lsmas.parameters import calibration_to_sipnet, photosynthesis_to_sipnet
 from lsmas.sipnet import SIPNETSimulator, feature_map
 
 pytestmark = pytest.mark.smoke
@@ -19,7 +20,11 @@ def data():
 
 @pytest.fixture(scope="module")
 def simulator(data):
-    return SIPNETSimulator(data.driver_path, data.fixed_sipnet_parameters)
+    """SIPNET with every calibration parameter at its prior median."""
+    at_medians = calibration_to_sipnet(
+        prior_medians(data.prior_table), data.fixed_sipnet_parameters
+    )
+    return SIPNETSimulator(data.driver_path, at_medians)
 
 
 def test_output_steps_are_the_observation_operators_columns(data, simulator):

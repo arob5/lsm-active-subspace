@@ -84,10 +84,10 @@ def test_method_runs_only_when_named(observations):
 
 
 @pytest.mark.smoke
-def test_eki_runs_on_the_harvard_forest_development_problem():
+def test_eki_runs_on_the_small_harvard_forest_problem():
     from lsmas.problems import load
 
-    problem = load("harvard_forest_dev")
+    problem = load("harvard_forest_small")
     records = []
     with workflow_run(seed=3):
         posterior = problem.condition(
@@ -95,6 +95,6 @@ def test_eki_runs_on_the_harvard_forest_development_problem():
         )
     # make_posterior lays out every posterior as chains of draws; EKI's ensemble is one chain.
     theta = problem.coordinates.array_from_draws(posterior.atoms)
-    assert theta.shape == (1, 16, 4)
+    assert theta.shape == (1, 16, 10)
     assert records[0].predictions.shape == (16, 400)
     assert sum(record.n_failed for record in records) == 0

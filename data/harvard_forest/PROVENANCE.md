@@ -2,8 +2,8 @@
 
 The driver, the observations and the observation operator were made outside this repository, in
 `spatial-lsm-calibration` (github.com/arob5/spatial-lsm-calibration), and are used as is. Nothing
-in this repository processes raw data. The prior was assembled here, by design 02
-(`design/02-inverse-problem.md`). Site: Harvard Forest EMS tower (AmeriFlux US-Ha1), PEcAn site 4977, 42.5378 °N,
+in this repository processes raw data. The prior and the choice of fixed SIPNET values were made
+here, by design 02 (`design/02-inverse-problem.md`). Site: Harvard Forest EMS tower (AmeriFlux US-Ha1), PEcAn site 4977, 42.5378 °N,
 72.1715 °W.
 
 ## Files
@@ -55,11 +55,17 @@ The NEE observations and the operator that maps SIPNET's output to them.
 
 ### `sipnet_fixed.csv`
 
-Values for SIPNET parameters that are not calibrated, each with a justification. Columns:
-`sipnet_parameter_name` (pySIPNET's name), `sipnet_name`, `units`, `value`, `justification`.
+Values for the 12 SIPNET parameters that are not calibrated, each with its reason. Columns:
+`sipnet_parameter_name` (pySIPNET's name), `sipnet_name`, `units`, `value`, `justification`. Four
+remove exact degeneracies or follow from the leafless start, and eight have no effect on NEE at
+this site under the standard model options.
 
-- **Source:** `experiments/single_site_mcmc_vs_eki/model/fixed_sipnet_parameters.csv` on branch
-  `feat/harvard-forest-models`, last changed in commit `9e05183`.
+- **Made by** design 02, §1 (`design/02-inverse-problem.md`), whose prototype
+  (`design/prototypes/02-inverse-problem/`) checked each reason by running SIPNET. The values are
+  those of the earlier file from `spatial-lsm-calibration`
+  (`experiments/single_site_mcmc_vs_eki/model/fixed_sipnet_parameters.csv` on branch
+  `feat/harvard-forest-models`, commit `9e05183`), except the initial leaf area, which that file
+  did not set.
 
 ### `prior.csv`
 
@@ -85,6 +91,6 @@ ac82684afed7e25825571958a6bca2459e29e7d56380bd768e2db06bb263dbe9  driver/era5_me
 fbf71a7cb7d10a4f3ad9e6c599d1dc3ebcad9b32d5b2d0b4bdc5886f4bf7735e  nee_features.csv
 7ca1f3357dc771ff0903d5cbf549f4bbf371dd01ec0652bfb1c6f210f32dd658  nee_operator.npz
 f63d443b5de835f144c8192e618fe043bea346cd6d94158128a882ca424e7776  prior.csv
-e1fbce99a0e72d54575f59ca0604d1f05d70ab364897c9e4b3e92cbd20116c06  sipnet_fixed.csv
+598751d19e41b37ab89e1e207f09f4f8cffd048ca68125d6083329312234fec3  sipnet_fixed.csv
 0d47a04cab6f874c66bd67034e790a7510529e753da69aede9cb5afb807692e7  step_axis.json
 ```

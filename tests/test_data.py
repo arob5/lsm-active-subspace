@@ -32,6 +32,7 @@ def test_each_feature_lies_inside_its_recorded_windows():
 
 def test_fixed_values_are_keyed_by_pysipnet_names():
     fixed = load_harvard_forest().fixed_sipnet_parameters
+    assert len(fixed) == 12
     assert fixed["leaf_carbon_fraction"] == 0.466075
     assert all(isinstance(value, float) for value in fixed.values())
 

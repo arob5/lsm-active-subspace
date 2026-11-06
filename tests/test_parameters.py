@@ -2,6 +2,7 @@ from collections.abc import Mapping
 
 import pytest
 
+from lsmas.data import load_harvard_forest
 from lsmas.parameters import (
     SIPNET_PARAMETERS,
     allocation_to_sipnet,
@@ -13,21 +14,7 @@ from lsmas.parameters import (
     soil_respiration_to_sipnet,
 )
 
-#: The SIPNET values that the calibration parameters do not set, at the shipped values.
-FIXED = {
-    "daily_mean_photosynthesis_fraction": 0.860623,
-    "leaf_carbon_fraction": 0.466075,
-    "leaf_carbon_per_area": 30.7092,
-    "leaf_area_index": 0.0,
-    "leaf_on_day": 144.0,
-    "leaf_on_soil_temperature": 12.0,
-    "growth_respiration_fraction": 0.272493,
-    "litter_carbon": 0.0,
-    "litter_breakdown_rate": 0.4,
-    "litter_respired_fraction": 0.5,
-    "leaf_water_pool_depth": 0.200384,
-    "leaf_on_reallocation_fraction": 0.2,
-}
+FIXED = load_harvard_forest().fixed_sipnet_parameters
 
 
 class _ReadRecorder(Mapping):
@@ -119,6 +106,10 @@ def test_initial_pools_map_reproduces_each_pool():
     assert total * sipnet["fine_root_fraction"] == pytest.approx(fine_roots, rel=1e-12)
     remaining = 1 - sipnet["coarse_root_fraction"] - sipnet["fine_root_fraction"]
     assert total * remaining == pytest.approx(wood, rel=1e-12)
+
+
+def test_the_prior_table_names_exactly_the_calibration_parameters():
+    assert set(load_harvard_forest().prior_table.index) == calibration_parameters_read()
 
 
 def test_calibration_and_fixed_values_set_every_sipnet_parameter():
