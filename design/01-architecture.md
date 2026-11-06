@@ -406,8 +406,8 @@ Design points:
   options stay and only `execute` changes.
 - **Public ProbPipe names only.** `InferenceTarget`, `target.factors()`, `make_posterior` and the
   `key` argument are public at `main` (PG-04, closed). The one private call left is the keyed draw
-  of the initial ensemble, `prior._sample(key, shape)` (PG-15), which ProbPipe's own methods make
-  too.
+  of the initial ensemble, made through the stopgap `draw_with_key` (PG-15), as ProbPipe's own
+  methods call `prior._sample(key, shape)`.
 
 ### 4.6 Callbacks: how tools see a run
 

@@ -19,6 +19,8 @@ import numpy as np
 from probpipe import NumericRecordBatch, bijector_for
 from scipy.linalg import solve_triangular
 
+from lsmas._stopgaps.sampling import draw_with_key
+
 __all__ = ["Coordinates", "ParameterBijection", "block_values"]
 
 
@@ -156,8 +158,7 @@ class Coordinates:
             The seed of those draws. The draws do not touch any surrounding ``workflow_run``.
         """
         bijection = ParameterBijection.from_prior(prior, block)
-        # STOPGAP(PG-15): no public operation draws from a law with a given key.
-        draws = prior._sample(jax.random.key(seed), (n_moment_draws,))
+        draws = draw_with_key(prior, jax.random.key(seed), (n_moment_draws,))
         unconstrained = bijection.to_unconstrained(block_values(draws, block, bijection.names))
         covariance = np.atleast_2d(np.cov(unconstrained, rowvar=False))
         return cls(

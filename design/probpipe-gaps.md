@@ -317,8 +317,9 @@ Not ProbPipe, but tracked the same way: **EK-01**, EnsKit switches JAX to 64-bit
   depend on nor disturb the caller's run).
 - **Ideal ProbPipe.** A documented keyed draw for extension code, such as a `key` control on
   `sample`, or a public function `draw(law, key, sample_shape)`.
-- **Stopgap.** Both places call `_sample(key, sample_shape)` directly.
-- **Removal.** Call the public operation.
+- **Stopgap.** `lsmas._stopgaps.sampling.draw_with_key(law, key, sample_shape)`, the one place
+  that calls `_sample`. Both uses go through it.
+- **Removal.** Replace its calls with the public operation; delete the module.
 
 ---
 

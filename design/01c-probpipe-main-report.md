@@ -81,7 +81,7 @@ the registry gained a `partly` status.
 | **Partly fixed** | PG-05 (vector layout public; unconstrained maps not), PG-07 (executors and per-point failures; RWMH still evaluates one point per chain at a time), PG-10 (no probe when `traceable` is declared; lifts still thin silently) |
 | **Planned upstream** | PG-06 (`plans/execution-layer.md` §6.5), PG-08 (`plans/deferred/differentiability.md`), PG-09 (#521, #522) |
 | **Open, unchanged** | PG-02, PG-03, PG-11, PG-12, PG-13, PG-14, EK-01 |
-| **New** | PG-15: no public operation draws from a law with a given key. EKI's initial ensemble and the whitening draws call `_sample(key, shape)`, as ProbPipe's own methods do |
+| **New** | PG-15: no public operation draws from a law with a given key. EKI's initial ensemble and the whitening draws go through one stopgap, `draw_with_key`, which calls `_sample(key, shape)` as ProbPipe's own methods do |
 
 **New evidence:**
 

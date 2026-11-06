@@ -24,6 +24,7 @@ from probpipe.inference import Feasibility, InferenceMethod, InferenceTarget, ma
 
 from lsmas._stopgaps.coordinates import ParameterBijection, block_values
 from lsmas._stopgaps.likelihood import GaussianSimulatorLikelihood
+from lsmas._stopgaps.sampling import draw_with_key
 from lsmas._stopgaps.tempering import TemperedLikelihood
 from lsmas.inference.step_record import StepCallback, StepRecord, history_dataset
 
@@ -145,8 +146,7 @@ class _GaussianInverseProblem:
 
     def prior_draws(self, key: Any, n_particles: int) -> np.ndarray:
         """*n_particles* prior draws in unconstrained coordinates, shape $(J, d)$."""
-        # STOPGAP(PG-15): no public operation draws from a law with a given key.
-        draws = self.prior._sample(key, (int(n_particles),))
+        draws = draw_with_key(self.prior, key, (n_particles,))
         theta = block_values(draws, _PARAMETER_BLOCK, self.bijection.names)
         return self.bijection.to_unconstrained(theta)
 
