@@ -63,6 +63,7 @@ src/lsmas/
     inference/         ensemble Kalman inversion, registered with ProbPipe
     _stopgaps/         temporary code that fills gaps in ProbPipe
 tests/                 unit tests; `-m smoke` selects the end-to-end checks that run SIPNET
+docs/notation.md       the mathematical notation every docstring uses
 design/                design documents
 ```
 
