@@ -100,3 +100,15 @@ def test_ladder_directions_capture_the_exact_ladder_information_on_the_toy():
     basis = ladder.subspace(rank=3).basis
     best = np.sort(np.linalg.eigvalsh(exact))[::-1][:3].sum()
     assert np.trace(basis.T @ exact @ basis) / best > 0.95
+
+
+def test_exact_jacobians_need_a_differentiable_forward_map():
+    with pytest.raises(ValueError, match="cannot be differentiated"):
+        exact_subspace(load("harvard_forest_small"), np.zeros((1, 10)))
+
+
+def test_inferred_scales_need_values_for_the_noise_covariance():
+    toy = load("toy", scales="inferred")
+    with pytest.raises(ValueError, match="give values for \\['s2_day', 's2_night'\\]"):
+        toy.noise_variance()
+    assert toy.noise_variance({"s2_day": 1.0, "s2_night": 1.0}).shape == (400,)

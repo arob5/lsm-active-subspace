@@ -41,6 +41,7 @@ from enskit import maps
 from enskit.distribution import Ensemble
 
 from lsmas._stopgaps.coordinates import Coordinates
+from lsmas._stopgaps.functions import declares_traceable
 from lsmas.inference.step_record import StepRecord
 from lsmas.problems.inverse_problem import InverseProblem
 from lsmas.tools.subspace import DEFAULT_DISCARDED_INFORMATION, Subspace
@@ -214,6 +215,11 @@ def exact_subspace(
     chunk_size : int
         How many Jacobians to compute at once; larger is faster and uses more memory.
     """
+    if not declares_traceable(problem.forward):
+        raise ValueError(
+            f"{problem.name}'s forward map cannot be differentiated by JAX; "
+            "use finite_difference_subspace"
+        )
     forward = problem.forward.using(raw=True)
     coordinates = problem.coordinates
     jacobian = jax.jit(jax.vmap(jax.jacfwd(lambda x: forward(coordinates.parameter_record(x)))))
@@ -244,8 +250,8 @@ def finite_difference_subspace(
     r"""The subspace of $\hat H$ with Jacobians by central differences in whitened coordinates.
 
     At each point, column $i$ of $DG(\xi_m)$ is $\left(G(\xi_m + h e_i) - G(\xi_m - h e_i)\right)
-    / 2h$, from $2d$ forward runs, all evaluated as one batch. A point at which any run fails is
-    left out, with a warning.
+    / 2h$, from $2d$ forward runs; the runs of every point are evaluated as one batch. A point at
+    which any run fails is left out, with a warning.
 
     SIPNET writes its output to three decimals, which puts a floor under the differences' noise:
     in these units it is about $0.002 / h$, so $h$ should be at least $0.1$.
@@ -266,14 +272,16 @@ def finite_difference_subspace(
     xi = np.asarray(xi, dtype=float)
     dimension = xi.shape[1]
     shifts = step * np.concatenate([np.eye(dimension), -np.eye(dimension)])
+    perturbed = (xi[:, None, :] + shifts[None, :, :]).reshape(-1, dimension)
+    theta = coordinates.parameters_from_whitened(perturbed)
+    predictions = np.asarray(problem.forward(coordinates.bijection.record_batch(theta)).raw)
+    predictions = predictions.reshape(len(xi), 2 * dimension, -1)
     informations = []
-    for point in xi:
-        theta = coordinates.parameters_from_whitened(point + shifts)
-        predictions = np.asarray(problem.forward(coordinates.bijection.record_batch(theta)).raw)
-        if not np.all(np.isfinite(predictions)):
+    for point_predictions in predictions:
+        if not np.all(np.isfinite(point_predictions)):
             logger.warning("the forward map failed near a point; it is left out")
             continue
-        jacobian = (predictions[:dimension] - predictions[dimension:]).T / (2 * step)
+        jacobian = (point_predictions[:dimension] - point_predictions[dimension:]).T / (2 * step)
         informations.append(jacobian.T @ (precision[:, None] * jacobian))
     if not informations:
         raise ValueError("the forward map failed near every point")

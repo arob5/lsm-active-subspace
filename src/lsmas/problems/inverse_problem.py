@@ -100,9 +100,18 @@ class InverseProblem:
         scale_values : Mapping of str to float, optional
             A value for each inferred noise scale, such as ``{"s2_day": 1.0, "s2_night": 1.0}``.
             Not needed when every scale is fixed.
+
+        Raises
+        ------
+        ValueError
+            If an inferred scale has no value, or the problem has more than one observed output.
         """
-        variances = np.asarray(self.likelihood.noise_variances(scale_values))
+        if missing := sorted(set(self.likelihood.random_scale_slots) - set(scale_values or {})):
+            raise ValueError(f"the noise scales are inferred; give values for {missing}")
+        if len(self.data) != 1:
+            raise ValueError(f"defined for one observed output; this problem has {list(self.data)}")
         (observed,) = self.data
+        variances = np.asarray(self.likelihood.noise_variances(scale_values))
         return variances / self.learning_rate[observed]
 
     def describe(self) -> str:
