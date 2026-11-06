@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 
 from lsmas.algorithms import AlgorithmResult, active_subspace_mcmc
+from lsmas.algorithms.active_subspace_mcmc import _stage_seeds
 from lsmas.problems import load
 
 pytestmark = pytest.mark.smoke
@@ -52,3 +53,9 @@ def test_runs_on_sipnet():
     theta = small.coordinates.array_from_draws(result.posterior.atoms)
     assert theta.shape == (5, 10)
     assert np.all(np.isfinite(theta))
+
+
+def test_stage_seeds_of_different_root_seeds_never_coincide():
+    seeds = [seed for root in range(50) for seed in _stage_seeds(root)]
+    assert len(set(seeds)) == len(seeds)
+    assert _stage_seeds(3) == _stage_seeds(3)

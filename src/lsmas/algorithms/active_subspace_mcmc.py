@@ -28,7 +28,7 @@ from probpipe import Distribution, workflow_run
 from lsmas.algorithms.result import AlgorithmResult
 from lsmas.inference import StepRecord
 from lsmas.problems.inverse_problem import InverseProblem
-from lsmas.tools import LadderLinearization, ReducedProblem, Subspace, reduced_problem
+from lsmas.tools import LadderLinearization, ReducedProblem, reduced_problem
 from lsmas.tools.estimators import Weighting
 from lsmas.tools.subspace import DEFAULT_DISCARDED_INFORMATION
 
@@ -68,7 +68,8 @@ def active_subspace_mcmc(
         Options of ``blackjax_rwmh`` that replace :data:`DEFAULT_SAMPLER_OPTIONS` and the starting
         point, such as ``{"num_results": 2000}``.
     seed : int
-        Seeds EKI, the sampler and the lift, each with its own stream.
+        The root seed. EKI, the sampler and the lift each get an independent seed spawned from it,
+        so runs with different root seeds share no random stream.
 
     Returns
     -------
@@ -82,7 +83,8 @@ def active_subspace_mcmc(
     >>> result.subspace.rank, result.forward_runs                  # doctest: +SKIP
     (7, {'exploration': 600, 'sampling': 6004})
     """
-    exploration, records, ladder = _explore(problem, n_particles, weighting, seed)
+    explore_seed, sample_seed, lift_seed = _stage_seeds(seed)
+    exploration, records, ladder = _explore(problem, n_particles, weighting, explore_seed)
     subspace = ladder.subspace(rank, discarded_information)
     reduced = reduced_problem(problem, subspace)
     options = (
@@ -90,10 +92,10 @@ def active_subspace_mcmc(
         | {"init": _starting_point(reduced, problem, exploration)}
         | dict(sampler_options or {})
     )
-    with workflow_run(seed=seed + 1):
+    with workflow_run(seed=sample_seed):
         reduced_posterior = reduced.condition(method="blackjax_rwmh", method_options=options)
     return AlgorithmResult(
-        posterior=reduced.lift(reduced_posterior, key=jax.random.key(seed + 2)),
+        posterior=reduced.lift(reduced_posterior, key=jax.random.key(lift_seed)),
         subspace=subspace,
         forward_runs={
             "exploration": _exploration_runs(problem, records),
@@ -102,6 +104,13 @@ def active_subspace_mcmc(
         exploration=exploration,
         reduced_posterior=reduced_posterior,
     )
+
+
+def _stage_seeds(seed: int) -> tuple[int, int, int]:
+    """Independent seeds for exploration, sampling and lifting, spawned from one root seed."""
+    children = np.random.SeedSequence(seed).spawn(3)
+    explore, sample, lift = (int(child.generate_state(1)[0]) for child in children)
+    return explore, sample, lift
 
 
 def _explore(
@@ -127,8 +136,7 @@ def _starting_point(
         -1, problem.coordinates.dimension
     )
     xi = problem.coordinates.whitened_from_parameters(theta)
-    subspace: Subspace = reduced.subspace
-    active = subspace.active_variables(xi.mean(axis=0))
+    active = reduced.subspace.active_variables(xi.mean(axis=0))
     scales = [
         np.median(np.asarray(exploration.atoms[slot].raw))
         for slot in problem.likelihood.random_scale_slots
