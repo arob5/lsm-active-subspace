@@ -1,6 +1,7 @@
 # Design 03 — The algorithms: subspaces, reduced posteriors, and the first algorithm
 
-*Draft 1, 2026-11-06.*
+*Draft 2, 2026-11-06. Draft 2 states how the toy differs from SIPNET (§1) and records two decisions:
+the toy's docstring explains its model in full, and the sampler's sequential chains wait (§6).*
 
 Designs 01 and 02 fixed the pieces and the inverse problem. This design fixes the algorithmic side:
 **what an active subspace estimates here, how the shipped tools estimate it, how a reduced posterior
@@ -33,9 +34,10 @@ posterior, lift it back. On `harvard_forest_small` it runs end to end, with inte
 gradient-free estimators estimate, and a cheap trustworthy reference posterior (NUTS through plain
 `condition`), to score reduced posteriors.
 
-**What it is.** SIPNET's canopy flux equations (`sipnet.c:600-640`, the 6-layer light model of
-`calcLightEff`) in JAX, without the carbon and water pools, with smooth phenology, and without
-output rounding. Per 3-hour step, with the shipped driver:
+**What it is.** A simplified SIPNET built from SIPNET's own canopy flux equations
+(`sipnet.c:600-640`, the 6-layer light model of `calcLightEff`, the Q10 respiration terms), in JAX.
+It is not SIPNET's canopy component: it drops the pools and the water balance (below). Per 3-hour
+step, with the shipped driver:
 
 $$
 \begin{aligned}
@@ -70,6 +72,26 @@ learning rate are the Harvard Forest problem's.
 | what the data inform | 7 eigenvalues of the posterior information above 1 (§2); posterior sd / prior sd from 0.43 to 0.99 per parameter |
 
 So the toy is not easy: the data inform about seven directions, none of them a single parameter.
+
+**How it differs from SIPNET.** Taken from SIPNET's source: the temperature, VPD and light effects,
+gross photosynthesis as capacity times those effects times the leaf-carbon conversion (with $P$
+and $\rho$ as after design 02's map), and the foliar, wood and soil respiration terms with their
+Q10 forms. Simplified or dropped: leaf carbon is a smooth leaf-on/leaf-off curve of fixed amplitude
+instead of SIPNET's leaf pool (leaf-on growth, allocation, turnover, leaf fall); there is no water
+stress on photosynthesis and no moisture effect on soil respiration; the wood pool is fixed at
+8660 g C m⁻² and the soil flux is referenced to a constant pool; the foliar and wood Q10 are fixed
+at 1.8; roots, frozen soil, snow and output rounding are omitted. Against SIPNET at the prior
+medians (all 46 parameters for SIPNET, the 14 for the toy; session check):
+
+| | toy against SIPNET |
+|---|---|
+| GPP per 3-hour step | correlation 0.974; annual GPP 1264 against 1621 g C m⁻² |
+| the 400 NEE features | correlation 0.979 (day 0.970, night 0.978) |
+| mean absolute feature difference | day 1.68 against a mean SIPNET magnitude of 6.09; night 0.46 against 2.46 µmol m⁻² s⁻¹ |
+
+The patterns agree closely; the toy's GPP is about 22% lower, mostly because its leaf carbon does
+not grow after leaf-on. The toy's module docstring states the model in full, equations and
+departures from SIPNET, so that a user reads what it is without opening SIPNET's source.
 
 **The data.** The toy uses the real observations, so that everything except the forward map is the
 real problem's. A synthetic-twin option (the toy at a fixed prior draw, plus the likelihood's noise)
@@ -324,8 +346,12 @@ history.
 | reduced `blackjax_rwmh` | 0.41 s per step: SIPNET's forward is not traceable, so chains run one after another, one point at a time |
 
 At ProbPipe's defaults (4 chains of 500 warmup and 1000 draws) the sampling stage is about 6000 runs,
-40 minutes; EKI's 600 runs are the smaller cost. Faster sampling waits on ProbPipe running the eager
-chains in parallel (PG-07, extended below).
+40 minutes; EKI's 600 runs are the smaller cost. Within a chain the steps are sequential, as
+Metropolis requires, but ProbPipe's path for untraceable targets also runs the chains one after
+another; run in lockstep, with each step's proposals evaluated as one batch through the forward
+map's executor, the chains would share the time (PG-07, extended below). This waits: the SIPNET
+reference posteriors will be computed once and stored (design 04), so the sampler's speed matters
+only for the algorithms' own runs, and 40 minutes is acceptable there for now.
 
 ---
 
@@ -350,7 +376,9 @@ function that composes them, so that a variant is a change of one argument or on
 
 - **PG-07, extended.** With a forward map that is not traceable, `blackjax_rwmh` runs its chains one
   after another (the eager path loops over chains), as well as one point per chain at a time. For the
-  reduced SIPNET problem that is 0.41 s per step for every chain in turn.
+  reduced SIPNET problem that is 0.41 s per step for every chain in turn. The ideal: advance the
+  chains in lockstep, evaluating each step's proposals, one per chain, as one batch, so the forward
+  `Function`'s executor runs them together. Deferred by decision (§6).
 - **PG-17 (new): one MCMC run's chains share one initial state.** `blackjax_rwmh` takes one `init`,
   or draws a single prior point, and starts every chain there (`_inference_utils.get_init_state`).
   Chains cannot start from EKI's particles, and R-hat cannot reveal a dependence on the start.
