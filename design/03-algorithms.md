@@ -369,7 +369,8 @@ As built:
 | `lsmas.tools.estimators` | `LadderLinearization` (weighting `"increment"`, `"uniform"` or `"last"`), `exact_subspace`, `finite_difference_subspace`, `covariance_subspace`, `statistical_linearization` (new) |
 | `lsmas.tools.reduced` | `reduced_problem(problem, subspace)` and `ReducedProblem.lift(posterior, key=...)` (new) |
 | `lsmas.algorithms` | `active_subspace_mcmc` and `AlgorithmResult` (new) |
-| `lsmas.problems.inverse_problem` | `InverseProblem.noise_variance(scale_values)`, the diagonal of $\Gamma$ (updated) |
+| `lsmas.priors` | `factors_over(prior, outputs)`: the factors of a product prior over given outputs, such as the noise scales' priors (new) |
+| `lsmas.problems.inverse_problem` | `InverseProblem.noise_variance(scale_values)`, the diagonal of $\Gamma$, which says which scale values are missing (updated) |
 | `lsmas._stopgaps.coordinates` | maps between $\theta$ and $\xi$ in one call, and `parameter_record(xi)`, which JAX can trace (updated) |
 | `lsmas._stopgaps.functions` | `declares_traceable(function)`, PG-18 (new) |
 
