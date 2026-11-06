@@ -377,7 +377,8 @@ class EnsKitEKI(InferenceMethod):
 inference_method_registry.register(EnsKitEKI())
 ```
 
-Verified end to end on the development problem, at ProbPipe `main`:
+Verified end to end on the development problem, at ProbPipe `main`. (That problem retired in
+design 02; `harvard_forest_small` takes its place in this example.)
 
 ```python
 problem = load("harvard_forest_dev")                # from lsmas.problems

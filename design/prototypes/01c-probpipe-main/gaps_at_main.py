@@ -30,6 +30,7 @@ from probpipe import (  # noqa: E402  (after JAX, before EnsKit: EK-01 needs 32-
     NumericArraySpec,
     NumericRecordSpec,
     OutputSpec,
+    ResolutionError,
     SupportsLogProb,
     bijector_for,
     condition_on,
@@ -342,7 +343,7 @@ exact = float(logit_normal.bijector(quantile(logit_normal.base, 0.5)).raw)
 try:
     stated = float(quantile.using(exact_only=True)(logit_normal, 0.5).raw)
     report("PG-16", f"fixed: the exact median is stated, {stated:.4f} (exact {exact:.4f})")
-except Exception as error:
+except ResolutionError as error:
     with workflow_run(seed=0):
         estimate = float(quantile(logit_normal, 0.5).raw)
     report(

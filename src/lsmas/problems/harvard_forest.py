@@ -109,7 +109,9 @@ def harvard_forest_small(
     ten, :data:`SMALL_PROBLEM_PARAMETERS`, come in groups that act together through the model, so
     that the directions the data inform most mix parameters rather than follow them one by one.
     None of them acts as a step function: the leaf-on and leaf-off timing parameters, which switch
-    on whole days, are held fixed, so that derivatives of the forward map are defined.
+    on whole days, are held fixed. So a finite difference of the forward map, once its width is
+    well above the rounding of SIPNET's output (NEE is written to three decimals), estimates the
+    same derivative whatever the width.
 
     Parameters
     ----------

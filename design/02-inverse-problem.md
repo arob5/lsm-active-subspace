@@ -378,7 +378,7 @@ from lsmas.problems import load
 
 problem = load("harvard_forest", scales="inferred")
 print(problem.describe())
-# harvard_forest: Harvard Forest NEE, 2012-2020, with 46 calibration parameters (noise scales inferred).
+# harvard_forest: Harvard Forest NEE, 2012-2020, with all 46 calibration parameters (noise scales inferred).
 # Calibration parameters (46): photosynthetic_capacity, respiration_share, ...
 # Observations: nee (400 values)
 problem.coordinates.dimension     # 46
@@ -466,10 +466,11 @@ estimates its quantiles by Monte Carlo.
 | `data/harvard_forest/prior.csv` | the 46 priors (new) |
 | `data/harvard_forest/sipnet_fixed.csv` | the 12 fixed SIPNET values, each with its reason (updated: it now holds exactly the fixed parameters) |
 | `lsmas.data` | `HarvardForestData.prior_table`, read from the CSV (new) |
-| `lsmas.priors` | the families by interval (exists), plus `laws_from_table(table)`, one ProbPipe law per row, and `independent_prior(laws)`, their product grouped under `theta` (new) |
+| `lsmas.priors` | the families by interval (exists), plus `laws_from_table(table)`, one ProbPipe law per row, `independent_prior(laws)`, their product grouped under `theta`, and `prior_medians(table)`, each parameter's exact median (new) |
 | `lsmas._stopgaps.quantiles` | `median(law)`, exact for a law transformed by a monotone bijector (PG-16, new) |
 | `lsmas.parameters` | the maps of §2, one small function each, all exact: `photosynthesis_to_sipnet`, `soil_respiration_to_sipnet` (exist), `photosynthesis_temperatures_to_sipnet`, `respiration_rates_to_sipnet`, `allocation_to_sipnet`, `initial_pools_to_sipnet` (new), and `calibration_to_sipnet(theta, fixed)`, which composes them into the 58 SIPNET values and refuses a set that misses or repeats one |
 | `lsmas.problems.harvard_forest` | `harvard_forest(scales=..., data=...)`, `harvard_forest_small(...)` and `SMALL_PROBLEM_PARAMETERS` (new) |
+| `lsmas.sipnet` | `SIPNETSimulator` now refuses a run that leaves a SIPNET parameter unset, instead of filling it with pySIPNET's Niwot Ridge values (updated) |
 | `lsmas.problems.harvard_forest_dev` | deleted |
 
 Each map in `lsmas.parameters` states its formula in its docstring and has a unit test against a
