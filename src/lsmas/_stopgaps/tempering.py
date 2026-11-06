@@ -126,7 +126,7 @@ class TemperedLikelihood(ConditionalDistribution):
         if self.learning_rate.ndim == 0:
             return self.learning_rate * self.likelihood._conditional_log_prob(given, value)
         pointwise = self.likelihood.pointwise_log_prob(given, value)
-        return jnp.asarray(np.sum(self.learning_rate * pointwise))
+        return jnp.sum(self.learning_rate * pointwise)
 
 
 class _TemperedFactor(Distribution):

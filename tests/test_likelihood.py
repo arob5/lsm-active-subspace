@@ -1,6 +1,6 @@
 import numpy as np
 import pytest
-from probpipe import SupportsLogProb, condition_on, log_prob, sample, workflow_run
+from probpipe import InverseGamma, SupportsLogProb, condition_on, log_prob, sample, workflow_run
 from scipy import stats
 
 from conftest import (
@@ -8,6 +8,7 @@ from conftest import (
     FORWARD_MATRIX,
     REFERENCE_VARIANCE,
     linear_likelihood,
+    linear_theta_prior,
 )
 
 THETA = {"a": 0.8, "b": -0.6}
@@ -53,6 +54,21 @@ def test_draws_follow_the_same_law():
     standard_errors = np.sqrt(variances / draws.shape[0])
     assert np.all(np.abs(draws.mean(axis=0) - mean) < 4 * standard_errors)
     np.testing.assert_allclose(draws.var(axis=0), variances, rtol=0.05)
+
+
+def test_a_model_with_this_likelihood_samples_parameters_and_observations_jointly():
+    likelihood = linear_likelihood({"day": "s2_day", "night": 0.5})
+    model = likelihood & (linear_theta_prior() & InverseGamma("s2_day", 3.0, 2.0))
+    with workflow_run(seed=1):
+        draws = sample(model, 4000)
+    assert set(draws.raw) == {"y", "theta", "s2_day"}
+    theta = np.column_stack([np.asarray(draws[f"theta/{name}"].raw) for name in "ab"])
+    scale = np.asarray(draws["s2_day"].raw)
+    residuals = np.asarray(draws["y"].raw) - theta @ FORWARD_MATRIX.T
+    variances = np.where(CLASSES == "day", scale[:, None], 0.5) * REFERENCE_VARIANCE
+    standardized = residuals / np.sqrt(variances)
+    np.testing.assert_allclose(standardized.mean(axis=0), 0.0, atol=0.08)
+    np.testing.assert_allclose(standardized.std(axis=0), 1.0, atol=0.05)
 
 
 def test_every_class_needs_exactly_one_scale():

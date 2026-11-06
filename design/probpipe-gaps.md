@@ -18,7 +18,7 @@ commit. "Verified" means a script in [`prototypes/`](prototypes/) reproduces the
 
 | Id | Gap | Severity here | Upstream | Status |
 |---|---|---|---|---|
-| [PG-01](#pg-01) | Non-JAX kernels cannot be sampled jointly | High: prior predictive | #580 G1 | planned |
+| [PG-01](#pg-01) | Non-JAX kernels cannot be sampled jointly | High: prior predictive | #580 G1 | closed |
 | [PG-02](#pg-02) | No "simulator plus Gaussian noise" likelihood family | High: the EnsKit seam | to file | open |
 | [PG-03](#pg-03) | No learning rate (power likelihood) on conditioning | High: the likelihood | to file | open |
 | [PG-04](#pg-04) | The inference-method extension surface is private | Medium | #580 G8, design §9 | closed |
@@ -41,20 +41,21 @@ Not ProbPipe, but tracked the same way: **EK-01**, EnsKit switches JAX to 64-bit
 
 ## PG-01
 
-**Non-JAX kernels cannot be sampled jointly.**
+**Non-JAX kernels cannot be sampled jointly.** *Closed at `9158a50e`.*
 
-- **What happens.** `sample(likelihood * prior)` raises `TracerArrayConversionError` when the
-  likelihood calls SIPNET. The joint maps each factor over its drawn givens with `jax.vmap`, on both
-  its compiled path and its fallback (`distributions/_factored.py:828-834`). This holds whether the
-  kernel is built with `conditional_distribution` or by subclassing `ConditionalDistribution`.
-  Verified: `t2_dispatch.py`, `t4_joint.py`.
-- **Effect here.** Prior predictive draws of the observables, which the walkthrough notebook needs,
-  cannot come from the model directly.
-- **Ideal ProbPipe.** A joint evaluates a factor that does not trace row by row, through the
-  execution layer, so `sample(model, n)` works for any model.
-- **Stopgap.** `lsmas.predictive.prior_predictive(problem, n)`: sample the prior, call the forward
-  `Function` on the θ batch, add noise from the likelihood. It returns the record a joint draw would.
-- **Removal.** Replace the helper's body with `sample(problem.model, n)`.
+- **What happened.** At `638f56bc`, `sample(likelihood * prior)` raised
+  `TracerArrayConversionError` when the likelihood called SIPNET: the joint maps each factor over
+  its drawn givens with `jax.vmap`, and nothing let a factor opt out. `lsmas.predictive` drew the
+  prior, called the forward `Function` on the batch, and added the noise itself.
+- **Fixed upstream.** A `Function` declared `traceable=False`, with an output spec of concrete shape
+  and dtype, runs through a host callback when traced code calls it, and its executor evaluates
+  the points. A kernel whose conditional methods are JAX code around such a call can be sampled
+  jointly.
+- **Done here.** `GaussianSimulatorLikelihood`'s sampler and density are JAX code around the forward
+  map, called with `raw=True` so that it returns plain arrays inside and outside a trace.
+  `sample(problem.model, n)` gives prior predictive draws; on the development problem, 16 draws
+  run SIPNET on the forward map's threads in about 2 s. `lsmas.predictive` is deleted, and its
+  tests became tests of sampling the model.
 
 ## PG-02
 

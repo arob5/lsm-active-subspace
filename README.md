@@ -37,7 +37,6 @@ src/lsmas/
     priors.py          prior families specified by intervals
     learning_rate.py   the likelihood's learning rate
     problems/          inverse problems, ready to condition
-    predictive.py      prior predictive draws
     inference/         ensemble Kalman inversion, registered with ProbPipe
     _stopgaps/         temporary code that fills gaps in ProbPipe
 tests/                 unit tests; `-m smoke` selects the end-to-end checks that run SIPNET

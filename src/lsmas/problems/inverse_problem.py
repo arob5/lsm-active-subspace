@@ -62,7 +62,12 @@ class InverseProblem:
 
     @functools.cached_property
     def model(self) -> Distribution:
-        """The generative model ``likelihood & prior``."""
+        """The generative model ``likelihood & prior``.
+
+        Its draws are prior predictive draws: ``sample(problem.model, n)`` draws the parameters
+        from the prior and then the observations from the likelihood, running the forward map
+        once per draw.
+        """
         return (self.likelihood & self.prior).with_label(self.name)
 
     def condition(self, **using: Any) -> Distribution:

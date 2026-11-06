@@ -1,6 +1,6 @@
 import numpy as np
 import pytest
-from probpipe import log_prob, unnormalized_log_prob
+from probpipe import log_prob, sample, unnormalized_log_prob, workflow_run
 from scipy import stats
 
 from lsmas.problems import load
@@ -53,6 +53,15 @@ def test_conditioning_target_is_the_generalized_posterior(fixed):
         return np.sum(fixed.learning_rate["nee"] * pointwise) + prior
 
     assert difference == pytest.approx(expected(THETA) - expected(other), rel=1e-8)
+
+
+def test_model_draws_run_sipnet(inferred):
+    with workflow_run(seed=3):
+        draws = sample(inferred.model, 8)
+    assert set(draws.raw) == {"nee", "theta", "s2_day", "s2_night"}
+    nee = np.asarray(draws["nee"].raw)
+    assert nee.shape == (8, 400)
+    assert np.all(np.isfinite(nee))
 
 
 def test_unknown_problem_is_refused():
