@@ -1,0 +1,25 @@
+EKI: 59 s
+{
+ "problem": "harvard_forest",
+ "chains": 8,
+ "warmup": 100,
+ "draws": 400,
+ "wall_seconds": 275.5,
+ "seconds_per_step_per_chain": 0.551,
+ "acceptance": [
+  0.278,
+  0.242,
+  0.23,
+  0.207,
+  0.233,
+  0.237,
+  0.237,
+  0.223
+ ],
+ "ess_min": 12.1,
+ "ess_median": 15.1,
+ "rhat_max": 1.767,
+ "draws_per_effective_draw_worst": 264.9
+}
+ESS per parameter: {'photosynthetic_capacity': np.float64(20.0), 'respiration_share': np.float64(14.0), 'optimum_photosynthesis_temperature': np.float64(18.0), 'photosynthesis_temperature_range': np.float64(16.0), 'half_saturation_light': np.float64(17.0), 'vapor_pressure_deficit_slope': np.float64(27.0), 'vapor_pressure_deficit_exponent': np.float64(19.0), 'light_extinction_coefficient': np.float64(25.0), 'water_use_efficiency': np.float64(18.0), 'water_removal_fraction': np.float64(14.0), 'soil_water_holding_capacity': np.float64(14.0), 'interception_evaporation_fraction': np.float64(14.0), 'fast_flow_fraction': np.float64(24.0), 'snow_melt_rate': np.float64(15.0), 'aerodynamic_resistance_constant': np.float64(20.0), 'soil_resistance_intercept': np.float64(17.0), 'soil_resistance_slope': np.float64(13.0), 'leaf_on_growing_degree_days': np.float64(19.0), 'leaf_off_day': np.float64(13.0), 'leaf_on_growth': np.float64(20.0), 'leaf_off_fall_fraction': np.float64(13.0), 'leaf_turnover_rate': np.float64(14.0), 'leaf_allocation': np.float64(29.0), 'wood_share_of_nonleaf_allocation': np.float64(15.0), 'fine_root_share_of_root_allocation': np.float64(15.0), 'wood_turnover_rate': np.float64(14.0), 'fine_root_turnover_rate': np.float64(16.0), 'coarse_root_turnover_rate': np.float64(18.0), 'wood_respiration_rate_at_10c': np.float64(15.0), 'wood_respiration_q10': np.float64(13.0), 'fine_root_respiration_rate_at_10c': np.float64(15.0), 'fine_root_respiration_q10': np.float64(17.0), 'coarse_root_respiration_rate_at_10c': np.float64(12.0), 'coarse_root_respiration_q10': np.float64(19.0), 'soil_respiration_flux_at_10c': np.float64(14.0), 'soil_respiration_q10': np.float64(18.0), 'soil_respiration_moisture_exponent': np.float64(15.0), 'frozen_soil_threshold': np.float64(14.0), 'frozen_soil_foliar_respiration_factor': np.float64(14.0), 'frozen_soil_water_fraction': np.float64(14.0), 'initial_wood_carbon': np.float64(24.0), 'initial_coarse_root_carbon': np.float64(15.0), 'initial_fine_root_carbon': np.float64(14.0), 'initial_soil_carbon': np.float64(13.0), 'initial_soil_wetness': np.float64(25.0), 'initial_snow_water_equivalent': np.float64(13.0)}
+R-hat per parameter: {'photosynthetic_capacity': np.float64(1.335), 'respiration_share': np.float64(1.613), 'optimum_photosynthesis_temperature': np.float64(1.363), 'photosynthesis_temperature_range': np.float64(1.496), 'half_saturation_light': np.float64(1.399), 'vapor_pressure_deficit_slope': np.float64(1.216), 'vapor_pressure_deficit_exponent': np.float64(1.381), 'light_extinction_coefficient': np.float64(1.242), 'water_use_efficiency': np.float64(1.376), 'water_removal_fraction': np.float64(1.591), 'soil_water_holding_capacity': np.float64(1.557), 'interception_evaporation_fraction': np.float64(1.565), 'fast_flow_fraction': np.float64(1.269), 'snow_melt_rate': np.float64(1.51), 'aerodynamic_resistance_constant': np.float64(1.341), 'soil_resistance_intercept': np.float64(1.435), 'soil_resistance_slope': np.float64(1.658), 'leaf_on_growing_degree_days': np.float64(1.365), 'leaf_off_day': np.float64(1.627), 'leaf_on_growth': np.float64(1.327), 'leaf_off_fall_fraction': np.float64(1.726), 'leaf_turnover_rate': np.float64(1.596), 'leaf_allocation': np.float64(1.215), 'wood_share_of_nonleaf_allocation': np.float64(1.5), 'fine_root_share_of_root_allocation': np.float64(1.515), 'wood_turnover_rate': np.float64(1.578), 'fine_root_turnover_rate': np.float64(1.466), 'coarse_root_turnover_rate': np.float64(1.388), 'wood_respiration_rate_at_10c': np.float64(1.508), 'wood_respiration_q10': np.float64(1.709), 'fine_root_respiration_rate_at_10c': np.float64(1.555), 'fine_root_respiration_q10': np.float64(1.447), 'coarse_root_respiration_rate_at_10c': np.float64(1.767), 'coarse_root_respiration_q10': np.float64(1.362), 'soil_respiration_flux_at_10c': np.float64(1.552), 'soil_respiration_q10': np.float64(1.427), 'soil_respiration_moisture_exponent': np.float64(1.542), 'frozen_soil_threshold': np.float64(1.613), 'frozen_soil_foliar_respiration_factor': np.float64(1.576), 'frozen_soil_water_fraction': np.float64(1.598), 'initial_wood_carbon': np.float64(1.266), 'initial_coarse_root_carbon': np.float64(1.578), 'initial_fine_root_carbon': np.float64(1.612), 'initial_soil_carbon': np.float64(1.663), 'initial_soil_wetness': np.float64(1.244), 'initial_snow_water_equivalent': np.float64(1.649)}
