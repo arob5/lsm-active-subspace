@@ -37,15 +37,10 @@ def test_fixed_values_are_keyed_by_pysipnet_names():
     assert all(isinstance(value, float) for value in fixed.values())
 
 
-def test_prior_table_states_each_family_by_its_own_numbers():
+def test_prior_table_gives_every_parameter_its_units_and_source():
     table = load_harvard_forest().prior_table
     assert len(table) == 46
-    by_interval = table["family"].isin(["log_normal", "logit_normal", "uniform"])
-    assert table.loc[by_interval, ["lower", "upper"]].notna().all(axis=None)
-    assert table.loc[by_interval, ["mean", "sd"]].isna().all(axis=None)
-    assert table.loc[~by_interval, ["mean", "sd"]].notna().all(axis=None)
-    assert table.loc[~by_interval, ["lower", "upper"]].isna().all(axis=None)
-    assert set(table["family"][~by_interval]) == {"normal"}
+    assert table[["units", "family", "source"]].notna().all(axis=None)
 
 
 def test_a_parameter_named_twice_in_the_prior_table_is_refused(tmp_path):

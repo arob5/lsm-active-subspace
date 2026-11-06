@@ -14,7 +14,23 @@ from lsmas.parameters import (
     soil_respiration_to_sipnet,
 )
 
-FIXED = load_harvard_forest().fixed_sipnet_parameters
+
+@pytest.fixture(scope="module")
+def data():
+    return load_harvard_forest()
+
+
+@pytest.fixture(scope="module")
+def fixed(data):
+    return data.fixed_sipnet_parameters
+
+
+@pytest.fixture(scope="module")
+def theta(fixed):
+    """Every calibration parameter that :func:`calibration_to_sipnet` reads, at 0.5."""
+    recorder = _ReadRecorder()
+    calibration_to_sipnet(recorder, fixed)
+    return dict.fromkeys(recorder.read, 0.5)
 
 
 class _ReadRecorder(Mapping):
@@ -32,13 +48,6 @@ class _ReadRecorder(Mapping):
 
     def __len__(self):
         return len(self.read)
-
-
-def calibration_parameters_read():
-    """The names :func:`calibration_to_sipnet` reads from its calibration parameters."""
-    recorder = _ReadRecorder()
-    calibration_to_sipnet(recorder, FIXED)
-    return frozenset(recorder.read)
 
 
 def test_photosynthesis_map_inverts_the_identifiable_combinations():
@@ -108,39 +117,32 @@ def test_initial_pools_map_reproduces_each_pool():
     assert total * remaining == pytest.approx(wood, rel=1e-12)
 
 
-def test_the_prior_table_names_exactly_the_calibration_parameters():
-    assert set(load_harvard_forest().prior_table.index) == calibration_parameters_read()
+def test_the_prior_table_names_exactly_the_calibration_parameters(data, theta):
+    assert set(data.prior_table.index) == theta.keys()
 
 
-def test_calibration_and_fixed_values_set_every_sipnet_parameter():
-    names = calibration_parameters_read()
-    assert len(names) + len(FIXED) == len(SIPNET_PARAMETERS) == 58
-    sipnet = calibration_to_sipnet(dict.fromkeys(names, 0.5), FIXED)
-    assert sipnet.keys() == SIPNET_PARAMETERS
+def test_calibration_and_fixed_values_set_every_sipnet_parameter(theta, fixed):
+    assert len(theta) + len(fixed) == len(SIPNET_PARAMETERS) == 58
+    assert calibration_to_sipnet(theta, fixed).keys() == SIPNET_PARAMETERS
 
 
-def test_every_calibration_parameter_reaches_sipnet():
-    names = calibration_parameters_read()
-    theta = dict.fromkeys(names, 0.5)
-    at_theta = calibration_to_sipnet(theta, FIXED)
-    for name in names:
-        assert calibration_to_sipnet(theta | {name: 0.6}, FIXED) != at_theta, name
+def test_every_calibration_parameter_reaches_sipnet(theta, fixed):
+    at_theta = calibration_to_sipnet(theta, fixed)
+    for name in theta:
+        assert calibration_to_sipnet(theta | {name: 0.6}, fixed) != at_theta, name
 
 
-def test_a_parameter_both_calibrated_and_fixed_is_refused():
-    theta = dict.fromkeys(calibration_parameters_read(), 0.5)
+def test_a_parameter_both_calibrated_and_fixed_is_refused(theta, fixed):
     with pytest.raises(ValueError, match="both calibrated and fixed: \\['leaf_off_day'\\]"):
-        calibration_to_sipnet(theta, FIXED | {"leaf_off_day": 285.0})
+        calibration_to_sipnet(theta, fixed | {"leaf_off_day": 285.0})
 
 
-def test_a_parameter_neither_calibrated_nor_fixed_is_refused():
-    theta = dict.fromkeys(calibration_parameters_read(), 0.5)
-    fixed = {name: value for name, value in FIXED.items() if name != "leaf_on_day"}
+def test_a_parameter_neither_calibrated_nor_fixed_is_refused(theta, fixed):
+    without = {name: value for name, value in fixed.items() if name != "leaf_on_day"}
     with pytest.raises(ValueError, match="neither calibrated nor fixed: \\['leaf_on_day'\\]"):
-        calibration_to_sipnet(theta, fixed)
+        calibration_to_sipnet(theta, without)
 
 
-def test_a_fixed_value_that_is_not_a_sipnet_parameter_is_refused():
-    theta = dict.fromkeys(calibration_parameters_read(), 0.5)
+def test_a_fixed_value_that_is_not_a_sipnet_parameter_is_refused(theta, fixed):
     with pytest.raises(ValueError, match="not SIPNET parameters: \\['leaf_of_day'\\]"):
-        calibration_to_sipnet(theta, FIXED | {"leaf_of_day": 285.0})
+        calibration_to_sipnet(theta, fixed | {"leaf_of_day": 285.0})
