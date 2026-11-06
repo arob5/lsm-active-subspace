@@ -7,21 +7,21 @@ show what a gradient-free estimate of a subspace estimates, and a NUTS posterior
 a reduced posterior can be scored against.
 
 **The model.** At each 3-hour step of the shipped driver, with air temperature $T_a$ and soil
-temperature $T_s$ (°C), photosynthetically active radiation $Q$ (mol m⁻² d⁻¹), vapor pressure
-deficit $D$ (kPa), day of year $t$, and growing degree days $\Theta$ (°C d, the year-to-date sum of
-$\max(T_a\, \Delta t, 0)$ over steps of length $\Delta t$ days):
+temperature $T_s$ (°C), photosynthetically active radiation $\mathrm{PAR}$ (mol m⁻² d⁻¹), vapor
+pressure deficit $D$ (kPa), day of year $t$, and growing degree days $\Theta$ (°C d, the
+year-to-date sum of $\max(T_a\, \Delta t, 0)$ over steps of length $\Delta t$ days):
 
 $$
 \begin{aligned}
 C_L &= g\; \sigma\!\left(\frac{\Theta - \Theta_{\mathrm{on}}}{30}\right)
       \sigma\!\left(\frac{t_{\mathrm{off}} - t}{5}\right)
       && \text{leaf carbon, g C m}^{-2}, \\
-\Phi &= 1.2 \times 10^{-8} \cdot 86400 \cdot P\, C_L
+P_C &= 1.2 \times 10^{-8} \cdot 86400 \cdot P\, C_L
       && \text{photosynthetic capacity of the canopy, g C m}^{-2}\,\text{d}^{-1}, \\
-\mathrm{GPP} &= \Phi\; f_T(T_a)\, f_D(D)\, f_Q(Q, C_L / \ell), \\
-R &= \rho\, \Phi\; q^{(T_a - T_{\mathrm{opt}})/10}
-    + \frac{k_{10}\, C_W}{365}\, q^{(T_a - 10)/10}
-    + \frac{F_{10}}{365}\, Q_{10}^{(T_s - 10)/10}, \\
+\mathrm{GPP} &= P_C\; f_T(T_a)\, f_D(D)\, f_L(\mathrm{PAR}, C_L / \ell), \\
+R &= \rho\, P_C\, \left(Q_{10}^{\mathrm{veg}}\right)^{(T_a - T_{\mathrm{opt}})/10}
+    + \frac{k_{10}\, C_W}{365} \left(Q_{10}^{\mathrm{veg}}\right)^{(T_a - 10)/10}
+    + \frac{F_{10}}{365} \left(Q_{10}^{\mathrm{soil}}\right)^{(T_s - 10)/10}, \\
 \mathrm{NEE} &= R - \mathrm{GPP},
 \end{aligned}
 $$
@@ -37,23 +37,24 @@ SIPNET's parabola, which vanishes at $T_{\min} = T_{\mathrm{opt}} - \Delta$ and
 $T_{\max} = T_{\mathrm{opt}} + \Delta$, and
 
 $$
-f_D(D) = \max\!\left(0,\; 1 - \delta\, D^{\epsilon}\right),
+f_D(D) = \max\!\left(0,\; 1 - \delta\, D^{\nu}\right),
 \qquad
-f_Q(Q, \mathrm{LAI}) = \int_0^1 \left(1 - 2^{-Q e^{-\kappa\, \mathrm{LAI}\, u} / h}\right) du,
+f_L(\mathrm{PAR}, \mathrm{LAI}) = \int_0^1 \left(1 - 2^{-\mathrm{PAR}\,
+e^{-\kappa\, \mathrm{LAI}\, u} / \mathrm{PAR}_{1/2}}\right) du,
 $$
 
 the last by Simpson's rule on 6 canopy layers, as SIPNET computes it, and 0 without leaves or
 light. The fixed constants are the leaf carbon per leaf area $\ell = 30.7092$ g C m⁻² (SIPNET's
-fixed value), the wood carbon $C_W$ and the foliar and wood $Q_{10}$, $q$, both at their prior
-medians (8660 g C m⁻² and 1.79).
+fixed value), and the wood carbon $C_W$ and the foliar and wood $Q_{10}^{\mathrm{veg}}$, both at
+their prior medians (8660 g C m⁻² and 1.79).
 
 **The 14 calibration parameters** (:data:`TOY_PARAMETERS`) are rows of the shipped prior table,
 with their priors: the photosynthetic capacity $P$, respiration share $\rho$, optimum temperature
-$T_{\mathrm{opt}}$ and range $\Delta$, light half-saturation $h$, VPD slope $\delta$ and exponent
-$\epsilon$, light extinction coefficient $\kappa$, the leaf-on growing degree days
+$T_{\mathrm{opt}}$ and range $\Delta$, light half-saturation $\mathrm{PAR}_{1/2}$, VPD slope
+$\delta$ and exponent $\nu$, light extinction coefficient $\kappa$, the leaf-on growing degree days
 $\Theta_{\mathrm{on}}$, leaf-off day $t_{\mathrm{off}}$ and leaf-on growth $g$, the wood
 respiration rate at 10 °C $k_{10}$, and the soil respiration flux at 10 °C $F_{10}$ with its
-$Q_{10}$.
+$Q_{10}^{\mathrm{soil}}$.
 
 **How it differs from SIPNET.** The light, temperature and VPD effects, the form of gross
 photosynthesis (with $P$ and $\rho$ entering as in
@@ -162,7 +163,7 @@ class ToyCanopyModel:
     air_temperature, soil_temperature : jax.Array
         $T_a$ and $T_s$ at each step, °C, shape $(S,)$.
     radiation : jax.Array
-        $Q$, mol m⁻² d⁻¹.
+        $\mathrm{PAR}$, mol m⁻² d⁻¹.
     vapor_pressure_deficit : jax.Array
         $D$, kPa.
     day_of_year : jax.Array
@@ -170,7 +171,7 @@ class ToyCanopyModel:
     growing_degree_days : jax.Array
         $\Theta$, °C d.
     leaf_carbon_per_area, wood_carbon, respiration_q10 : float
-        $\ell$, $C_W$ and $q$.
+        $\ell$, $C_W$ and $Q_{10}^{\mathrm{veg}}$.
     operator_rows, operator_columns, operator_weights : jax.Array
         The observation operator $A$ in coordinate form: feature ``operator_rows[m]`` adds
         ``operator_weights[m]`` times the rate at step ``operator_columns[m]``.
@@ -257,7 +258,7 @@ class ToyCanopyModel:
         return jnp.maximum(1.0 - (distance / half_width) ** 2, 0.0)
 
     def vapor_pressure_deficit_effect(self, theta: Mapping[str, Any]) -> jax.Array:
-        r"""$f_D(D) = \max(0, 1 - \delta D^\epsilon)$."""
+        r"""$f_D(D) = \max(0, 1 - \delta D^\nu)$."""
         reduction = (
             theta["vapor_pressure_deficit_slope"]
             * self.vapor_pressure_deficit ** theta["vapor_pressure_deficit_exponent"]
@@ -265,7 +266,7 @@ class ToyCanopyModel:
         return jnp.maximum(1.0 - reduction, 0.0)
 
     def light_effect(self, theta: Mapping[str, Any], leaf_area_index: jax.Array) -> jax.Array:
-        r"""$f_Q$: the canopy's mean light saturation, by Simpson's rule on 6 layers."""
+        r"""$f_L$: the canopy's mean light saturation, by Simpson's rule on 6 layers."""
         attenuation = jnp.exp(
             -theta["light_extinction_coefficient"]
             * leaf_area_index[:, None]
