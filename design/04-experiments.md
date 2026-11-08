@@ -194,17 +194,20 @@ none in an inactive variable.
 
 ## 5. Code shape
 
+As built:
+
 | Module | Holds |
 |---|---|
-| `lsmas.experiments.reference` | `Reference` (draws, information, diagnostics, provenance), `load_reference(problem)`, and the computation of §1: `nuts_reference(problem)`, `rwmh_reference_chain(problem, chain, ...)`, `merge_reference(...)` |
-| `lsmas.experiments.metrics` | the metrics of §2, each a function of approximation draws and a `Reference`; `score(result, reference)` gives a row |
-| `lsmas.experiments.study` | `Study`, `run_study(study, directory)` |
-| `lsmas.plots` | the figures of §4 |
-| `lsmas._stopgaps.parallel_chains` | one chain per process, each with its own start (PG-07, PG-17) |
-| `scripts/compute_reference.py` | the command line for references: one chain, or merge |
-| `baselines/` | the stored references |
+| `lsmas.experiments.reference` | `Reference` (draws, information, diagnostics, provenance; `save`, `load`), `load_reference(problem)`, `convergence_diagnostics`, `nuts_reference`, and the RWMH steps `start_rwmh_reference`, `run_rwmh_segment`, `rwmh_diagnostics`, `finish_rwmh_reference`, with `rwmh_reference` running them all on this machine |
+| `lsmas.experiments.metrics` | `marginal_wasserstein`, `mean_errors`, `sd_errors`, `gaussian_wasserstein`, `interval_coverage`, `captured_information`, `largest_principal_angle`; `posterior_scores`, `subspace_scores` and `score`, which give a table row |
+| `lsmas.experiments.study` | `Study`, `run_study(study, directory)`, `load_run` and `StoredRun` |
+| `lsmas.plots` | `plot_spectra`, `plot_metric_against_setting`, `plot_qq`, `plot_activity_scores`, `plot_loadings`, `plot_sufficient_summary` |
+| `lsmas.tools.estimators` | `exact_subspace` and `finite_difference_subspace` accept one noise-scale value per point (updated) |
+| `lsmas._stopgaps.parallel_chains` | `run_in_processes`: one chain per process (PG-07, PG-17) |
+| `scripts/compute_reference.py` | the command line: `nuts`, `rwmh`, or the cluster steps `pilot`, `segment`, `diagnostics`, `finish` |
+| `baselines/<problem>/<scales>/reference.nc` | the stored references |
 
-New dependencies: `matplotlib`, `h5netcdf` and `h5py`.
+New dependencies: `matplotlib`, `h5netcdf`, `h5py`, and `arviz` as a direct dependency.
 
 ---
 

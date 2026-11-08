@@ -7,8 +7,8 @@ The inverse problem (the model, the data, the likelihood and the prior) is fixed
 the repository. This repository is for building and comparing parameter-reduction algorithms.
 
 > **Status:** under construction. The probability model, the SIPNET forward map, ensemble Kalman
-> inversion, the parameter-reduction tools and the first algorithm work; the experiment harness and
-> tutorials are next.
+> inversion, the parameter-reduction tools, the first algorithm and the experiment harness work;
+> the walkthrough notebook and the tutorials are next.
 
 ## Setup
 
@@ -69,6 +69,44 @@ sampler. [Design 03](design/03-algorithms.md) explains the choices.
 `condition` requires an inference method: ProbPipe's automatic choice assumes gradients, which
 SIPNET does not have.
 
+## Comparing algorithms
+
+A study runs one algorithm with several settings and seeds and scores every run against a stored
+reference posterior:
+
+```python
+from lsmas.algorithms import active_subspace_mcmc
+from lsmas.experiments import Study, run_study
+from lsmas.plots import plot_metric_against_setting
+
+study = Study(
+    name="toy_rank",
+    problem="toy",
+    scales="fixed",
+    algorithm=active_subspace_mcmc,
+    settings=[{"rank": rank} for rank in (3, 5, 7, 9)],
+    seeds=range(5),
+)
+table = run_study(study, directory="runs/studies/toy_rank")   # one row per run; reruns are free
+plot_metric_against_setting(table, "rank", "marginal_w1_mean")
+```
+
+The headline score, `marginal_w1_mean`, is the 1-Wasserstein distance between each parameter's
+marginal and the reference's, in whitened coordinates and reference standard deviations, averaged
+over parameters; about 0.04 is Monte Carlo noise. `lsmas.experiments.metrics` defines every score,
+and `lsmas.plots` draws the standard figures. [Design 04](design/04-experiments.md) explains both.
+
+Stored references (`baselines/`):
+
+| Problem | Fixed scales | Inferred scales |
+|---|---|---|
+| `toy` | NUTS | NUTS |
+| `harvard_forest_small` | parallel random-walk Metropolis | parallel random-walk Metropolis |
+| `harvard_forest` | not computed | not computed yet (a cluster job) |
+
+`scripts/compute_reference.py` computes a reference, on this machine or as cluster jobs (see its
+help).
+
 ## Layout
 
 ```
@@ -83,7 +121,11 @@ src/lsmas/
     inference/         ensemble Kalman inversion, registered with ProbPipe
     tools/             subspaces, their estimators, and reduced problems
     algorithms/        complete parameter-reduction algorithms built from the tools
+    experiments/       reference posteriors, metrics, and studies
+    plots.py           the standard figures
     _stopgaps/         temporary code that fills gaps in ProbPipe
+baselines/             the stored reference posteriors
+scripts/               command-line tools, such as computing a reference
 tests/                 unit tests; `-m smoke` selects the end-to-end checks that run SIPNET
 docs/notation.md       the mathematical notation every docstring uses
 design/                design documents
