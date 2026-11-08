@@ -1,6 +1,6 @@
 # Design 04 — Experiments: reference posteriors, metrics, studies and plots
 
-*Draft 1, 2026-11-06.*
+*Approved 2026-11-08 (draft 1), with the recommendations of §6.*
 
 Designs 01–03 built the problems, the tools and the first algorithm. This design builds what is
 needed to compare algorithms: **reference posteriors** computed once and stored, **metrics** that
@@ -208,18 +208,18 @@ New dependencies: `matplotlib`, `h5netcdf` and `h5py`.
 
 ---
 
-## 6. Decisions for you
+## 6. Decisions (approved 2026-11-08)
 
 1. **References** (§1.4): toy and small problem with both scale settings; the full problem with
-   inferred scales only, run on a cluster and labelled best affordable.
-2. **The full problem's reference**: run it now on a cluster, or defer it until an algorithm study
-   needs it.
+   inferred scales only, labelled best affordable.
+2. **The full problem's reference** is deferred until a study needs it; the code computes it on a
+   cluster with one array-job task per chain.
 3. **SIPNET reference recipe** (§1.3): parallel RWMH from EKI particles with EKI's covariance,
    stopping at R-hat 1.01 and 1000 effective draws per coordinate.
 4. **The headline metric** (§2): marginal $W_1$ in whitened coordinates, mean and maximum, with the
    others reported alongside; coverage as a diagnostic only.
-5. **Storage**: netCDF files shipped in `baselines/`, with the new dependencies.
-6. **Scope**: the walkthrough notebook and the tutorials in the next round, on top of this.
+5. **Storage**: netCDF files shipped in `baselines/`, with `matplotlib`, `h5netcdf` and `h5py` added.
+6. **Scope**: the walkthrough notebook and the tutorials in the next round.
 
 ---
 
