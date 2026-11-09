@@ -31,6 +31,7 @@ forward map and a Gaussian prior, $\Sigma^{-1} - I$ is exactly $DG^\top \Gamma^{
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -190,7 +191,7 @@ def exact_subspace(
     problem: InverseProblem,
     xi: np.ndarray,
     *,
-    scale_values: dict[str, float] | None = None,
+    scale_values: Mapping[str, float | np.ndarray] | None = None,
     rank: int | None = None,
     discarded_information: float = DEFAULT_DISCARDED_INFORMATION,
     chunk_size: int = 25,
@@ -208,8 +209,10 @@ def exact_subspace(
         The problem whose forward map and noise covariance to use.
     xi : numpy.ndarray
         The points, shape $(N, d)$.
-    scale_values : dict of str to float, optional
-        The inferred noise scales' values in $\Gamma$; not needed when they are fixed.
+    scale_values : Mapping of str to float or numpy.ndarray, optional
+        Each inferred noise scale's value in $\Gamma$: one number for every point, or one value per
+        point, shape $(N,)$, such as posterior draws of the scales. Not needed when the scales are
+        fixed.
     rank, discarded_information
         As for :meth:`Subspace.from_information`.
     chunk_size : int
@@ -223,12 +226,13 @@ def exact_subspace(
     forward = problem.forward.using(raw=True)
     coordinates = problem.coordinates
     jacobian = jax.jit(jax.vmap(jax.jacfwd(lambda x: forward(coordinates.parameter_record(x)))))
-    precision = 1.0 / problem.noise_variance(scale_values)
     xi = np.asarray(xi, dtype=float)
+    precisions = _point_precisions(problem, scale_values, len(xi))
     total = np.zeros((xi.shape[1], xi.shape[1]))
     for start in range(0, len(xi), chunk_size):
         jacobians = np.asarray(jacobian(jnp.asarray(xi[start : start + chunk_size])))
-        total += np.einsum("mni,n,mnj->ij", jacobians, precision, jacobians)
+        chunk_precisions = precisions[start : start + chunk_size]
+        total += np.einsum("mni,mn,mnj->ij", jacobians, chunk_precisions, jacobians)
     return Subspace.from_information(
         total / len(xi),
         parameter_names=coordinates.names,
@@ -243,7 +247,7 @@ def finite_difference_subspace(
     xi: np.ndarray,
     *,
     step: float = 0.2,
-    scale_values: dict[str, float] | None = None,
+    scale_values: Mapping[str, float | np.ndarray] | None = None,
     rank: int | None = None,
     discarded_information: float = DEFAULT_DISCARDED_INFORMATION,
 ) -> Subspace:
@@ -268,8 +272,8 @@ def finite_difference_subspace(
         As for :func:`exact_subspace`.
     """
     coordinates = problem.coordinates
-    precision = 1.0 / problem.noise_variance(scale_values)
     xi = np.asarray(xi, dtype=float)
+    precisions = _point_precisions(problem, scale_values, len(xi))
     dimension = xi.shape[1]
     shifts = step * np.concatenate([np.eye(dimension), -np.eye(dimension)])
     perturbed = (xi[:, None, :] + shifts[None, :, :]).reshape(-1, dimension)
@@ -277,7 +281,7 @@ def finite_difference_subspace(
     predictions = np.asarray(problem.forward(coordinates.bijection.record_batch(theta)).raw)
     predictions = predictions.reshape(len(xi), 2 * dimension, -1)
     per_point_information = []
-    for point_predictions in predictions:
+    for point_predictions, precision in zip(predictions, precisions, strict=True):
         if not np.all(np.isfinite(point_predictions)):
             logger.warning("the forward map failed near a point; it is left out")
             continue
@@ -327,4 +331,30 @@ def covariance_subspace(
         estimator="covariance",
         rank=rank,
         discarded_information=discarded_information,
+    )
+
+
+def _point_precisions(
+    problem: InverseProblem,
+    scale_values: Mapping[str, float | np.ndarray] | None,
+    n_points: int,
+) -> np.ndarray:
+    r"""The diagonal of $\Gamma^{-1}$ at each point, shape $(N, n)$, from each inferred scale's
+    value: one number, or one value per point."""
+    slots = problem.likelihood.random_scale_slots
+    if not slots:
+        return np.broadcast_to(
+            1.0 / problem.noise_variance(), (n_points, len(problem.noise_variance()))
+        )
+    if missing := sorted(set(slots) - set(scale_values or {})):
+        raise ValueError(f"the noise scales are inferred; give values for {missing}")
+    per_point = {
+        slot: np.broadcast_to(np.asarray(scale_values[slot], dtype=float), (n_points,))
+        for slot in slots
+    }
+    return np.stack(
+        [
+            1.0 / problem.noise_variance({slot: values[m] for slot, values in per_point.items()})
+            for m in range(n_points)
+        ]
     )

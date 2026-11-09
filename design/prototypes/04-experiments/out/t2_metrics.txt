@@ -1,0 +1,7 @@
+reference halves (noise floor)     mean_error 0.019/0.050  sd_error 0.030/0.078  marginal_w1 0.042/0.061  coverage90 0.899/0.875  gaussian_w2 0.245
+prior                              mean_error 0.814/2.246  sd_error 0.288/0.797  marginal_w1 0.883/2.246  coverage90 0.866/0.565  gaussian_w2 3.113
+EKI J=100                          mean_error 0.236/0.487  sd_error 0.105/0.332  marginal_w1 0.268/0.494  coverage90 0.848/0.767  gaussian_w2 1.068
+full RWMH, defaults                mean_error 0.338/1.774  sd_error 0.324/1.685  marginal_w1 0.387/1.797  coverage90 0.759/0.051  gaussian_w2 2.060
+active_subspace_mcmc seed 1 r=7    mean_error 0.133/0.456  sd_error 0.075/0.165  marginal_w1 0.151/0.456  coverage90 0.894/0.828  gaussian_w2 0.673
+active_subspace_mcmc seed 2 r=7    mean_error 0.171/0.339  sd_error 0.073/0.155  marginal_w1 0.188/0.339  coverage90 0.902/0.859  gaussian_w2 0.735
+active_subspace_mcmc seed 3 r=7    mean_error 0.116/0.300  sd_error 0.084/0.196  marginal_w1 0.137/0.300  coverage90 0.899/0.847  gaussian_w2 0.585

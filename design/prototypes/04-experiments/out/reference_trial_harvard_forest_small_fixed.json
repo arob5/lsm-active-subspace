@@ -1,0 +1,22 @@
+{
+ "problem": "harvard_forest_small",
+ "chains": 8,
+ "warmup": 100,
+ "draws": 400,
+ "wall_seconds": 264.2,
+ "seconds_per_step_per_chain": 0.528,
+ "acceptance": [
+  0.247,
+  0.215,
+  0.235,
+  0.182,
+  0.155,
+  0.228,
+  0.215,
+  0.22
+ ],
+ "ess_min": 28.5,
+ "ess_median": 58.2,
+ "rhat_max": 1.214,
+ "draws_per_effective_draw_worst": 112.4
+}

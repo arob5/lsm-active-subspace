@@ -1,0 +1,25 @@
+EKI: 43 s
+{
+ "problem": "harvard_forest_small",
+ "chains": 8,
+ "warmup": 100,
+ "draws": 400,
+ "wall_seconds": 264.2,
+ "seconds_per_step_per_chain": 0.528,
+ "acceptance": [
+  0.247,
+  0.215,
+  0.235,
+  0.182,
+  0.155,
+  0.228,
+  0.215,
+  0.22
+ ],
+ "ess_min": 28.5,
+ "ess_median": 58.2,
+ "rhat_max": 1.214,
+ "draws_per_effective_draw_worst": 112.4
+}
+ESS per parameter: {'photosynthetic_capacity': np.float64(40.0), 'half_saturation_light': np.float64(40.0), 'light_extinction_coefficient': np.float64(37.0), 'leaf_on_growth': np.float64(108.0), 'vapor_pressure_deficit_slope': np.float64(28.0), 'vapor_pressure_deficit_exponent': np.float64(103.0), 'soil_water_holding_capacity': np.float64(71.0), 'water_use_efficiency': np.float64(86.0), 'respiration_share': np.float64(63.0), 'soil_respiration_flux_at_10c': np.float64(54.0)}
+R-hat per parameter: {'photosynthetic_capacity': np.float64(1.155), 'half_saturation_light': np.float64(1.146), 'light_extinction_coefficient': np.float64(1.17), 'leaf_on_growth': np.float64(1.048), 'vapor_pressure_deficit_slope': np.float64(1.214), 'vapor_pressure_deficit_exponent': np.float64(1.079), 'soil_water_holding_capacity': np.float64(1.09), 'water_use_efficiency': np.float64(1.071), 'respiration_share': np.float64(1.111), 'soil_respiration_flux_at_10c': np.float64(1.118)}

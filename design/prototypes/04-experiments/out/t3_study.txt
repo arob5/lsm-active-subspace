@@ -1,0 +1,11 @@
+study: 12 runs, 60 s (cached runs are free)
+     marginal_w1_mean        marginal_w1_max  ... largest_principal_angle_deg forward_runs        
+                 mean    std            mean  ...                         std         mean     std
+rank                                          ...                                                 
+3               0.736  0.009           2.273  ...                       3.493     2068.667  57.735
+5               0.344  0.025           0.983  ...                       0.813     2068.667  57.735
+7               0.221  0.099           0.484  ...                       8.069     2068.667  57.735
+9               0.252  0.051           0.703  ...                       7.572     2068.667  57.735
+
+[4 rows x 10 columns]
+figures: ['activity_scores.png', 'error_vs_rank.png', 'qq.png', 'spectrum.png']

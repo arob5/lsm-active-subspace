@@ -1,0 +1,16 @@
+{
+ "wall_seconds": 224.5,
+ "acceptance": [
+  0.198,
+  0.182,
+  0.242,
+  0.253,
+  0.205,
+  0.23,
+  0.225,
+  0.23
+ ],
+ "ess_min": 26.8,
+ "rhat_max": 1.216,
+ "draws_per_effective_draw_worst": 119.3
+}
