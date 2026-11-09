@@ -22,7 +22,7 @@ Every number below comes from the prototype in
 
 **In one paragraph.** The notebook has eleven sections, from the overall equation to the
 coordinates the algorithms work in. It has twelve figures, all drawn in the prototype. As built, it
-runs SIPNET about 550 times and executes in about 65 seconds, so it is committed with its outputs
+runs SIPNET about 520 times and executes in about 65 seconds, so it is committed with its outputs
 and executed by a test. Most of its code calls the package directly. Five small additions make that
 code short:
 - `SIPNETSimulator.run`, for all of SIPNET's outputs;
@@ -73,12 +73,14 @@ prototype's (`out/t1.txt`).
 | 9 | The posterior along one line | tempered against untempered | F11 | 82 | 8 s |
 | 10 | Coordinates | $\theta$, $z$, $\xi$; `problem.coordinates` | F12 | 0 | 1 s |
 | 11 | Summary | the table of objects; where to go next | — | 0 | — |
-| | **Total** | | 12 | **≈ 550** | **≈ 65 s** |
+| | **Total** | | 12 | **≈ 520** | **≈ 65 s** |
 
 The figure numbers here follow the notebook's order. The prototype's file names (`f01`–`f12`)
 follow its own order. The runs and times are the prototype's, except §9 and the total, which are
-the notebook's as built: §6 also shows a batch of 16 prior draws and a failed run, and §7 one
-pointwise log-density, which together add about 20 runs.
+the notebook's as built. Besides the slice's finer grid, it runs SIPNET a few more times than the
+prototype did: twice in §4 (`run` and `nee_rate`); in §6 at the medians, at a batch of 16 prior
+draws and at the completed row of the failed-run example; and once in §7 for a pointwise
+log-density, about 20 runs in all.
 
 ### §1 The problem in one equation
 

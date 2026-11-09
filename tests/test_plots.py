@@ -74,13 +74,15 @@ def test_feature_plot_has_a_panel_per_class_and_skips_failed_rows():
     assert [axis.get_ylabel().split()[0] for axis in figure.axes] == ["day", "night"]
     labels = [text.get_text() for text in figure.axes[0].get_legend().get_texts()]
     assert labels == ["80%", "median", "observed"]
+    many_levels = plots.plot_features(data, predictions, levels=np.linspace(0.1, 0.9, 9))
+    assert len(many_levels.axes) == 2
     with pytest.raises(ValueError, match=r"shape \(N, 400\)"):
         plots.plot_features(data, predictions[:, :10])
 
 
 def test_prior_marginal_plot_has_a_panel_per_parameter(toy_run):
     toy, _, _, _, theta = toy_run
-    figure = plots.plot_prior_marginals(toy, theta, columns=4)
+    figure = plots.plot_prior_marginals(toy, theta.tolist(), columns=4)
     assert len([axis for axis in figure.axes if axis.get_visible()]) == 14
     assert figure.axes[0].get_title() == toy.coordinates.names[0]
     with pytest.raises(ValueError, match=r"shape \(N, 14\)"):

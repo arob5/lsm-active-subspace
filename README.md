@@ -38,7 +38,7 @@ there. It is committed with its outputs, so it can be read on GitHub without run
 uv run jupyter lab notebooks/main_inverse_problem.ipynb
 ```
 
-To rerun it and save the outputs (about a minute; it runs SIPNET about 550 times):
+To rerun it and save the outputs (about a minute; it runs SIPNET about 520 times):
 
 ```bash
 uv run jupyter nbconvert --to notebook --execute --inplace notebooks/main_inverse_problem.ipynb

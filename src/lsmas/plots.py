@@ -114,10 +114,12 @@ def plot_prior_marginals(
         If *draws* does not have $d$ columns.
     """
     coordinates = problem.coordinates
-    if draws is not None and (np.ndim(draws) != 2 or np.shape(draws)[1] != coordinates.dimension):
-        raise ValueError(
-            f"draws must have shape (N, {coordinates.dimension}); got {np.shape(draws)}"
-        )
+    if draws is not None:
+        draws = np.asarray(draws, dtype=float)
+        if draws.ndim != 2 or draws.shape[1] != coordinates.dimension:
+            raise ValueError(
+                f"draws must have shape (N, {coordinates.dimension}); got {draws.shape}"
+            )
     standard_deviations = np.linalg.norm(coordinates.whitening_factor, axis=1)
     offsets = np.linspace(-3.0, 3.0, 200)[:, None] * standard_deviations
     grids = coordinates.bijection.to_constrained(coordinates.whitening_mean + offsets)
@@ -295,10 +297,13 @@ def _draw_bands(
     levels: Sequence[float],
     colour: str,
 ) -> None:
-    """The median of *predictions* over its rows, and its central intervals at each level."""
+    """The median of *predictions* over its rows, and its central intervals at each level.
+
+    The intervals are shaded from light (the widest) to dark (the narrowest).
+    """
     for index, level in enumerate(sorted(levels, reverse=True)):
         lower, upper = np.quantile(predictions, [(1 - level) / 2, (1 + level) / 2], axis=0)
-        shade = 0.15 + 0.15 * index  # narrower intervals are darker
+        shade = 0.15 + 0.15 * index / max(len(levels) - 1, 1)
         axis.fill_between(
             times, lower, upper, color=colour, alpha=shade, lw=0, label=f"{level:.0%}"
         )

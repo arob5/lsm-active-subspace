@@ -24,6 +24,7 @@ from pysipnet import (
     ClimateDrivers,
     ModelFlags,
     SIPNETModel,
+    SIPNETOutput,
     SIPNETRunError,
     SIPNETRunner,
     niwot_reference_parameters,
@@ -78,7 +79,9 @@ class SIPNETSimulator:
         """Every SIPNET output, one value per output step.
 
         The ``time`` coordinate is the end of each step (UTC). Each variable's ``attrs`` give its
-        units and say whether it is a total over the step (a flux) or a value at its end (a pool).
+        units and its ``kind``: for example a total over the step (``timestep_total``, as for
+        fluxes), a value at its end (``timestep_end_state``, as for pools) or a mean over it
+        (``timestep_mean``).
 
         Parameters
         ----------
@@ -90,10 +93,7 @@ class SIPNETSimulator:
         ValueError
             If the fixed values and *parameters* leave a SIPNET parameter unset.
         """
-        complete = self.fixed_parameters | dict(parameters)
-        if missing := sorted(SIPNET_PARAMETERS - complete.keys()):
-            raise ValueError(f"these SIPNET parameters are not set: {missing}")
-        return self._model(**complete).outputs.xarray
+        return self._outputs(parameters).xarray
 
     def run_nee(self, parameters: Mapping[str, float]) -> xr.DataArray:
         """SIPNET's NEE per output step, as pySIPNET returns it (g C m⁻² per step).
@@ -108,7 +108,7 @@ class SIPNETSimulator:
         ValueError
             If the fixed values and *parameters* leave a SIPNET parameter unset.
         """
-        return self.run(parameters)["net_ecosystem_exchange"]
+        return self._outputs(parameters)["nee"]
 
     def nee_rate(self, parameters: Mapping[str, float]) -> np.ndarray:
         r"""SIPNET's NEE as a rate in µmol CO₂ m⁻² s⁻¹, one value per output step.
@@ -124,6 +124,14 @@ class SIPNETSimulator:
         totals = self.run_nee(parameters)
         seconds = totals.coords["timestep_length"].values / np.timedelta64(1, "s")
         return totals.values / seconds * _MICROMOLES_CO2_PER_GRAM_CARBON
+
+    def _outputs(self, parameters: Mapping[str, float]) -> SIPNETOutput:
+        """Run SIPNET with the fixed values overridden by *parameters*, after checking that every
+        SIPNET parameter is set."""
+        complete = self.fixed_parameters | dict(parameters)
+        if missing := sorted(SIPNET_PARAMETERS - complete.keys()):
+            raise ValueError(f"these SIPNET parameters are not set: {missing}")
+        return self._model(**complete).outputs
 
 
 def feature_map(

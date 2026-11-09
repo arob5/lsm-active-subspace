@@ -38,7 +38,9 @@ def test_a_run_holds_every_output_on_the_same_steps(data, simulator):
         outputs.data_vars
     )
     assert pd.DatetimeIndex(outputs["time"].values).equals(data.step_ends)
-    assert outputs["net_ecosystem_exchange"].equals(simulator.run_nee({}))
+    nee = simulator.run_nee({})
+    assert outputs["net_ecosystem_exchange"].equals(nee)
+    assert "bounds" not in nee["time"].attrs  # it has no time_bounds to point to
 
 
 def test_a_parameter_left_unset_is_refused(data):

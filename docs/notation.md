@@ -24,7 +24,7 @@ function (such as the leaf carbon fraction $c$ in a parameter map) is defined th
 | $v_k$, $v_i = v_{k(i)}$ | the reference variance of a class |
 | $s^2_k$ | the noise scale of class $k$ |
 | $\eta_i \in (0, 1]$ | the learning rate of observation $i$ |
-| $\Gamma = \operatorname{diag}\!\left(s^2_{k(i)} v_i / \eta_i\right)$ | the tempered noise covariance: the generalized posterior is $\pi(\theta)\, \mathcal N(y \mid G(\theta), \Gamma)$ up to a constant |
+| $\Gamma = \operatorname{diag}\!\left(s^2_{k(i)} v_i / \eta_i\right)$ | the tempered noise covariance: for fixed noise scales, the generalized posterior of $\theta$ is $\pi(\theta)\, \mathcal N(y \mid G(\theta), \Gamma)$ up to a constant |
 
 ## Ensembles and tempering
 
