@@ -32,6 +32,15 @@ def test_output_steps_are_the_observation_operators_columns(data, simulator):
     assert pd.DatetimeIndex(totals["time"].values).equals(data.step_ends)
 
 
+def test_a_run_holds_every_output_on_the_same_steps(data, simulator):
+    outputs = simulator.run({})
+    assert {"net_ecosystem_exchange", "gross_primary_production", "leaf_carbon"} <= set(
+        outputs.data_vars
+    )
+    assert pd.DatetimeIndex(outputs["time"].values).equals(data.step_ends)
+    assert outputs["net_ecosystem_exchange"].equals(simulator.run_nee({}))
+
+
 def test_a_parameter_left_unset_is_refused(data):
     partial = SIPNETSimulator(data.driver_path, data.fixed_sipnet_parameters)
     with pytest.raises(ValueError, match=r"not set: .*'leaf_off_day'"):

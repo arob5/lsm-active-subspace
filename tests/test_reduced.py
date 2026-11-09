@@ -96,6 +96,5 @@ def test_reduced_sipnet_forward_at_zero_is_the_full_forward_at_the_prior_centre(
     )
     reduced = reduced_problem(small, subspace)
     at_zero = np.asarray(reduced.forward({"active_1": 0.0, "active_2": 0.0, "active_3": 0.0}).raw)
-    centre = small.coordinates.parameters_from_whitened(np.zeros((1, 10)))
-    full = np.asarray(small.forward(small.coordinates.bijection.record_batch(centre)).raw)[0]
+    full = small.predicted_observations(small.coordinates.parameters_from_whitened(np.zeros(10)))
     np.testing.assert_allclose(at_zero, full, rtol=1e-12)

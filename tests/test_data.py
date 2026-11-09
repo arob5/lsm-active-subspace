@@ -30,6 +30,15 @@ def test_each_feature_lies_inside_its_recorded_windows():
         assert window_ends.max() == feature.last_step_end_utc
 
 
+def test_each_feature_time_is_in_its_own_half_month():
+    data = load_harvard_forest()
+    times = data.feature_times
+    assert len(times) == len(data.features)
+    np.testing.assert_array_equal(times.year, data.features["year"])
+    np.testing.assert_array_equal(times.month, data.features["month"])
+    np.testing.assert_array_equal(np.where(times.day <= 15, 1, 2), data.features["half"])
+
+
 def test_fixed_values_are_keyed_by_pysipnet_names():
     fixed = load_harvard_forest().fixed_sipnet_parameters
     assert len(fixed) == 12

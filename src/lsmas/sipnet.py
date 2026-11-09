@@ -1,9 +1,10 @@
 r"""Running SIPNET at a site, and the forward map from calibration parameters to observed features.
 
-:class:`SIPNETSimulator` runs SIPNET with a fixed driver and fixed parameter values, returning NEE
-as a rate. :func:`feature_map` wraps a simulator, a map from calibration parameters to SIPNET
-parameters, and an observation operator into the forward map $G(\theta) = A\, x(\theta)$, a ProbPipe
-``Function`` that runs SIPNET in parallel threads when called on a batch.
+:class:`SIPNETSimulator` runs SIPNET with a fixed driver and fixed parameter values, returning
+every output or NEE as a rate. :func:`feature_map` wraps a simulator, a map from calibration
+parameters to SIPNET parameters, and an observation operator into the forward map
+$G(\theta) = A\, x(\theta)$, a ProbPipe ``Function`` that runs SIPNET in parallel threads when
+called on a batch.
 """
 
 from __future__ import annotations
@@ -73,8 +74,11 @@ class SIPNETSimulator:
             base_climate=ClimateDrivers.from_path(self.driver_path, time_zone="UTC"),
         )
 
-    def run_nee(self, parameters: Mapping[str, float]) -> xr.DataArray:
-        """SIPNET's NEE per output step, as pySIPNET returns it (g C m⁻² per step).
+    def run(self, parameters: Mapping[str, float]) -> xr.Dataset:
+        """Every SIPNET output, one value per output step.
+
+        The ``time`` coordinate is the end of each step (UTC). Each variable's ``attrs`` give its
+        units and say whether it is a total over the step (a flux) or a value at its end (a pool).
 
         Parameters
         ----------
@@ -89,7 +93,22 @@ class SIPNETSimulator:
         complete = self.fixed_parameters | dict(parameters)
         if missing := sorted(SIPNET_PARAMETERS - complete.keys()):
             raise ValueError(f"these SIPNET parameters are not set: {missing}")
-        return self._model(**complete).outputs["nee"]
+        return self._model(**complete).outputs.xarray
+
+    def run_nee(self, parameters: Mapping[str, float]) -> xr.DataArray:
+        """SIPNET's NEE per output step, as pySIPNET returns it (g C m⁻² per step).
+
+        Parameters
+        ----------
+        parameters : Mapping of str to float
+            SIPNET parameters, keyed by pySIPNET's names, overriding the fixed values.
+
+        Raises
+        ------
+        ValueError
+            If the fixed values and *parameters* leave a SIPNET parameter unset.
+        """
+        return self.run(parameters)["net_ecosystem_exchange"]
 
     def nee_rate(self, parameters: Mapping[str, float]) -> np.ndarray:
         r"""SIPNET's NEE as a rate in µmol CO₂ m⁻² s⁻¹, one value per output step.

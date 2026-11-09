@@ -277,8 +277,7 @@ def finite_difference_subspace(
     dimension = xi.shape[1]
     shifts = step * np.concatenate([np.eye(dimension), -np.eye(dimension)])
     perturbed = (xi[:, None, :] + shifts[None, :, :]).reshape(-1, dimension)
-    theta = coordinates.parameters_from_whitened(perturbed)
-    predictions = np.asarray(problem.forward(coordinates.bijection.record_batch(theta)).raw)
+    predictions = problem.predicted_observations(coordinates.parameters_from_whitened(perturbed))
     predictions = predictions.reshape(len(xi), 2 * dimension, -1)
     per_point_information = []
     for point_predictions, precision in zip(predictions, precisions, strict=True):
