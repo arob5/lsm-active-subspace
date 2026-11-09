@@ -1,6 +1,8 @@
 # Design 05 — The walkthrough notebook: the Harvard Forest inverse problem
 
-*Approved 2026-11-09 (draft 1), with the recommendations of §6.*
+*Approved 2026-11-09 (draft 1), with the recommendations of §6. Revised 2026-11-09 (draft 2) after
+review of the first notebook: §2a replaces the outline of §2, and decisions 7–10 replace decisions 1
+and 2.*
 
 Designs 01–04 built the inverse problem, the algorithms and the experiment harness. This design
 specifies the notebook that presents the inverse problem itself, `notebooks/main_inverse_problem.ipynb`.
@@ -20,10 +22,11 @@ Every number below comes from the prototype in
 [`prototypes/05-main-inverse-problem/`](prototypes/05-main-inverse-problem/), on this machine
 (8 cores). The notation is that of [`docs/notation.md`](../docs/notation.md).
 
-**In one paragraph.** The notebook has eleven sections, from the overall equation to the
-coordinates the algorithms work in. It has twelve figures, all drawn in the prototype. As built, it
-runs SIPNET about 520 times and executes in about 65 seconds, so it is committed with its outputs
-and executed by a test. Most of its code calls the package directly. Five small additions make that
+**In one paragraph.** The notebook (draft 2, §2a) gives a high-level overview, then takes the
+pieces one at a time (the data, the prior, the forward model, the likelihood) and teaches how to
+work with each in code, then puts them together. Noise scales, coordinates and the full
+mathematical statement come last. It has thirteen figures. It runs SIPNET about 320 times and
+executes in under 40 seconds, so it is committed with its outputs and executed by a test. Most of its code calls the package directly. Five small additions make that
 code short:
 - `SIPNETSimulator.run`, for all of SIPNET's outputs;
 - `InverseProblem.predicted_observations`, for $G$ at an array of parameters;
@@ -54,7 +57,33 @@ A reader who has worked through the notebook can:
 
 ---
 
-## 2. The outline
+## 2a. The outline, draft 2
+
+Review of draft 1 asked for better pedagogy: a high-level view first, then the objects built up in
+small steps, with the mathematics kept to what each step needs and stated in full at the end; plain
+section titles; and plotting code out of the way. The notebook as built:
+
+| § | Section | Teaches | Figures | SIPNET runs |
+|---|---|---|---|---|
+| 1 | Problem overview | the four pieces in words; $y = G(\theta) + \epsilon$; $\pi(\theta \mid y) \propto \pi(\theta)\, p(y \mid \theta)$; `load`, `describe` | — | 0 |
+| 2 | Harvard Forest data | `problem.data`, `load_harvard_forest`, `data.features`; the weather | features; weather | 0 |
+| 3 | The prior | `data.prior_table`; `sample` in `workflow_run`; `.raw`; `array_from_draws`; `marginal`, `quantile`, `log_prob`; `prior_medians` | prior marginals | 0 |
+| 4 | The forward model | `problem.forward` on a record and a batch; `predicted_observations`; one at a time; failures; inside: `calibration_to_sipnet`, `SIPNETSimulator.run`, `nee_rate`, $A$ | G at the medians; 8 prior draws; one at a time; SIPNET outputs; averaging | 32 |
+| 5 | The likelihood | $\epsilon_i \sim \mathcal N(0, v_i)$; `noise_variances`, `pointwise_log_prob`; the learning rate as an idea; `noise_variance` | residuals | 1 |
+| 6 | Putting it together | `sample(problem.model, n)`; coverage; the log-posterior by hand and as `problem.condition(method="unnormalized")` | prior predictive | 200 |
+| 7 | Learning noise scales | `scales="inferred"`; the IG(2, 1.678) prior | noise-scale prior | 0 |
+| 8 | Coordinates | $\theta$, $z$, $\xi$; `problem.coordinates` | coordinates | 0 |
+| 9 | Mathematical details | the full posterior; 58 → 46 parameters; prior families; $A$; the learning-rate formula; $\Gamma$; the slice with and without the learning rate; symbols and code | slice | 82 |
+
+- **Fixed noise scales** throughout sections 1–6 and 8, so $\theta$ is the only unknown while the
+  objects are introduced; section 7 introduces the inferred scales.
+- **Plotting helpers** for figures drawn only here live in one collapsed cell
+  (`jupyter.source_hidden`) near the top. Figures later tutorials will reuse come from
+  `lsmas.plots`.
+- **Dropped:** `predictive_check` (it belongs in a posterior tutorial).
+- **No exercises.**
+
+## 2. The outline (draft 1, superseded by §2a)
 
 Each section opens with a short statement of what it introduces, gives the mathematics, then the
 code, then a figure with a sentence saying what to look for. The SIPNET runs and times are the
@@ -300,13 +329,14 @@ README's sections on the algorithm and on comparing algorithms.
 - **Notation** is `docs/notation.md`'s, and the markdown uses the same LaTeX as the docstrings.
 - **Seeds.** Every random call runs inside `workflow_run(seed=...)`, so a rerun reproduces every
   figure.
-- **Code cells** are short. A figure drawn once (F1, F3, F5–F8, F10–F12) is drawn inline, in at
-  most about 15 lines of matplotlib. A figure the later tutorials will draw again (F2, F4, F9) comes
-  from `lsmas.plots`.
+- **Code cells** are short. A figure drawn only in this notebook is drawn by a helper in the
+  collapsed cell near the top (draft 2). A figure the later tutorials will draw again comes from
+  `lsmas.plots`.
 - **Text** is plain and specific: what is introduced, the equation, the code, what the figure
   shows.
 - **Outputs are committed**, so the notebook reads like a presentation on GitHub without running
-  SIPNET. Executed, it is 1.4 MB; the prior marginals (F2) are the largest figure, about 270 KB.
+  SIPNET. Executed, it is 1.6 MB (draft 2); the prior marginals are the largest figure, about
+  270 KB.
 
 ---
 
@@ -390,6 +420,15 @@ prototype's execution under `nbclient` in the project environment ran (verified,
 5. **PG-19** registered as above.
 6. **Densities on a grid** (§5) are left as ProbPipe's design, with the wrapper shown in the
    notebook and hidden inside `plot_prior_marginals`; no gap is registered.
+
+Draft 2 (2026-11-09), after review of the first notebook:
+
+7. **Pedagogy:** an overview first, then the pieces one at a time, with the full mathematics at the
+   end (§2a). Section titles are plain.
+8. **Noise scales:** fixed while the objects are introduced, then a section "Learning noise
+   scales" (replaces decision 1's inferred scales throughout).
+9. **Plotting:** notebook-only figures are drawn by helpers in a collapsed cell.
+10. **No exercises.**
 
 ---
 

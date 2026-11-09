@@ -29,16 +29,15 @@ The first run builds SIPNET, which takes a minute.
 ## The walkthrough notebook
 
 [`notebooks/main_inverse_problem.ipynb`](notebooks/main_inverse_problem.ipynb) introduces the
-Harvard Forest inverse problem: the weather, the parameters and their prior, SIPNET, the data and
-the observation operator, the forward map, the likelihood, and the coordinates the algorithms use.
-Each part is stated in mathematics, reached through the object that holds it, and plotted. Start
-there. It is committed with its outputs, so it can be read on GitHub without running it. To open it:
+Harvard Forest inverse problem. After an overview, it takes the pieces one at a time (the data,
+the prior, the forward model, the likelihood) and shows how to work with each in code, then puts
+them together. It ends with the full mathematical statement of the problem. Start there. It is committed with its outputs, so it can be read on GitHub without running it. To open it:
 
 ```bash
 uv run jupyter lab notebooks/main_inverse_problem.ipynb
 ```
 
-To rerun it and save the outputs (about a minute; it runs SIPNET about 520 times):
+To rerun it and save the outputs (under a minute; it runs SIPNET about 320 times):
 
 ```bash
 uv run jupyter nbconvert --to notebook --execute --inplace notebooks/main_inverse_problem.ipynb
