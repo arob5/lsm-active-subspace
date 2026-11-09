@@ -40,6 +40,7 @@ stopgap removed).
 | [PG-16](#pg-16) | A transformed law's quantiles fall back to Monte Carlo | Low | to file | open |
 | [PG-17](#pg-17) | One MCMC run's chains share one initial state | Low | to file | open |
 | [PG-18](#pg-18) | A `Function`'s declared traceability cannot be read back | Low | to file | open |
+| [PG-19](#pg-19) | `summarize` of a product prior is Monte Carlo, though each factor is exact | Low | to file | open |
 
 Not ProbPipe, but tracked the same way (below): **EK-01**, EnsKit switches JAX to 64-bit floats on
 import; **SP-01**, SIPNET writes NEE to three decimals.
@@ -378,6 +379,25 @@ import; **SP-01**, SIPNET writes NEE to three decimals.
 - **Stopgap.** `lsmas._stopgaps.functions.declares_traceable(function)`, the one place that reads
   the private attribute.
 - **Removal.** Replace its calls with the public property; delete the module.
+
+## PG-19
+
+**`summarize` of a product prior is Monte Carlo, though each factor is exact.**
+
+- **What happens.** `summarize(problem.prior)` for the full Harvard Forest problem estimates the
+  mean, median and quantiles of every calibration parameter from 1,024 draws, and says so ("Monte
+  Carlo, 1,024 draws"), although the prior is a product of independent laws, each with an exact
+  mean and, except the logit-normals (PG-16), exact quantiles. The estimates change from call to
+  call: for `photosynthetic_capacity`, two calls gave medians of 251.8 and 250.6 and means of 258.6
+  and 261.9, against the exact 251.0 and 262.4 from `quantile` and `mean` of
+  `marginal(problem.prior, "theta/photosynthetic_capacity")`. The two noise scales, factors at the
+  top level of the same prior, are summarized exactly (verified at the pin).
+- **Effect here.** The walkthrough notebook cannot use `summarize` to show the prior. It shows the
+  prior table, the specification, and exact quantiles of single marginals instead.
+- **Ideal ProbPipe.** `summarize` of a `FactoredDistribution` uses each factor's exact statistics,
+  including factors grouped under a record such as `theta`.
+- **Stopgap.** None in code: the notebook avoids `summarize` for the prior.
+- **Removal.** Show `summarize(problem.prior)` in the notebook in place of the prior table.
 
 ---
 

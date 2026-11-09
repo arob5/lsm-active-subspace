@@ -7,8 +7,8 @@ The inverse problem (the model, the data, the likelihood and the prior) is fixed
 the repository. This repository is for building and comparing parameter-reduction algorithms.
 
 > **Status:** under construction. The probability model, the SIPNET forward map, ensemble Kalman
-> inversion, the parameter-reduction tools, the first algorithm and the experiment harness work;
-> the walkthrough notebook and the tutorials are next.
+> inversion, the parameter-reduction tools, the first algorithm, the experiment harness and the
+> walkthrough notebook of the inverse problem work; tutorials on the algorithms are next.
 
 ## Setup
 
@@ -25,6 +25,24 @@ uv run pytest
 ```
 
 The first run builds SIPNET, which takes a minute.
+
+## The walkthrough notebook
+
+[`notebooks/main_inverse_problem.ipynb`](notebooks/main_inverse_problem.ipynb) introduces the
+Harvard Forest inverse problem: the weather, the parameters and their prior, SIPNET, the data and
+the observation operator, the forward map, the likelihood, and the coordinates the algorithms use.
+Each part is stated in mathematics, reached through the object that holds it, and plotted. Start
+there. It is committed with its outputs, so it can be read on GitHub without running it. To open it:
+
+```bash
+uv run jupyter lab notebooks/main_inverse_problem.ipynb
+```
+
+To rerun it and save the outputs (about a minute; it runs SIPNET about 550 times):
+
+```bash
+uv run jupyter nbconvert --to notebook --execute --inplace notebooks/main_inverse_problem.ipynb
+```
 
 ## A first look
 
@@ -113,6 +131,7 @@ help).
 
 ```
 data/harvard_forest/   the shipped inputs: driver, NEE features, observation operator, fixed SIPNET values, prior
+notebooks/             the walkthrough notebook
 src/lsmas/
     data.py            loads the shipped inputs
     sipnet.py          runs SIPNET and builds the forward map
@@ -128,7 +147,7 @@ src/lsmas/
     _stopgaps/         temporary code that fills gaps in ProbPipe
 baselines/             the stored reference posteriors
 scripts/               command-line tools, such as computing a reference
-tests/                 unit tests; `-m smoke` selects the end-to-end checks that run SIPNET
+tests/                 unit tests; `-m smoke` selects the end-to-end checks that run SIPNET or a notebook
 docs/notation.md       the mathematical notation every docstring uses
 design/                design documents
 ```

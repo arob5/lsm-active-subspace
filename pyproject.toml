@@ -43,7 +43,7 @@ packages = ["src/lsmas"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
-    "smoke: end-to-end checks that run SIPNET (a few minutes in total)",
+    "smoke: end-to-end checks that run SIPNET or a notebook (a few minutes in total)",
 ]
 filterwarnings = [
     "ignore:Explicitly requested dtype:UserWarning",

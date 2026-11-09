@@ -1,6 +1,6 @@
 # Design 05 — The walkthrough notebook: the Harvard Forest inverse problem
 
-*Draft 1, for review.*
+*Approved 2026-11-09 (draft 1), with the recommendations of §6.*
 
 Designs 01–04 built the inverse problem, the algorithms and the experiment harness. This design
 specifies the notebook that presents the inverse problem itself, `notebooks/main_inverse_problem.ipynb`.
@@ -21,9 +21,9 @@ Every number below comes from the prototype in
 (8 cores). The notation is that of [`docs/notation.md`](../docs/notation.md).
 
 **In one paragraph.** The notebook has eleven sections, from the overall equation to the
-coordinates the algorithms work in. It has twelve figures, all drawn in the prototype. It runs
-SIPNET about 460 times and executes in about 50 seconds, so it is committed with its outputs and
-executed by a test. Most of its code calls the package directly. Five small additions make that
+coordinates the algorithms work in. It has twelve figures, all drawn in the prototype. As built, it
+runs SIPNET about 550 times and executes in about 65 seconds, so it is committed with its outputs
+and executed by a test. Most of its code calls the package directly. Five small additions make that
 code short:
 - `SIPNETSimulator.run`, for all of SIPNET's outputs;
 - `InverseProblem.predicted_observations`, for $G$ at an array of parameters;
@@ -70,13 +70,15 @@ prototype's (`out/t1.txt`).
 | 6 | The forward map | `problem.forward` on a record and a batch; failures | F6 | 20 | 3 s |
 | 7 | The likelihood | $v_k$, $s^2_k$, $\eta$, $\Gamma$ | F7, F8 | 0 | 1 s |
 | 8 | The prior predictive | `sample(problem.model, n)`, `predictive_check` | F9, F10 | 400 | 31 s |
-| 9 | The posterior along one line | tempered against untempered | F11 | 41 | 4 s |
+| 9 | The posterior along one line | tempered against untempered | F11 | 82 | 8 s |
 | 10 | Coordinates | $\theta$, $z$, $\xi$; `problem.coordinates` | F12 | 0 | 1 s |
 | 11 | Summary | the table of objects; where to go next | — | 0 | — |
-| | **Total** | | 12 | **≈ 460** | **≈ 50 s** |
+| | **Total** | | 12 | **≈ 550** | **≈ 65 s** |
 
 The figure numbers here follow the notebook's order. The prototype's file names (`f01`–`f12`)
-follow its own order.
+follow its own order. The runs and times are the prototype's, except §9 and the total, which are
+the notebook's as built: §6 also shows a batch of 16 prior draws and a failed run, and §7 one
+pointwise log-density, which together add about 20 runs.
 
 ### §1 The problem in one equation
 
@@ -252,8 +254,8 @@ and its observed value.
 
 Conditioning is the next notebooks' subject, but one line shows what tempering does. The figure
 fixes every parameter but `photosynthetic_capacity` at its median, with $s^2 = 1$. It evaluates the
-prior, the untempered posterior and the tempered posterior along that line, at 41 values (41 runs,
-3.4 s):
+prior, the untempered posterior and the tempered posterior along that line. The prototype used 41
+values (41 runs, 3.4 s):
 
 $$
 \log \pi(\theta_j) + \sum_i \eta_i \log \mathcal N\!\left(y_i \mid G_i(\theta), v_i\right)
@@ -264,7 +266,8 @@ $$
 **F11**: the three, each normalized along the line. The tempered curve is several times wider than
 the untempered one, and both are far narrower than the prior. The text says that this is a
 conditional slice, not a marginal posterior. In the prototype the grid was too coarse at the
-untempered peak, so the notebook uses a finer grid around the peak (still about 40 runs).
+untempered peak. The notebook uses 21 values across the prior, then 61 within 1.5 grid spacings
+of the tempered peak (82 runs), and shows the peak in a second panel.
 
 ### §10 Coordinates
 
@@ -301,8 +304,7 @@ README's sections on the algorithm and on comparing algorithms.
 - **Text** is plain and specific: what is introduced, the equation, the code, what the figure
   shows.
 - **Outputs are committed**, so the notebook reads like a presentation on GitHub without running
-  SIPNET. Executed, it is about 1 MB: the prototype's figures total 1 MB as PNG files, and one
-  figure added 76 KB to an executed notebook.
+  SIPNET. Executed, it is 1.4 MB; the prior marginals (F2) are the largest figure, about 270 KB.
 
 ---
 
@@ -353,6 +355,9 @@ prototype's execution under `nbclient` in the project environment ran (verified,
   - **Here:** the notebook shows `data.prior_table` (the specification) and the medians from
     `prior_medians`, and leaves `summarize` to the posterior tutorials, where Monte Carlo is the
     right method.
+  - **Registered** as PG-19 in [`probpipe-gaps.md`](probpipe-gaps.md#pg-19). Rechecked while
+    implementing: two calls gave medians of 251.8 and 250.6 and means of 258.6 and 261.9, against
+    the exact 251.0 and 262.4; the two noise scales, top-level factors, are summarized exactly.
 - **Densities on a grid.** `log_prob(law, array)` refuses an array of values for a scalar law: the
   value must match the event shape. The grid must be wrapped as
   `NumericArrayBatch(grid, level_names="grid", label="grid")`. The notebook shows the wrapper, and
@@ -361,10 +366,16 @@ prototype's execution under `nbclient` in the project environment ran (verified,
 - **`predictive_check`'s statistics** come back as an `EmpiricalDistribution`, whose draws are
   `.atoms.raw`. With a single statistic its fields lose the statistic's name as a prefix, so one
   statistic and two are read differently. The notebook always passes a list.
+- **A marginal's printed form** names every factor of the product it came from:
+  `marginal(problem.prior, "theta/photosynthetic_capacity")` prints as
+  `(LogNormal·BijectorTransformedDistribution·…·InverseGamma)(photosynthetic_capacity)`. The
+  notebook does not print a law. This is a small readability issue, not recorded as a gap.
+- **The driver's precipitation** is in mm per step (pySIPNET's `attrs`); the prototype's figure
+  labelled it cm. The notebook reads `kind` from the `attrs` to choose daily sums or means.
 
 ---
 
-## 6. Decisions for review
+## 6. Decisions (approved 2026-11-09)
 
 1. **Scope:** the `harvard_forest` problem only, with inferred scales, and no mention of the
    smaller problems except the closing pointer to the README.
@@ -375,8 +386,8 @@ prototype's execution under `nbclient` in the project environment ran (verified,
 4. **Committed outputs, executed by a test** in the default suite (about a minute), with Jupyter in
    the `dev` group.
 5. **PG-19** registered as above.
-6. **Densities on a grid** (§5): recorded as a ProbPipe gap (PG-20), or left as ProbPipe's design
-   with the wrapper shown in the notebook.
+6. **Densities on a grid** (§5) are left as ProbPipe's design, with the wrapper shown in the
+   notebook and hidden inside `plot_prior_marginals`; no gap is registered.
 
 ---
 
@@ -394,3 +405,5 @@ prototype's execution under `nbclient` in the project environment ran (verified,
 | $\eta$ and $\sqrt{\Gamma_{ii}}$ at $s^2 = 1$ | `t1_sections.py` | 0.126 and 7.96 by day; 0.137 and 3.31 by night |
 | A notebook of these cells executes under `nbclient` in the project environment | `t2_execute_notebook.py` | 11.6 s for load and 16 draws; 76 KB with one figure |
 | `summarize` of the prior is Monte Carlo (PG-19) | session check | "Monte Carlo, 1,024 draws"; median 253.7 against the exact 251.0 |
+| The notebook as built executes | `tests/test_notebooks.py` | 61 s under the test, 65 s with `nbconvert`; 1.4 MB with outputs |
+| The notebook's prior predictive (seeds 2 and 3) | the notebook | 0 of 200 failed; 0.95 of day and 0.95 of night features in the 90% band; $p = 0.89$ and $0.30$ |
