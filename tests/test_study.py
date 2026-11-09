@@ -4,6 +4,7 @@ import pytest
 from probpipe import workflow_run
 
 from lsmas.algorithms import active_subspace_mcmc
+from lsmas.experiments.metrics import score_names
 from lsmas.experiments.reference import Reference, convergence_diagnostics
 from lsmas.experiments.study import Study, load_run, run_study
 from lsmas.problems import load
@@ -74,3 +75,30 @@ def test_a_stored_run_reads_back_its_draws_and_subspace(tmp_path, stand_in_refer
     assert stored.subspace.basis.shape == (14, 3)
     assert stored.scores["run"] == table["run"].iloc[0]
     assert np.isfinite(stored.wall_seconds)
+
+
+def test_a_reference_of_another_problem_is_refused(tmp_path, stand_in_reference):
+    study = Study("s", "toy", "inferred", active_subspace_mcmc, [{"rank": 2}], [1])
+    with pytest.raises(ValueError, match=r"reference is for toy \(fixed\)"):
+        run_study(study, tmp_path, reference=stand_in_reference)
+
+
+def test_a_setting_named_like_a_score_is_refused_before_any_run(tmp_path, stand_in_reference):
+    study = Study("s", "toy", "fixed", active_subspace_mcmc, [{"subspace_rank": 2}], [1])
+    with pytest.raises(ValueError, match="subspace_rank"):
+        run_study(study, tmp_path, reference=stand_in_reference)
+    assert not list(tmp_path.glob("*/scores.json"))
+
+
+def test_score_names_are_the_scores_a_run_gets(tmp_path, stand_in_reference):
+    study = Study(
+        "s",
+        "toy",
+        "fixed",
+        active_subspace_mcmc,
+        [{"rank": 2, "sampler_options": SHORT_CHAINS}],
+        [3],
+    )
+    row = run_study(study, tmp_path, reference=stand_in_reference).iloc[0]
+    expected = score_names(load("toy"))
+    assert [name for name in row.index if name in expected] == expected

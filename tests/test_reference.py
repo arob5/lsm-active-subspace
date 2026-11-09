@@ -5,6 +5,7 @@ import pandas as pd
 import pytest
 
 from conftest import CLASSES, exact_linear_information, linear_problem
+from lsmas._stopgaps.parallel_chains import run_in_processes
 from lsmas.experiments.reference import (
     Reference,
     _meets_criteria,
@@ -13,6 +14,7 @@ from lsmas.experiments.reference import (
     nuts_reference,
     rwmh_diagnostics,
     rwmh_reference,
+    start_rwmh_reference,
 )
 from lsmas.problems import load
 
@@ -89,6 +91,7 @@ def test_scale_setting_is_read_from_the_problem():
 
 
 @pytest.mark.smoke
+@pytest.mark.filterwarnings("ignore:the toy reference does not meet the convergence criteria")
 def test_rwmh_reference_runs_segments_in_processes_and_resumes(tmp_path):
     toy = load("toy", scales="inferred")
     reference = rwmh_reference(toy, tmp_path, n_chains=2, segment_steps=20, max_segments=2)
@@ -102,3 +105,23 @@ def test_rwmh_reference_runs_segments_in_processes_and_resumes(tmp_path):
     assert [path.stat().st_mtime for path in segments] == modified
     pilot_runs = json.loads((tmp_path / "settings.json").read_text())["pilot_forward_runs"]
     assert reference.provenance["forward_runs"] == pilot_runs + 4 * 21
+
+
+@pytest.mark.smoke
+def test_an_unconverged_run_is_marked_and_warned_about(tmp_path):
+    toy = load("toy")
+    with pytest.warns(UserWarning, match="does not meet the convergence criteria"):
+        reference = rwmh_reference(toy, tmp_path, n_chains=2, segment_steps=10, max_segments=2)
+    assert reference.provenance["converged"] is False
+    assert reference.provenance["wall_seconds"] > 0
+    with pytest.raises(ValueError, match="holds a run with 2 chains, not 3"):
+        rwmh_reference(toy, tmp_path, n_chains=3, segment_steps=10, max_segments=2)
+
+
+def test_a_reference_needs_two_chains(tmp_path):
+    with pytest.raises(ValueError, match="at least two chains"):
+        start_rwmh_reference(load("toy"), tmp_path, n_chains=1)
+
+
+def test_no_chains_run_nothing():
+    assert run_in_processes(print, [], max_workers=2) == []

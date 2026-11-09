@@ -39,5 +39,7 @@ def run_in_processes(
     list
         Each call's return value, in the order of *chain_arguments*.
     """
+    if not chain_arguments:
+        return []
     with ProcessPoolExecutor(max_workers) as pool:
         return list(pool.map(run_one_chain, *zip(*chain_arguments, strict=True)))

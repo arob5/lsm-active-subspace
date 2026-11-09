@@ -44,9 +44,26 @@ __all__ = [
     "mean_errors",
     "posterior_scores",
     "score",
+    "score_names",
     "sd_errors",
     "subspace_scores",
 ]
+
+
+def score_names(problem: InverseProblem) -> list[str]:
+    """The names of the scores :func:`score` gives for *problem*, in order."""
+    posterior = [
+        f"{metric}_{summary}"
+        for metric, summaries in (
+            ("marginal_w1", ("mean", "max")),
+            ("mean_error", ("mean", "max")),
+            ("sd_error", ("mean", "max")),
+        )
+        for summary in summaries
+    ] + ["gaussian_w2", "coverage90_mean", "coverage90_min"]
+    scales = [f"marginal_w1_{slot}" for slot in problem.likelihood.random_scale_slots]
+    subspace = ["subspace_rank", "captured_information", "largest_principal_angle_degrees"]
+    return posterior + scales + subspace + ["forward_runs"]
 
 
 def score(
@@ -134,10 +151,10 @@ def subspace_scores(subspace: Subspace, reference: Reference) -> dict[str, float
     Returns
     -------
     dict of str to float
-        ``rank``, ``captured_information`` and ``largest_principal_angle_degrees``.
+        ``subspace_rank``, ``captured_information`` and ``largest_principal_angle_degrees``.
     """
     return {
-        "rank": float(subspace.rank),
+        "subspace_rank": float(subspace.rank),
         "captured_information": captured_information(subspace.basis, reference.information),
         "largest_principal_angle_degrees": largest_principal_angle(
             subspace.basis, reference.information

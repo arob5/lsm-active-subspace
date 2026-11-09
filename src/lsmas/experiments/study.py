@@ -21,7 +21,7 @@ import pandas as pd
 import xarray as xr
 
 from lsmas.algorithms.result import AlgorithmResult
-from lsmas.experiments.metrics import score
+from lsmas.experiments.metrics import score, score_names
 from lsmas.experiments.reference import Reference, ScaleSetting, load_reference
 from lsmas.problems import load
 from lsmas.problems.inverse_problem import InverseProblem
@@ -108,6 +108,12 @@ def run_study(study: Study, directory: Path, *, reference: Reference | None = No
     reference : Reference, optional
         The reference to score against; by default the stored one for the problem.
 
+    Raises
+    ------
+    ValueError
+        If *reference* is for another problem or noise-scale setting, or a setting is named like
+        another column of the table.
+
     Returns
     -------
     pandas.DataFrame
@@ -118,6 +124,14 @@ def run_study(study: Study, directory: Path, *, reference: Reference | None = No
     directory.mkdir(parents=True, exist_ok=True)
     problem = load(study.problem, scales=study.scales)
     reference = load_reference(problem) if reference is None else reference
+    if (reference.problem_name, reference.scales) != (study.problem, study.scales):
+        raise ValueError(
+            f"the reference is for {reference.problem_name} ({reference.scales}), "
+            f"the study for {study.problem} ({study.scales})"
+        )
+    reserved = {*score_names(problem), "seed", "wall_seconds", "run"}
+    if clashing := sorted({name for setting in study.settings for name in setting} & reserved):
+        raise ValueError(f"settings may not be named like the table's other columns: {clashing}")
     rows = []
     for setting in study.settings:
         for seed in study.seeds:

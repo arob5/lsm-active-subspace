@@ -29,6 +29,7 @@ import datetime
 import json
 import subprocess
 import time
+import warnings
 from dataclasses import dataclass
 from importlib import metadata
 from pathlib import Path
@@ -195,10 +196,10 @@ def convergence_diagnostics(
         Draws of each inferred scale, shape (chains, draws).
     """
     coordinates = problem.coordinates
-    variables = {
-        name: coordinates.whitened_from_parameters(theta)[..., j]
-        for j, name in enumerate(coordinates.names)
-    } | {f"log_{slot}": np.log(draws) for slot, draws in noise_scales.items()}
+    xi = coordinates.whitened_from_parameters(theta)
+    variables = {name: xi[..., j] for j, name in enumerate(coordinates.names)} | {
+        f"log_{slot}": np.log(draws) for slot, draws in noise_scales.items()
+    }
     tree = az.from_dict({"posterior": variables})
     return pd.DataFrame(
         {
@@ -259,10 +260,18 @@ def start_rwmh_reference(
         How many chains to run.
     seed : int
         The seed of the EKI run and the root of the chains' seeds.
+
+    Raises
+    ------
+    ValueError
+        If there are fewer than two chains: the diagnostics compare chains.
     """
+    if n_chains < 2:
+        raise ValueError(f"an RWMH reference needs at least two chains, got {n_chains}")
     run_directory = Path(run_directory)
     run_directory.mkdir(parents=True, exist_ok=True)
-    n_particles = 100
+    start = time.time()
+    n_particles = max(100, 2 * n_chains)
     with workflow_run(seed=seed):
         eki = problem.condition(method="enskit_eki", method_options={"n_particles": n_particles})
     states = _flat_states(problem, eki.atoms)
@@ -279,6 +288,7 @@ def start_rwmh_reference(
         "n_chains": n_chains,
         "seed": seed,
         "pilot_forward_runs": n_particles * (n_steps + final_evaluation),
+        "pilot_seconds": round(time.time() - start, 1),
     }
     (run_directory / "settings.json").write_text(json.dumps(settings, indent=1))
 
@@ -314,6 +324,7 @@ def run_rwmh_segment(run_directory: Path, chain: int, segment: int, steps: int) 
     )
     problem = load(settings["problem_name"], scales=settings["scales"])
     seed = int(np.random.SeedSequence([settings["seed"], chain, segment]).generate_state(1)[0])
+    start = time.time()
     with workflow_run(seed=seed):
         posterior = problem.condition(
             method="blackjax_rwmh",
@@ -327,7 +338,7 @@ def run_rwmh_segment(run_directory: Path, chain: int, segment: int, steps: int) 
         )
     path = _segment_path(run_directory, chain, segment)
     path.parent.mkdir(parents=True, exist_ok=True)
-    np.savez(path, states=_flat_states(problem, posterior.atoms))
+    np.savez(path, states=_flat_states(problem, posterior.atoms), seconds=time.time() - start)
     return path
 
 
@@ -343,21 +354,24 @@ def rwmh_diagnostics(run_directory: Path) -> pd.DataFrame:
     return convergence_diagnostics(problem, theta, noise_scales)
 
 
-def finish_rwmh_reference(run_directory: Path, wall_seconds: float | None = None) -> Reference:
+def finish_rwmh_reference(run_directory: Path) -> Reference:
     """The reference from an RWMH run's segments, its first segment discarded as warmup.
+
+    Its provenance records whether the chains met the convergence criteria, and the run's wall
+    time with the chains side by side: the pilot's time plus, for each segment, the slowest
+    chain's.
 
     Parameters
     ----------
     run_directory : Path
         The run's directory.
-    wall_seconds : float, optional
-        The run's wall time, for the provenance.
     """
     run_directory = Path(run_directory)
     settings = json.loads((run_directory / "settings.json").read_text())
     problem, theta, noise_scales = _completed_chains(run_directory)
     segment_files = sorted(run_directory.glob("chain_*/segment_*.npz"))
     chain_runs = sum(len(np.load(path)["states"]) + 1 for path in segment_files)
+    wall_seconds = settings.get("pilot_seconds", 0.0) + _slowest_chain_seconds(segment_files)
     return _build_reference(
         problem,
         theta,
@@ -368,6 +382,16 @@ def finish_rwmh_reference(run_directory: Path, wall_seconds: float | None = None
         forward_runs=settings["pilot_forward_runs"] + chain_runs,
         wall_seconds=wall_seconds,
     )
+
+
+def _slowest_chain_seconds(segment_files: list[Path]) -> float:
+    """The sum over segments of the slowest chain's time; segments without a time count as 0."""
+    by_segment: dict[str, float] = {}
+    for path in segment_files:
+        stored = np.load(path)
+        seconds = float(stored["seconds"]) if "seconds" in stored.files else 0.0
+        by_segment[path.name] = max(by_segment.get(path.name, 0.0), seconds)
+    return sum(by_segment.values())
 
 
 def rwmh_reference(
@@ -399,11 +423,18 @@ def rwmh_reference(
         The most segments per chain.
     seed : int
         The root seed.
+
+    Raises
+    ------
+    ValueError
+        If *run_directory* holds a run with a different number of chains.
     """
     run_directory = Path(run_directory)
-    start = time.time()
     if not (run_directory / "pilot.npz").exists():
         start_rwmh_reference(problem, run_directory, n_chains=n_chains, seed=seed)
+    stored_chains = json.loads((run_directory / "settings.json").read_text())["n_chains"]
+    if stored_chains != n_chains:
+        raise ValueError(f"{run_directory} holds a run with {stored_chains} chains, not {n_chains}")
     for segment in range(max_segments):
         missing = [
             (run_directory, chain, segment, segment_steps)
@@ -414,7 +445,7 @@ def rwmh_reference(
             run_in_processes(run_rwmh_segment, missing, max_workers=n_chains)
         if segment >= 1 and _meets_criteria(rwmh_diagnostics(run_directory)):
             break
-    return finish_rwmh_reference(run_directory, wall_seconds=time.time() - start)
+    return finish_rwmh_reference(run_directory)
 
 
 def _build_reference(
@@ -429,6 +460,13 @@ def _build_reference(
 ) -> Reference:
     """Diagnose, thin, compute the information matrix and record the provenance."""
     diagnostics = convergence_diagnostics(problem, theta, noise_scales)
+    converged = _meets_criteria(diagnostics)
+    if not converged:
+        warnings.warn(
+            f"the {problem.name} reference does not meet the convergence criteria (R-hat at "
+            f"most {MAX_RHAT}, {MIN_EFFECTIVE_DRAWS} effective draws); see its diagnostics",
+            stacklevel=3,
+        )
     keep = _evenly_spaced(theta.shape[1], max(1, MAX_STORED_DRAWS // theta.shape[0]))
     theta, noise_scales = (
         theta[:, keep],
@@ -442,7 +480,7 @@ def _build_reference(
         noise_scales=noise_scales,
         information=_reference_information(problem, theta, noise_scales),
         diagnostics=diagnostics,
-        provenance=_provenance(method, settings, forward_runs, wall_seconds),
+        provenance=_provenance(method, settings, forward_runs, wall_seconds, converged),
     )
 
 
@@ -462,12 +500,17 @@ def _reference_information(
 
 
 def _provenance(
-    method: str, settings: dict[str, Any], forward_runs: int | None, wall_seconds: float | None
+    method: str,
+    settings: dict[str, Any],
+    forward_runs: int | None,
+    wall_seconds: float | None,
+    converged: bool,
 ) -> dict[str, Any]:
     """How a reference was computed, with the versions of the packages that computed it."""
     return {
         "method": method,
         "settings": settings,
+        "converged": converged,
         "forward_runs": forward_runs,
         "wall_seconds": None if wall_seconds is None else round(wall_seconds, 1),
         "created": datetime.date.today().isoformat(),
@@ -488,17 +531,24 @@ def _package_version(package: str) -> str:
 
 
 def _repository_commit() -> str | None:
-    """The commit of the checkout this package runs from, if it is a git repository."""
+    """The commit of the checkout this package runs from, marked if tracked files had changed."""
     try:
-        completed = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=BASELINE_DIRECTORY.parent,
-            capture_output=True,
-            text=True,
-            check=True,
-        )
+        commit = _git("rev-parse", "HEAD")
+        changed = _git("status", "--porcelain", "--untracked-files=no")
     except (OSError, subprocess.CalledProcessError):
         return None
+    return commit + (" with uncommitted changes" if changed else "")
+
+
+def _git(*arguments: str) -> str:
+    """The output of a git command run in the repository."""
+    completed = subprocess.run(
+        ["git", *arguments],
+        cwd=BASELINE_DIRECTORY.parent,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
     return completed.stdout.strip()
 
 
