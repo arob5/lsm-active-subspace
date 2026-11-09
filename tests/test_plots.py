@@ -10,6 +10,7 @@ from matplotlib.figure import Figure
 from probpipe import workflow_run
 
 from lsmas import plots
+from lsmas.data import load_harvard_forest
 from lsmas.experiments.reference import Reference
 from lsmas.problems import load
 from lsmas.tools import LadderLinearization, Subspace
@@ -63,3 +64,24 @@ def test_sufficient_summary_of_a_full_rank_subspace_has_no_inactive_panel(toy_ru
     figure = plots.plot_sufficient_summary(toy, posterior.annotations["arviz/eki_history"], full)
     assert len(figure.axes) == 2
     assert np.isfinite(full.eigenvalues).all()
+
+
+def test_feature_plot_has_a_panel_per_class_and_skips_failed_rows():
+    data = load_harvard_forest()
+    predictions = data.observations + np.random.default_rng(0).normal(size=(20, 400))
+    predictions[3] = np.nan
+    figure = plots.plot_features(data, predictions, levels=(0.8,))
+    assert [axis.get_ylabel().split()[0] for axis in figure.axes] == ["day", "night"]
+    labels = [text.get_text() for text in figure.axes[0].get_legend().get_texts()]
+    assert labels == ["80%", "median", "observed"]
+    with pytest.raises(ValueError, match=r"shape \(N, 400\)"):
+        plots.plot_features(data, predictions[:, :10])
+
+
+def test_prior_marginal_plot_has_a_panel_per_parameter(toy_run):
+    toy, _, _, _, theta = toy_run
+    figure = plots.plot_prior_marginals(toy, theta, columns=4)
+    assert len([axis for axis in figure.axes if axis.get_visible()]) == 14
+    assert figure.axes[0].get_title() == toy.coordinates.names[0]
+    with pytest.raises(ValueError, match=r"shape \(N, 14\)"):
+        plots.plot_prior_marginals(toy, theta[:, :3])
