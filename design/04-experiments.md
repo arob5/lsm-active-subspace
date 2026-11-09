@@ -92,7 +92,12 @@ diagnostics, rather than a ground truth.
 |---|---|---|
 | `toy` | NUTS, 11 min | NUTS, 15 min |
 | `harvard_forest_small` | parallel RWMH, ≈ 2 h | parallel RWMH, ≈ 2 h |
-| `harvard_forest` | not computed | parallel RWMH on a cluster (decision 2) |
+| `harvard_forest` | not computed | deferred; parallel RWMH on a cluster when a study needs it (decision 2) |
+
+Measured when the references were computed: the toy's took 10 minutes each. The small problem's
+took 6 segments of 2000 steps per chain (96,648 forward runs with the pilot) and 1.5–1.6 hours,
+reaching R-hat ≤ 1.010 and at least 1349 bulk and 1670 tail effective draws, about 70 draws per
+effective draw rather than the trial's 112.
 
 ---
 
@@ -231,7 +236,7 @@ New dependencies: `matplotlib`, `h5netcdf`, `h5py`, and `arviz` as a direct depe
 | Claim | Script | Result |
 |---|---|---|
 | Parallel RWMH works through ProbPipe, one process per chain | `t1_reference_trial.py` | 8 chains, 0.53 s per step each; acceptance 0.16–0.28 |
-| The small problem's reference costs about 2 hours | `t1`, `t4` | 112–119 draws per effective draw |
+| The small problem's reference costs about 2 hours | `t1`, `t4` | 112–119 draws per effective draw; the computed references took 1.5–1.6 h (§1.4) |
 | The full problem's reference needs a cluster | `t1` | ≥ 265 draws per effective draw, R-hat 1.77 after 400 draws |
 | A pilot-tuned proposal does not beat EKI's | `t4_pilot_proposal.py` | 119 against 112 |
 | References store compactly as netCDF | session check | 445 KB for 4000 × 14; round trip exact |

@@ -98,11 +98,13 @@ and `lsmas.plots` draws the standard figures. [Design 04](design/04-experiments.
 
 Stored references (`baselines/`):
 
-| Problem | Fixed scales | Inferred scales |
-|---|---|---|
-| `toy` | NUTS | NUTS |
-| `harvard_forest_small` | parallel random-walk Metropolis | parallel random-walk Metropolis |
-| `harvard_forest` | not computed | not computed yet (a cluster job) |
+| Problem | Method | Draws | Cost of each noise-scale setting |
+|---|---|---|---|
+| `toy` | NUTS, 4 chains | 4000 | about 10 minutes |
+| `harvard_forest_small` | parallel random-walk Metropolis, 8 chains | 4000 | about 97,000 SIPNET runs, 1.5 hours on 8 cores |
+| `harvard_forest` | not computed yet (a cluster job) | | |
+
+Each is stored for both the fixed and the inferred noise scales.
 
 `scripts/compute_reference.py` computes a reference, on this machine or as cluster jobs (see its
 help).
