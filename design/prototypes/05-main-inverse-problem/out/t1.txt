@@ -1,0 +1,44 @@
+harvard_forest: Harvard Forest NEE, 2012-2020, with all 46 calibration parameters (noise scales inferred).
+Calibration parameters (46): photosynthetic_capacity, respiration_share, optimum_photosynthesis_temperature, photosynthesis_temperature_range, half_saturation_light, vapor_pressure_deficit_slop
+[0 load] 1.5 s
+  figure f01_driver.png (124 KB)
+  driver variables: ['air_temperature', 'soil_temperature', 'photosynthetically_active_radiation', 'precipitation', 'vapor_pressure_deficit', 'soil_vapor_pressure_deficit', 'vapor_pressure', 'wind_speed']
+[1 driver] 1.4 s
+  46 calibration parameters -> 58 SIPNET parameters
+  one SIPNET run: 0.39 s; outputs: ['wood_carbon', 'leaf_carbon', 'wood_growth', 'soil_carbon', 'coarse_root_carbon', 'fine_root_carbon', 'litter_carbon', 'soil_water', 'soil_wetness_fraction', 'snow_water_equivalent', 'net_primary_production', 'net_ecosystem_exchange', 'cumulative_net_ecosystem_exchange', 'gross_primary_production', 'above_ground_respiration', 'soil_respiration', 'root_respiration', 'autotrophic_respiration', 'heterotrophic_respiration', 'ecosystem_respiration', 'evapotranspiration', 'transpiration_rate', 'mineral_nitrogen', 'soil_organic_nitrogen', 'litter_nitrogen', 'plant_nitrogen_storage', 'nitrogen_volatilization', 'nitrogen_leaching', 'nitrogen_fixation', 'nitrogen_uptake', 'methane_production', 'wood_storage_carbon']
+  figure f02_sipnet_at_medians.png (83 KB)
+[2 SIPNET at the prior medians] 1.1 s
+  features: 400 (214 day, 186 night), years 2012-2020
+  operator (400, 37992), nonzeros 7588, windows per feature 4-54
+  figure f03_features.png (30 KB)
+  figure f04_operator.png (55 KB)
+  problem.forward(theta): 0.38 s; equals A x: True
+[3 data and operator] 0.6 s
+  eta day 0.126, night 0.137
+  sqrt Gamma day 7.96, night 3.31
+  figure f05_residuals.png (36 KB)
+  figure f06_noise_scale_prior.png (21 KB)
+[4 likelihood] 0.7 s
+  summarize(prior): 1.9 s
+  figure f07_prior_marginals.png (271 KB)
+[5 prior] 4.2 s
+  xi mean |max| 0.043, cov - I |max| 0.062
+  figure f08_coordinates.png (40 KB)
+[6 coordinates] 1.1 s
+  sample(model, 200): 15.1 s
+  replications (200, 400), NaN rows 0
+  day: 0.97 of features inside the 90% interval
+  night: 0.91 of features inside the 90% interval
+  figure f09_prior_predictive.png (171 KB)
+  predictive_check(200): 15.7 s
+  mean_summer_day_nee: observed -16.51, p 0.92
+  mean_night_nee: observed 2.96, p 0.29
+  figure f10_predictive_check.png (12 KB)
+[7 prior predictive] 31.1 s
+  20 runs as one batch: 1.9 s
+  figure f11_one_at_a_time.png (159 KB)
+[8 one at a time] 2.6 s
+  41 runs: 3.4 s
+  figure f12_tempering_slice.png (31 KB)
+[9 tempering slice] 3.7 s
+[total] 48 s
