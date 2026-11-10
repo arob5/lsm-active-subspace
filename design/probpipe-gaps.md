@@ -188,6 +188,10 @@ import; **SP-01**, SIPNET writes NEE to three decimals.
   every chain in turn. It also warns, for any forward map with a named executor, that the map "is
   staged by a user's JAX transformation while executor 'thread' is named"; the staging is the
   sampler's own (verified with `harvard_forest_small` and its reduced problem).
+- **Also (design 05).** `unnormalized_log_prob(posterior, batch)` gives the same warning, though
+  the staging is ProbPipe's own scoring of the model at a batch of points. It costs no time: on
+  `harvard_forest`, 24 points took 1.9 s, as long as the forward map on its threads. The
+  walkthrough notebook filters the warning.
 
 ## PG-08
 

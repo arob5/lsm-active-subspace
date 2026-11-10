@@ -37,7 +37,7 @@ them together. It ends with the full mathematical statement of the problem. Star
 uv run jupyter lab notebooks/main_inverse_problem.ipynb
 ```
 
-To rerun it and save the outputs (under a minute; it runs SIPNET about 320 times):
+To rerun it and save the outputs (under a minute; it runs SIPNET about 430 times):
 
 ```bash
 uv run jupyter nbconvert --to notebook --execute --inplace notebooks/main_inverse_problem.ipynb

@@ -114,6 +114,23 @@ ProbPipe idioms work:
   when one factor's is), PG-20 added (record fields are not bound to a `Function`'s parameters by
   name).
 
+## 2c. Draft 4: the reviewer's second pass
+
+- **Variances are written as squares.** The reference noise variance of a class is $\sigma^2_k$
+  (it was $v_k$), so that $\sigma_k$ is a standard deviation; `docs/notation.md` and every
+  docstring follow. In the notebook's prior, the log-normal's standard deviation is $\tau_j$, so
+  that $\sigma$ means only the noise.
+- **Densities through ProbPipe.** The notebook evaluates the log-likelihood with
+  `log_prob(likelihood, y, given=...)`, the posterior without the learning rate with
+  `condition_on.using(method="unnormalized")`, and the slice of section 9 with
+  `unnormalized_log_prob` at a batch of points. `pointwise_log_prob` stays in the likelihood
+  stopgap, which the learning rate needs (PG-03), but the notebook no longer teaches it. Scoring at
+  a batch warns that the executor is dropped without costing time; the notebook filters the
+  warning (PG-07). The slice now runs SIPNET twice per point, so the notebook runs it about 430
+  times, still in under a minute.
+- **The averaging figure** shows one year in two panels: SIPNET's NEE in the windows each value
+  averages, and the average as a bar over them. It replaces a crowded view of half a month.
+
 ## 2. The outline (draft 1, superseded by §2a)
 
 Each section opens with a short statement of what it introduces, gives the mathematics, then the
