@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
-from probpipe import sample, workflow_run
+from probpipe import NumericRecordBatch, sample, workflow_run
 
 from lsmas import plots
 from lsmas.data import load_harvard_forest
@@ -102,3 +102,17 @@ def test_marginal_plot_shows_fields_that_only_some_distributions_have():
     assert titles[-2:] == ["s2_day", "s2_night"]
     with pytest.raises(ValueError, match="2 labels for 1"):
         plots.plot_marginals(inferred.prior, labels=["a", "b"])
+
+
+def test_marginal_plot_of_a_constant_field_and_of_fields_sharing_a_name():
+    draws = NumericRecordBatch(
+        {"theta": {"scale": np.full(30, 2.0)}, "noise": {"scale": np.linspace(0.5, 1.5, 30)}},
+        "sample",
+    )
+    figure = plots.plot_marginals(draws)
+    assert [axis.get_title() for axis in figure.axes if axis.get_visible()] == [
+        "theta/scale",
+        "noise/scale",
+    ]
+    low, high = figure.axes[0].get_xlim()
+    assert low < 2.0 < high

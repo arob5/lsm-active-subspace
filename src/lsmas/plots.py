@@ -12,6 +12,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 from typing import Any
 
+import jax
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -23,12 +24,14 @@ from probpipe import (
     EmpiricalDistribution,
     NumericArrayBatch,
     RecordBatch,
+    ResolutionError,
     SupportsLogProb,
     log_prob,
     marginal,
     quantile,
 )
 
+from lsmas._stopgaps.sampling import draw_with_key
 from lsmas.data import HarvardForestData
 from lsmas.experiments.reference import Reference
 from lsmas.problems.inverse_problem import InverseProblem
@@ -44,6 +47,9 @@ __all__ = [
     "plot_spectra",
     "plot_sufficient_summary",
 ]
+
+#: Draws taken of a marginal that has neither a density nor draws of its own.
+_PLOT_DRAWS = 4000
 
 #: The colour of each feature class.
 _CLASS_COLOURS = {"day": "tab:orange", "night": "tab:blue"}
@@ -110,7 +116,12 @@ def plot_marginals(
     order the fields first appear, and arguments that share a field are drawn on the same panel. A
     marginal with an exact density is drawn as that density; any other, such as a posterior held as
     draws, as a histogram of its (weighted) draws, normalized to a density. Each panel spans the
-    central 99% of every marginal drawn on it.
+    central 99% of every marginal drawn on it. A panel is titled by the field's name, or by its
+    whole path when two fields share a name.
+
+    A law with neither a density nor draws of its own is sampled, and a marginal without exact
+    quantiles has its span estimated from draws; both use a fixed random key, so plotting never
+    advances an enclosing ``workflow_run``.
 
     Parameters
     ----------
@@ -132,7 +143,9 @@ def plot_marginals(
         raise ValueError(f"{len(labels)} labels for {len(distributions)} distributions")
     laws = [_as_distribution(argument) for argument in distributions]
     labels = [_default_label(argument) for argument in distributions] if labels is None else labels
-    paths = list(dict.fromkeys(path for law in laws for path in _scalar_paths(law)))
+    paths_of_law = [_scalar_paths(law) for law in laws]
+    paths = list(dict.fromkeys(path for law_paths in paths_of_law for path in law_paths))
+    titles = _panel_titles(paths)
     rows = int(np.ceil(len(paths) / columns))
     figure, axes = plt.subplots(rows, columns, figsize=(2.2 * columns, 1.8 * rows), squeeze=False)
     for axis in axes.ravel()[len(paths) :]:
@@ -140,13 +153,13 @@ def plot_marginals(
     for axis, path in zip(axes.ravel(), paths, strict=False):
         marginals = {
             index: marginal(law, path)
-            for index, law in enumerate(laws)
-            if path in _scalar_paths(law)
+            for index, (law, law_paths) in enumerate(zip(laws, paths_of_law, strict=True))
+            if path in law_paths
         }
         low, high = _central_range(marginals.values())
         for index, law in marginals.items():
             _draw_marginal(axis, law, (low, high), colour=f"C{index}", label=labels[index])
-        axis.set_title(path.rsplit("/", 1)[-1], fontsize=7)
+        axis.set_title(titles[path], fontsize=7)
         axis.set_yticks([])
         axis.tick_params(labelsize=6)
     if len(laws) > 1:
@@ -345,16 +358,34 @@ def _scalar_paths_below(spec: Any, prefix: str = "") -> list[str]:
     return paths
 
 
+def _panel_titles(paths: Sequence[str]) -> dict[str, str]:
+    """Each path's last segment, or the whole path when another path ends the same way."""
+    names = [path.rsplit("/", 1)[-1] for path in paths]
+    return {
+        path: path if names.count(name) > 1 else name
+        for path, name in zip(paths, names, strict=True)
+    }
+
+
 def _central_range(marginals: Iterable[Distribution]) -> tuple[float, float]:
-    """The smallest interval holding the central 99% of each marginal."""
+    """The smallest interval holding the central 99% of each marginal, widened if it is a point."""
     bounds = np.array([_central_bounds(law) for law in marginals])
-    return float(bounds[:, 0].min()), float(bounds[:, 1].max())
+    low, high = float(bounds[:, 0].min()), float(bounds[:, 1].max())
+    if high > low:
+        return low, high
+    half_width = 0.05 * abs(low) or 0.5
+    return low - half_width, high + half_width
 
 
 def _central_bounds(law: Distribution) -> tuple[float, float]:
-    """The 0.5% and 99.5% quantiles of a scalar marginal."""
-    low, high = np.asarray(quantile(law, np.array([0.005, 0.995])), dtype=float)
-    return low, high
+    """The 0.5% and 99.5% quantiles of a scalar marginal: exact if it has them, else from draws."""
+    levels = np.array([0.005, 0.995])
+    try:
+        low, high = np.asarray(quantile.using(exact_only=True)(law, levels), dtype=float)
+    except ResolutionError:
+        draws, weights = _draws_and_weights(law)
+        low, high = np.quantile(draws, levels, weights=weights, method="inverted_cdf")
+    return float(low), float(high)
 
 
 def _draw_marginal(
@@ -366,15 +397,18 @@ def _draw_marginal(
         log_density = log_prob(law, NumericArrayBatch(grid, level_names="grid", label="grid"))
         axis.plot(grid, np.exp(np.asarray(log_density)), color=colour, lw=1.2, label=label)
         return
-    draws = np.asarray(law.atoms.raw, dtype=float).reshape(-1)
-    weights = np.asarray(law.weights, dtype=float).reshape(-1)
-    axis.hist(
-        draws,
-        bins=40,
-        range=span,
-        weights=weights,
-        density=True,
-        color=colour,
-        alpha=0.4,
-        label=label,
-    )
+    draws, weights = _draws_and_weights(law)
+    bins = np.linspace(*span, 41)
+    # Heights are densities of all the draws, so draws outside the span are not renormalized away.
+    heights = weights / (weights.sum() * (bins[1] - bins[0]))
+    axis.hist(draws, bins=bins, weights=heights, color=colour, alpha=0.4, label=label)
+
+
+def _draws_and_weights(law: Distribution) -> tuple[np.ndarray, np.ndarray]:
+    """A scalar marginal's draws and their weights: its own if it is empirical, else drawn."""
+    if isinstance(law, EmpiricalDistribution):
+        draws = np.asarray(law.atoms.raw, dtype=float).reshape(-1)
+        return draws, np.asarray(law.weights, dtype=float).reshape(-1)
+    # STOPGAP(PG-15): a fixed key, so that plotting does not advance an enclosing workflow_run.
+    draws = np.asarray(draw_with_key(law, jax.random.key(0), (_PLOT_DRAWS,)), dtype=float)
+    return draws.reshape(-1), np.ones(draws.size)

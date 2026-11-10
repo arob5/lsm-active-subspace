@@ -128,7 +128,7 @@ def _harvard_forest_problem(
     laws = laws_from_table(data.prior_table)
     if unknown := sorted(set(calibrated) - laws.keys()):
         raise ValueError(f"not calibration parameters: {unknown}")
-    medians = quantile(independent_prior(laws), 0.5)["theta"]
+    medians = quantile.using(exact_only=True)(independent_prior(laws), 0.5)["theta"]
     held = {
         parameter: float(medians[parameter]) for parameter in laws if parameter not in calibrated
     }

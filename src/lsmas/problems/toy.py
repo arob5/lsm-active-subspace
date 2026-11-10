@@ -207,12 +207,13 @@ class ToyCanopyModel:
         """
         driver = ClimateDrivers.from_path(data.driver_path, time_zone="UTC").pandas
         laws = laws_from_table(data.prior_table)
+        exact_quantile = quantile.using(exact_only=True)
         operator = data.operator.tocoo()
         return cls(
             **_driver_series_in_model_units(driver),
             leaf_carbon_per_area=data.fixed_sipnet_parameters["leaf_carbon_per_area"],
-            wood_carbon=float(quantile(laws["initial_wood_carbon"], 0.5)),
-            respiration_q10=float(quantile(laws["wood_respiration_q10"], 0.5)),
+            wood_carbon=float(exact_quantile(laws["initial_wood_carbon"], 0.5)),
+            respiration_q10=float(exact_quantile(laws["wood_respiration_q10"], 0.5)),
             operator_rows=jnp.asarray(operator.row),
             operator_columns=jnp.asarray(operator.col),
             operator_weights=jnp.asarray(operator.data),

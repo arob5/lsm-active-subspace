@@ -1,8 +1,12 @@
+import jax.numpy as jnp
 import numpy as np
 import pandas as pd
 import pytest
+import tensorflow_probability.substrates.jax.bijectors as tfb
 from probpipe import Normal, quantile, sample, workflow_run
+from scipy import stats
 
+from lsmas._stopgaps.quantiles import MonotoneTransformedDistribution
 from lsmas.data import load_harvard_forest
 from lsmas.priors import (
     independent_prior,
@@ -111,3 +115,12 @@ def test_a_logit_normal_law_has_exact_quantiles_at_any_levels():
     law = logit_normal_from_interval("share", 0.04, 0.20)
     levels = quantile.using(exact_only=True)(law, np.array([0.025, 0.5, 0.975]))
     np.testing.assert_allclose(np.asarray(levels)[[0, 2]], [0.04, 0.20], rtol=1e-10)
+
+
+def test_a_decreasing_bijector_reverses_the_levels():
+    # Y = exp(-X) for standard normal X, so q_Y(p) = exp(-q_X(1 - p)) = exp(Phi^{-1}(p)).
+    decreasing = tfb.Chain([tfb.Exp(), tfb.Scale(jnp.float64(-1.0))])
+    law = MonotoneTransformedDistribution("y", Normal("x", 0.0, 1.0), decreasing)
+    levels = np.array([0.1, 0.5, 0.9])
+    exact = quantile.using(exact_only=True)(law, levels)
+    np.testing.assert_allclose(np.asarray(exact), np.exp(stats.norm.ppf(levels)), rtol=1e-10)

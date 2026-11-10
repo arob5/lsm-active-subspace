@@ -44,17 +44,15 @@ class MonotoneTransformedDistribution(BijectorTransformedDistribution):
     base : Distribution
         The law of $X$, a scalar law with closed-form quantiles.
     bijector : Function
-        $g$, strictly monotone.
+        $g$, strictly monotone on the real line, as the bijectors ProbPipe assigns to supports are.
     """
 
     def _quantile(self, q: Any) -> Any:
         """$q_Y$ at the levels *q*, through the base law's exact quantiles."""
         levels = jnp.asarray(q)
-        exact_quantile = quantile.using(exact_only=True)
-        low, high = exact_quantile(self.base, jnp.asarray([0.25, 0.75])).raw
-        increasing = self._map(high) > self._map(low)
-        base_levels = levels if increasing else 1.0 - levels
-        return self._map(exact_quantile(self.base, base_levels).raw)
+        at_minus_one, at_one = self._map(jnp.asarray([-1.0, 1.0]))
+        base_levels = levels if at_one > at_minus_one else 1.0 - levels
+        return self._map(quantile.using(exact_only=True)(self.base, base_levels).raw)
 
     def _map(self, x: Any) -> Any:
         """$g(x)$ as a raw array."""
