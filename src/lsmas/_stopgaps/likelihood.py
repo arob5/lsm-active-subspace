@@ -44,14 +44,14 @@ class GaussianSimulatorLikelihood(ConditionalDistribution):
     Parameters
     ----------
     forward : Function
-        The forward map $G$: a ProbPipe ``Function`` of the parameter record ``theta`` returning an
-        array of shape $(n,)$. Calling it on a batch of records evaluates it once per record. If
+        The forward map $G$: a ProbPipe ``Function`` of the parameter record ``theta``, which it
+        declares as its one input, returning an array of shape $(n,)$. The likelihood's given
+        ``theta`` is that declared record. Calling it on a batch of records evaluates it once per
+        record. If
         JAX cannot trace it, it must declare that (``traceable=False``) and an output spec with a
         concrete shape and dtype, so that ProbPipe can call it from inside traced code.
     output_name : str
         The name of the output that holds the observations, such as ``"nee"``.
-    theta_spec : NumericRecordSpec
-        The declaration of the parameter record.
     reference_variance : array_like
         $v$, shape $(n,)$.
     classes : array_like of str
@@ -60,6 +60,12 @@ class GaussianSimulatorLikelihood(ConditionalDistribution):
         For each class, the name of its scale's given slot, or its fixed value.
     label : str
         The kernel's label.
+
+    Raises
+    ------
+    ValueError
+        If *forward* does not declare ``theta`` as its one input, or a class of observation has no
+        scale.
     """
 
     def __init__(
@@ -67,7 +73,6 @@ class GaussianSimulatorLikelihood(ConditionalDistribution):
         forward: Any,
         *,
         output_name: str,
-        theta_spec: Any,
         reference_variance: Any,
         classes: Any,
         scales: Mapping[str, str | float],
@@ -82,7 +87,7 @@ class GaussianSimulatorLikelihood(ConditionalDistribution):
         _check_classes_have_scales(self.classes, self.scales)
         self._class_index = np.array([list(self.scales).index(cls) for cls in self.classes])
         n_observations = self.reference_variance.shape[0]
-        given_spec = {"theta": theta_spec} | {
+        given_spec = {"theta": _declared_parameter_record(forward)} | {
             slot: NumericArraySpec(()) for slot in self.random_scale_slots
         }
         event_spec = OutputSpec(**{output_name: NumericArraySpec((n_observations,))})
@@ -165,6 +170,17 @@ class _GaussianSimulatorLaw(Distribution):
 
     def _unnormalized_log_prob(self, value: Any) -> Any:
         return self._log_prob(value)
+
+
+def _declared_parameter_record(forward: Any) -> Any:
+    """The declaration of the record ``theta`` that *forward* takes as its one input."""
+    declared = forward.input_spec
+    if declared is None or list(declared) != ["theta"]:
+        raise ValueError(
+            f"the forward map must declare one input, theta; {forward.label!r} declares "
+            f"{None if declared is None else list(declared)}"
+        )
+    return declared["theta"]
 
 
 def _check_classes_have_scales(classes: np.ndarray, scales: Mapping[str, Any]) -> None:

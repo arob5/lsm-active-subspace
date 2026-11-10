@@ -9,7 +9,7 @@ from conftest import (
     exact_linear_posterior,
     linear_problem,
 )
-from lsmas.problems import load
+from lsmas.problems import load_inverse_problem
 from lsmas.tools import (
     LadderLinearization,
     covariance_subspace,
@@ -84,7 +84,7 @@ def test_an_unknown_weighting_is_refused(problem):
 
 @pytest.mark.smoke
 def test_ladder_directions_capture_the_exact_ladder_information_on_the_toy():
-    toy = load("toy")
+    toy = load_inverse_problem("toy")
     ladder = LadderLinearization(toy.coordinates)
     records = []
     with workflow_run(seed=1):
@@ -104,11 +104,11 @@ def test_ladder_directions_capture_the_exact_ladder_information_on_the_toy():
 
 def test_exact_jacobians_need_a_differentiable_forward_map():
     with pytest.raises(ValueError, match="cannot be differentiated"):
-        exact_subspace(load("harvard_forest_small"), np.zeros((1, 10)))
+        exact_subspace(load_inverse_problem("harvard_forest_small"), np.zeros((1, 10)))
 
 
 def test_inferred_scales_need_values_for_the_noise_covariance():
-    toy = load("toy", scales="inferred")
+    toy = load_inverse_problem("toy", scales="inferred")
     with pytest.raises(ValueError, match="give values for \\['s2_day', 's2_night'\\]"):
         toy.noise_variance()
     assert toy.noise_variance({"s2_day": 1.0, "s2_night": 1.0}).shape == (400,)

@@ -43,7 +43,7 @@ from probpipe import workflow_run
 
 from lsmas._stopgaps.functions import declares_traceable
 from lsmas._stopgaps.parallel_chains import run_in_processes
-from lsmas.problems import load
+from lsmas.problems import load_inverse_problem
 from lsmas.problems.inverse_problem import InverseProblem
 from lsmas.tools import exact_subspace, finite_difference_subspace
 
@@ -322,7 +322,7 @@ def run_rwmh_segment(run_directory: Path, chain: int, segment: int, steps: int) 
         if segment == 0
         else np.load(_segment_path(run_directory, chain, segment - 1))["states"][-1]
     )
-    problem = load(settings["problem_name"], scales=settings["scales"])
+    problem = load_inverse_problem(settings["problem_name"], scales=settings["scales"])
     seed = int(np.random.SeedSequence([settings["seed"], chain, segment]).generate_state(1)[0])
     start = time.time()
     with workflow_run(seed=seed):
@@ -578,7 +578,7 @@ def _completed_chains(
 ) -> tuple[InverseProblem, np.ndarray, dict[str, np.ndarray]]:
     """The run's problem and its chains without their first segment, cut to a common length."""
     settings = json.loads((run_directory / "settings.json").read_text())
-    problem = load(settings["problem_name"], scales=settings["scales"])
+    problem = load_inverse_problem(settings["problem_name"], scales=settings["scales"])
     chains = []
     for chain in range(settings["n_chains"]):
         segments = sorted((run_directory / f"chain_{chain:02d}").glob("segment_*.npz"))[1:]

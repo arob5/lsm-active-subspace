@@ -1,14 +1,16 @@
 r"""The standard figures: the data, the prior, subspaces, posteriors and studies.
 
 Functions that draw one panel take an optional matplotlib ``Axes`` and return it; functions that
-draw several panels return a ``Figure``. Figures of the data and the prior show the parameters in
-their own units. Figures of subspaces and posteriors use whitened coordinates,
+draw several panels return a ``Figure``. Figures of the data and of marginal distributions show
+values in their own units. Figures of subspaces and of posteriors against a reference use whitened
+coordinates,
 $\xi = L^{-1}(z - m)$, so that every parameter is shown on the same scale.
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
+from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -16,9 +18,17 @@ import pandas as pd
 import xarray as xr
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
-from probpipe import NumericArrayBatch, log_prob, marginal
+from probpipe import (
+    Distribution,
+    EmpiricalDistribution,
+    NumericArrayBatch,
+    RecordBatch,
+    SupportsLogProb,
+    log_prob,
+    marginal,
+    quantile,
+)
 
-from lsmas._stopgaps.quantiles import median
 from lsmas.data import HarvardForestData
 from lsmas.experiments.reference import Reference
 from lsmas.problems.inverse_problem import InverseProblem
@@ -28,8 +38,8 @@ __all__ = [
     "plot_activity_scores",
     "plot_features",
     "plot_loadings",
+    "plot_marginals",
     "plot_metric_against_setting",
-    "plot_prior_marginals",
     "plot_qq",
     "plot_spectra",
     "plot_sufficient_summary",
@@ -87,61 +97,60 @@ def plot_features(
     return figure
 
 
-def plot_prior_marginals(
-    problem: InverseProblem, draws: np.ndarray | None = None, *, columns: int = 6
+def plot_marginals(
+    *distributions: Distribution | RecordBatch,
+    labels: Sequence[str] | None = None,
+    columns: int = 6,
 ) -> Figure:
-    r"""Each calibration parameter's prior density $\pi_j(\theta_j)$, in its own units, with its
-    median and an optional histogram of draws.
+    r"""The one-dimensional marginal of every scalar field of one or more distributions.
 
-    Each panel covers $b_j(m_j \pm 3 \sigma_j)$, where $m_j$ is the prior mean of the
-    unconstrained coordinate $z_j = b_j^{-1}(\theta_j)$ and $\sigma_j = \sqrt{(L L^\top)_{jj}}$
-    its prior standard deviation. The density is exact, from ``log_prob`` of the parameter's
-    marginal, and so is the median (dotted).
+    Each argument is a ProbPipe distribution, such as a prior or a posterior, or a batch of draws,
+    such as the result of ``sample(prior, n)``, which is shown as the empirical distribution of its
+    draws. There is one panel per scalar field, such as ``theta/photosynthetic_capacity``, in the
+    order the fields first appear, and arguments that share a field are drawn on the same panel. A
+    marginal with an exact density is drawn as that density; any other, such as a posterior held as
+    draws, as a histogram of its (weighted) draws, normalized to a density. Each panel spans the
+    central 99% of every marginal drawn on it.
 
     Parameters
     ----------
-    problem : InverseProblem
-        The problem, whose prior and coordinates to use.
-    draws : numpy.ndarray, optional
-        Draws of the calibration parameters, shape $(N, d)$, such as posterior draws, shown as a
-        histogram in each panel.
+    *distributions : Distribution or RecordBatch
+        The distributions, or batches of draws, to plot.
+    labels : sequence of str, optional
+        A legend label for each argument; by default a distribution's label, or ``"draws"``.
     columns : int
         Panels per row.
 
     Raises
     ------
     ValueError
-        If *draws* does not have $d$ columns.
+        If no distribution is given, or *labels* has the wrong length.
     """
-    coordinates = problem.coordinates
-    if draws is not None:
-        draws = np.asarray(draws, dtype=float)
-        if draws.ndim != 2 or draws.shape[1] != coordinates.dimension:
-            raise ValueError(
-                f"draws must have shape (N, {coordinates.dimension}); got {draws.shape}"
-            )
-    standard_deviations = np.linalg.norm(coordinates.whitening_factor, axis=1)
-    offsets = np.linspace(-3.0, 3.0, 200)[:, None] * standard_deviations
-    grids = coordinates.bijection.to_constrained(coordinates.whitening_mean + offsets)
-    rows = int(np.ceil(coordinates.dimension / columns))
+    if not distributions:
+        raise ValueError("plot_marginals needs at least one distribution")
+    if labels is not None and len(labels) != len(distributions):
+        raise ValueError(f"{len(labels)} labels for {len(distributions)} distributions")
+    laws = [_as_distribution(argument) for argument in distributions]
+    labels = [_default_label(argument) for argument in distributions] if labels is None else labels
+    paths = list(dict.fromkeys(path for law in laws for path in _scalar_paths(law)))
+    rows = int(np.ceil(len(paths) / columns))
     figure, axes = plt.subplots(rows, columns, figsize=(2.2 * columns, 1.8 * rows), squeeze=False)
-    for j, axis in enumerate(axes.ravel()):
-        if j >= coordinates.dimension:
-            axis.set_visible(False)
-            continue
-        name = coordinates.names[j]
-        law = marginal(problem.prior, f"{coordinates.block}/{name}")
-        grid = grids[:, j]
-        density = np.exp(
-            np.asarray(log_prob(law, NumericArrayBatch(grid, level_names="grid", label=name)))
-        )
-        if draws is not None:
-            axis.hist(draws[:, j], bins=40, density=True, color="0.75")
-        axis.plot(grid, density, color="tab:blue", lw=1.2)
-        axis.axvline(median(law), color="tab:blue", ls=":", lw=1)
-        axis.set_title(name, fontsize=7)
+    for axis in axes.ravel()[len(paths) :]:
+        axis.set_visible(False)
+    for axis, path in zip(axes.ravel(), paths, strict=False):
+        marginals = {
+            index: marginal(law, path)
+            for index, law in enumerate(laws)
+            if path in _scalar_paths(law)
+        }
+        low, high = _central_range(marginals.values())
+        for index, law in marginals.items():
+            _draw_marginal(axis, law, (low, high), colour=f"C{index}", label=labels[index])
+        axis.set_title(path.rsplit("/", 1)[-1], fontsize=7)
         axis.set_yticks([])
         axis.tick_params(labelsize=6)
+    if len(laws) > 1:
+        axes[0, 0].legend(fontsize=6)
     figure.tight_layout()
     return figure
 
@@ -308,3 +317,64 @@ def _draw_bands(
             times, lower, upper, color=colour, alpha=shade, lw=0, label=f"{level:.0%}"
         )
     axis.plot(times, np.median(predictions, axis=0), color=colour, lw=0.8, label="median")
+
+
+def _as_distribution(argument: Distribution | RecordBatch) -> Distribution:
+    """*argument* itself, or the empirical distribution of a batch of draws."""
+    return EmpiricalDistribution(argument) if isinstance(argument, RecordBatch) else argument
+
+
+def _default_label(argument: Distribution | RecordBatch) -> str:
+    """A distribution's label, or ``"draws"`` for a batch of draws."""
+    return "draws" if isinstance(argument, RecordBatch) else str(argument.label)
+
+
+def _scalar_paths(law: Distribution) -> list[str]:
+    """The paths of the scalar fields of *law*, such as ``theta/photosynthetic_capacity``."""
+    return _scalar_paths_below(law.event_spec.term_spec)
+
+
+def _scalar_paths_below(spec: Any, prefix: str = "") -> list[str]:
+    """The paths of the scalar leaves of a spec, each prefixed by *prefix*."""
+    children = getattr(spec, "children", None)
+    if children is None:
+        return [prefix] if getattr(spec, "shape", None) == () else []
+    paths = []
+    for name, child in children.items():
+        paths += _scalar_paths_below(child, f"{prefix}/{name}" if prefix else name)
+    return paths
+
+
+def _central_range(marginals: Iterable[Distribution]) -> tuple[float, float]:
+    """The smallest interval holding the central 99% of each marginal."""
+    bounds = np.array([_central_bounds(law) for law in marginals])
+    return float(bounds[:, 0].min()), float(bounds[:, 1].max())
+
+
+def _central_bounds(law: Distribution) -> tuple[float, float]:
+    """The 0.5% and 99.5% quantiles of a scalar marginal."""
+    low, high = np.asarray(quantile(law, np.array([0.005, 0.995])), dtype=float)
+    return low, high
+
+
+def _draw_marginal(
+    axis: Axes, law: Distribution, span: tuple[float, float], *, colour: str, label: str
+) -> None:
+    """A scalar marginal on *axis*: its density if it has one, else a histogram of its draws."""
+    if isinstance(law, SupportsLogProb):
+        grid = np.linspace(*span, 200)
+        log_density = log_prob(law, NumericArrayBatch(grid, level_names="grid", label="grid"))
+        axis.plot(grid, np.exp(np.asarray(log_density)), color=colour, lw=1.2, label=label)
+        return
+    draws = np.asarray(law.atoms.raw, dtype=float).reshape(-1)
+    weights = np.asarray(law.weights, dtype=float).reshape(-1)
+    axis.hist(
+        draws,
+        bins=40,
+        range=span,
+        weights=weights,
+        density=True,
+        color=colour,
+        alpha=0.4,
+        label=label,
+    )

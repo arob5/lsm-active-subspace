@@ -44,7 +44,7 @@ class EnsKitEKI(InferenceMethod):
     noise scales $s^2_k$, under a Gaussian likelihood:
 
     $$
-    \pi(\theta, s^2 \mid y) \propto \pi(\theta) \prod_{k \text{ inferred}} \mathrm{IG}(s^2_k;
+    \pi(\theta, s^2 \mid y) \propto \pi_0(\theta) \prod_{k \text{ inferred}} \mathrm{IG}(s^2_k;
     \alpha_k, b_k)\; \mathcal N\!\left(y \mid G(\theta), \Gamma(s^2)\right),
     \qquad \Gamma(s^2) = \operatorname{diag}\!\left(\frac{s^2_{k(i)} v_i}{\eta_i}\right),
     $$

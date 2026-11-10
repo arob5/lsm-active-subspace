@@ -7,7 +7,7 @@ from lsmas.algorithms import active_subspace_mcmc
 from lsmas.experiments.metrics import score_names
 from lsmas.experiments.reference import Reference, convergence_diagnostics
 from lsmas.experiments.study import Study, load_run, run_study
-from lsmas.problems import load
+from lsmas.problems import load_inverse_problem
 from lsmas.tools import exact_subspace
 
 pytestmark = pytest.mark.smoke
@@ -18,7 +18,7 @@ SHORT_CHAINS = {"num_chains": 1, "num_warmup": 50, "num_results": 100}
 @pytest.fixture(scope="module")
 def stand_in_reference():
     """A cheap reference for the toy (EKI draws): enough to exercise the runner, not to judge."""
-    toy = load("toy")
+    toy = load_inverse_problem("toy")
     with workflow_run(seed=9):
         eki = toy.condition(method="enskit_eki", method_options={"n_particles": 60})
     theta = toy.coordinates.array_from_draws(eki.atoms).reshape(2, 30, -1)
@@ -100,5 +100,5 @@ def test_score_names_are_the_scores_a_run_gets(tmp_path, stand_in_reference):
         [3],
     )
     row = run_study(study, tmp_path, reference=stand_in_reference).iloc[0]
-    expected = score_names(load("toy"))
+    expected = score_names(load_inverse_problem("toy"))
     assert [name for name in row.index if name in expected] == expected

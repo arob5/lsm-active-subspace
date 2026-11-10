@@ -21,7 +21,7 @@ PRIOR_SD = np.array([1.0, 2.0])
 THETA_SPEC = NumericRecordSpec(a=NumericArraySpec(()), b=NumericArraySpec(()))
 
 
-@function(label="linear_forward", traceable=True)
+@function(label="linear_forward", input_spec={"theta": THETA_SPEC}, traceable=True)
 def linear_forward(theta):
     return jnp.asarray(FORWARD_MATRIX @ jnp.stack([theta["a"], theta["b"]]))
 
@@ -30,7 +30,6 @@ def linear_likelihood(scales):
     return GaussianSimulatorLikelihood(
         linear_forward,
         output_name="y",
-        theta_spec=THETA_SPEC,
         reference_variance=REFERENCE_VARIANCE,
         classes=CLASSES,
         scales=scales,

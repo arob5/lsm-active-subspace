@@ -144,9 +144,9 @@ def test_method_runs_only_when_named(observations):
 
 @pytest.mark.smoke
 def test_eki_runs_on_the_small_harvard_forest_problem():
-    from lsmas.problems import load
+    from lsmas.problems import load_inverse_problem
 
-    problem = load("harvard_forest_small")
+    problem = load_inverse_problem("harvard_forest_small")
     records = []
     with workflow_run(seed=3):
         posterior = problem.condition(
@@ -170,13 +170,13 @@ def test_failed_runs_are_counted_and_repaired(observations):
     forward = Function(
         failing_linear_forward,
         label="failing_linear",
+        input_spec={"theta": THETA_SPEC},
         output_spec=NumericArraySpec((6,), jnp.float64),
         traceable=False,
     )
     likelihood = GaussianSimulatorLikelihood(
         forward,
         output_name="y",
-        theta_spec=THETA_SPEC,
         reference_variance=REFERENCE_VARIANCE,
         classes=CLASSES,
         scales=FIXED_SCALES,

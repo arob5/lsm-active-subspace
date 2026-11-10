@@ -10,7 +10,7 @@ called on a batch.
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -30,7 +30,7 @@ from pysipnet import (
     niwot_reference_parameters,
 )
 
-from lsmas.parameters import SIPNET_PARAMETERS
+from lsmas.parameters import SIPNET_PARAMETERS, parameter_record_spec
 
 __all__ = ["SIMULATION_FAILURES", "SIPNETSimulator", "feature_map"]
 
@@ -139,6 +139,7 @@ def feature_map(
     operator: sp.csr_matrix,
     to_sipnet: Callable[[Mapping[str, Any]], Mapping[str, float]],
     *,
+    parameter_names: Sequence[str],
     max_workers: int = 8,
     label: str = "nee_features",
 ) -> Function:
@@ -161,6 +162,9 @@ def feature_map(
         $A$, shape $(n, S)$ for $S$ output steps.
     to_sipnet : callable
         Maps a parameter record ``theta`` to SIPNET parameters, keyed by pySIPNET's names.
+    parameter_names : sequence of str
+        The calibration parameters in the record ``theta``, which the function declares as its
+        input (:func:`~lsmas.parameters.parameter_record_spec`).
     max_workers : int
         The number of SIPNET runs at a time.
     label : str
@@ -175,6 +179,7 @@ def feature_map(
     return Function(
         evaluator.features,
         label=label,
+        input_spec={"theta": parameter_record_spec(parameter_names)},
         output_spec=NumericArraySpec((operator.shape[0],), jnp.float64),
         traceable=False,
         executor="thread",

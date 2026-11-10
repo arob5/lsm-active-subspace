@@ -79,7 +79,7 @@ def active_subspace_mcmc(
 
     Examples
     --------
-    >>> result = active_subspace_mcmc(load("toy"), seed=1)        # doctest: +SKIP
+    >>> result = active_subspace_mcmc(load_inverse_problem("toy"), seed=1)        # doctest: +SKIP
     >>> result.subspace.rank, result.forward_runs                  # doctest: +SKIP
     (7, {'exploration': 600, 'sampling': 6004})
     """

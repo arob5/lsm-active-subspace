@@ -11,9 +11,10 @@ arguments; :func:`calibration_to_sipnet` combines them into a complete set.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
+from probpipe import NumericArraySpec, NumericRecordSpec
 from pysipnet.parameters import SIPNET_PARAMS_BY_GROUP
 
 __all__ = [
@@ -21,6 +22,7 @@ __all__ = [
     "allocation_to_sipnet",
     "calibration_to_sipnet",
     "initial_pools_to_sipnet",
+    "parameter_record_spec",
     "photosynthesis_temperatures_to_sipnet",
     "photosynthesis_to_sipnet",
     "respiration_rates_to_sipnet",
@@ -138,6 +140,20 @@ def calibration_to_sipnet(theta: Mapping[str, Any], fixed: Mapping[str, float]) 
     )
     _check_each_set_once(calibrated, fixed)
     return dict(fixed) | calibrated
+
+
+def parameter_record_spec(names: Sequence[str]) -> NumericRecordSpec:
+    r"""The ProbPipe declaration of a record of scalar calibration parameters $\theta$.
+
+    A forward map declares its input with it, as ``input_spec={"theta": parameter_record_spec(
+    names)}``, and the likelihood reads the record's declaration from there.
+
+    Parameters
+    ----------
+    names : sequence of str
+        The parameters, in the record's order.
+    """
+    return NumericRecordSpec(**{name: NumericArraySpec(()) for name in names})
 
 
 def photosynthesis_to_sipnet(

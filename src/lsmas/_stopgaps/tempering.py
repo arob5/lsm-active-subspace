@@ -3,7 +3,7 @@ r"""Conditioning with a learning rate: the generalized-Bayes update.
 A learning rate $\eta \in (0, 1]$ tempers the likelihood when conditioning,
 
 $$
-\pi_\eta(\theta \mid y) \propto \pi(\theta)\, p(y \mid \theta)^{\eta},
+\pi_\eta(\theta \mid y) \propto \pi_0(\theta)\, p(y \mid \theta)^{\eta},
 $$
 
 so that with $\eta < 1$ the data carry less information, as fewer independent observations would.
@@ -41,11 +41,11 @@ def tempered_condition_on(
 ) -> Distribution:
     r"""Condition *model* on *data*, tempering each observed output's likelihood.
 
-    For a model $p(y \mid \theta)\, \pi(\theta)$ and learning rates $\eta_i$ for the elements
+    For a model $p(y \mid \theta)\, \pi_0(\theta)$ and learning rates $\eta_i$ for the elements
     $y_i$ of an observed output, the target is
 
     $$
-    \pi_\eta(\theta \mid y) \propto \pi(\theta) \prod_i p(y_i \mid \theta)^{\eta_i}.
+    \pi_\eta(\theta \mid y) \propto \pi_0(\theta) \prod_i p(y_i \mid \theta)^{\eta_i}.
     $$
 
     A scalar rate tempers the whole output's density; an array of rates, one per element,

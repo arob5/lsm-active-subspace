@@ -7,18 +7,18 @@ import pandas as pd
 import pytest
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
-from probpipe import workflow_run
+from probpipe import sample, workflow_run
 
 from lsmas import plots
 from lsmas.data import load_harvard_forest
 from lsmas.experiments.reference import Reference
-from lsmas.problems import load
+from lsmas.problems import load_inverse_problem
 from lsmas.tools import LadderLinearization, Subspace
 
 
 @pytest.fixture(scope="module")
 def toy_run():
-    toy = load("toy")
+    toy = load_inverse_problem("toy")
     ladder = LadderLinearization(toy.coordinates)
     with workflow_run(seed=1):
         posterior = toy.condition(
@@ -80,10 +80,25 @@ def test_feature_plot_has_a_panel_per_class_and_skips_failed_rows():
         plots.plot_features(data, predictions[:, :10])
 
 
-def test_prior_marginal_plot_has_a_panel_per_parameter(toy_run):
-    toy, _, _, _, theta = toy_run
-    figure = plots.plot_prior_marginals(toy, theta.tolist(), columns=4)
-    assert len([axis for axis in figure.axes if axis.get_visible()]) == 14
-    assert figure.axes[0].get_title() == toy.coordinates.names[0]
-    with pytest.raises(ValueError, match=r"shape \(N, 14\)"):
-        plots.plot_prior_marginals(toy, theta[:, :3])
+def test_marginal_plot_overlays_densities_and_draws_by_field(toy_run):
+    toy, posterior, _, _, _ = toy_run
+    with workflow_run(seed=3):
+        draws = sample(toy.prior, 200)
+    figure = plots.plot_marginals(toy.prior, posterior, draws, columns=4)
+    panels = [axis for axis in figure.axes if axis.get_visible()]
+    assert [axis.get_title() for axis in panels] == list(toy.coordinates.names)
+    assert len(panels[0].get_lines()) == 1  # the prior's exact density
+    assert len(panels[0].patches) == 2 * 40  # a histogram each for the posterior and the draws
+    legend = [text.get_text() for text in panels[0].get_legend().get_texts()]
+    assert legend == ["prior", str(posterior.label), "draws"]
+
+
+def test_marginal_plot_shows_fields_that_only_some_distributions_have():
+    inferred = load_inverse_problem("toy", scales="inferred")
+    with workflow_run(seed=4):
+        draws = sample(load_inverse_problem("toy").prior, 50)
+    figure = plots.plot_marginals(inferred.prior, draws, labels=["inferred", "fixed"])
+    titles = [axis.get_title() for axis in figure.axes if axis.get_visible()]
+    assert titles[-2:] == ["s2_day", "s2_night"]
+    with pytest.raises(ValueError, match="2 labels for 1"):
+        plots.plot_marginals(inferred.prior, labels=["a", "b"])

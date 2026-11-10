@@ -20,11 +20,13 @@ __all__ = ["InverseProblem"]
 class InverseProblem:
     r"""An inverse problem: the prior, the likelihood and the observed data.
 
-    The model is $p(y \mid \theta, s^2)\, \pi(\theta, s^2)$, a ProbPipe ``likelihood & prior``, and
-    conditioning it on the observed $y$ with learning rates $\eta$ gives the generalized posterior
+    The model is $p(y \mid \theta, s^2)\, \pi_0(\theta, s^2)$, a ProbPipe ``likelihood & prior``,
+    and conditioning it on the observed $y$ with learning rates $\eta$ gives the generalized
+    posterior
 
     $$
-    \pi_\eta(\theta, s^2 \mid y) \propto \pi(\theta, s^2) \prod_i p(y_i \mid \theta, s^2)^{\eta_i}.
+    \pi_\eta(\theta, s^2 \mid y) \propto
+    \pi_0(\theta, s^2) \prod_i p(y_i \mid \theta, s^2)^{\eta_i}.
     $$
 
     With every $\eta_i = 1$ this is the ordinary posterior.
@@ -38,7 +40,7 @@ class InverseProblem:
     likelihood : ConditionalDistribution
         $p(y \mid \theta, s^2)$, the law of the observations given the parameters.
     prior : Distribution
-        $\pi(\theta, s^2)$, the law of the parameters, with the calibration parameters grouped
+        $\pi_0(\theta, s^2)$, the law of the parameters, with the calibration parameters grouped
         under ``theta``.
     data : dict of str to numpy.ndarray
         The observed value of each observed output.
@@ -105,7 +107,8 @@ class InverseProblem:
 
     # STOPGAP(PG-08): automatic method selection assumes gradients, so the method is required.
     def condition(self, *, method: str, **using: Any) -> Distribution:
-        """The generalized posterior, computed by the inference method *method*.
+        """The generalized posterior, computed by the inference method *method* and labelled
+        ``"posterior"``.
 
         Parameters
         ----------
@@ -116,9 +119,10 @@ class InverseProblem:
         **using
             Further controls of ``condition_on``, such as ``method_options``.
         """
-        return tempered_condition_on(
+        posterior = tempered_condition_on(
             self.model, self.data, learning_rate=self.learning_rate, method=method, **using
         )
+        return posterior.with_label("posterior")
 
     def noise_variance(self, scale_values: Mapping[str, Any] | None = None) -> np.ndarray:
         r"""The diagonal of the tempered noise covariance,

@@ -4,11 +4,12 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
+from probpipe import quantile
 
 from lsmas.data import load_harvard_forest
 from lsmas.parameters import calibration_to_sipnet
-from lsmas.priors import prior_medians
-from lsmas.problems import load
+from lsmas.priors import independent_prior, laws_from_table
+from lsmas.problems import load_inverse_problem
 from lsmas.problems.toy import TOY_PARAMETERS, ToyCanopyModel, _growing_degree_days
 from lsmas.sipnet import SIPNETSimulator
 
@@ -24,15 +25,22 @@ def model(data):
 
 
 @pytest.fixture(scope="module")
-def theta(data):
-    medians = prior_medians(data.prior_table)
-    return {name: jnp.asarray(medians[name]) for name in TOY_PARAMETERS}
+def medians(data):
+    """Every calibration parameter at its prior median."""
+    return quantile(independent_prior(laws_from_table(data.prior_table)), 0.5)["theta"]
+
+
+@pytest.fixture(scope="module")
+def theta(medians):
+    return {name: jnp.asarray(medians[name].raw) for name in TOY_PARAMETERS}
 
 
 def test_toy_problem_calibrates_its_fourteen_parameters():
-    problem = load("toy")
+    problem = load_inverse_problem("toy")
     assert problem.coordinates.names == TOY_PARAMETERS
     assert "nee (400 values)" in problem.describe()
+    assert list(problem.forward.input_spec["theta"].fields) == list(TOY_PARAMETERS)
+    assert str(problem.prior) == "prior(theta)"
 
 
 def test_temperature_effect_is_one_at_the_optimum_and_zero_one_range_away(model, theta):
@@ -59,7 +67,7 @@ def test_growing_degree_days_restart_each_year():
 
 
 def test_forward_map_is_differentiable_through_probpipe(theta):
-    forward = load("toy").forward.using(raw=True)
+    forward = load_inverse_problem("toy").forward.using(raw=True)
     jacobian = jax.jacfwd(forward)(theta)["soil_respiration_q10"]
     step = 1e-6
     shifted = theta | {"soil_respiration_q10": theta["soil_respiration_q10"] + step}
@@ -68,10 +76,9 @@ def test_forward_map_is_differentiable_through_probpipe(theta):
 
 
 @pytest.mark.smoke
-def test_toy_resembles_sipnet_at_the_prior_medians(data, model, theta):
+def test_toy_resembles_sipnet_at_the_prior_medians(data, model, medians, theta):
     simulator = SIPNETSimulator(
-        data.driver_path,
-        calibration_to_sipnet(prior_medians(data.prior_table), data.fixed_sipnet_parameters),
+        data.driver_path, calibration_to_sipnet(medians, data.fixed_sipnet_parameters)
     )
     sipnet_features = data.operator @ simulator.nee_rate({})
     toy_features = np.asarray(model.features(theta))

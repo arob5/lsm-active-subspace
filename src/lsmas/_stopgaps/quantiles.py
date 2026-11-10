@@ -1,43 +1,61 @@
-r"""The exact median of a scalar law, including one transformed by a bijector.
+r"""Exact quantiles for a scalar law transformed by a monotone bijector.
 
-ProbPipe's ``quantile`` is exact for a family that states its quantiles, such as ``Normal`` or
-``LogNormal``, but a ``BijectorTransformedDistribution`` states none, so ``quantile`` falls back to
-Monte Carlo: approximate, and different from run to run. However, a strictly monotone map carries
-quantiles over exactly. ProbPipe would ideally state the quantiles of a scalar law transformed by a
-monotone bijector. :func:`median` uses that fact for the median, so its calls can be replaced by
-``quantile(law, 0.5)`` under ``exact_only`` once ProbPipe does, after which this module can be
-deleted.
+ProbPipe's ``quantile`` is exact for a law that states its quantiles, through the ``_quantile``
+method of the ``SupportsQuantile`` capability, and for a product of such laws. A
+``BijectorTransformedDistribution`` states none, so ``quantile`` falls back to Monte Carlo for it,
+and for any product that contains it, such as a prior with a logit-normal factor. Yet a strictly
+monotone map carries quantiles over exactly. :class:`MonotoneTransformedDistribution` adds
+``_quantile`` to a transformed law, so that ``quantile`` takes its exact route. Once ProbPipe
+states the quantiles of a law transformed by a monotone bijector, the class can be replaced by
+``BijectorTransformedDistribution`` and this module deleted.
 """
 
 from __future__ import annotations
 
-from probpipe import BijectorTransformedDistribution, Distribution, quantile
+from typing import Any
 
-__all__ = ["median"]
+import jax.numpy as jnp
+from probpipe import BijectorTransformedDistribution, quantile
+
+__all__ = ["MonotoneTransformedDistribution"]
 
 
-# STOPGAP(PG-16): replace calls with quantile(law, 0.5) under exact_only once ProbPipe states the
-# quantiles of a law transformed by a monotone bijector.
-def median(law: Distribution) -> float:
-    r"""The median of a scalar law, computed exactly.
+# STOPGAP(PG-16): use BijectorTransformedDistribution once ProbPipe states the quantiles of a law
+# transformed by a monotone bijector.
+class MonotoneTransformedDistribution(BijectorTransformedDistribution):
+    r"""The law of $Y = g(X)$ for a scalar $X$ and a strictly monotone bijector $g$, with exact
+    quantiles.
 
-    For a law with closed-form quantiles, the median is its quantile at $\tfrac12$. For
-    $Y = g(X)$, with $g$ a strictly monotone bijector of the real line onto an interval,
-    $\operatorname{median}(Y) = g(\operatorname{median}(X))$: the events $\{X \le m\}$ and
-    $\{Y \le g(m)\}$ coincide when $g$ increases, and $\{X \le m\}$ and $\{Y \ge g(m)\}$ when it
-    decreases, and either has probability $\tfrac12$ for a continuous law.
+    For $X$ with quantile function $q_X$,
+
+    $$
+    q_Y(p) = \begin{cases} g\!\left(q_X(p)\right) & g \text{ increasing}, \\
+    g\!\left(q_X(1 - p)\right) & g \text{ decreasing}, \end{cases}
+    $$
+
+    since $\{X \le x\}$ and $\{Y \le g(x)\}$ are the same event when $g$ increases, and
+    $\{X \ge x\}$ and $\{Y \le g(x)\}$ are when it decreases. It is constructed like
+    ``BijectorTransformedDistribution`` and behaves like it in every other way.
 
     Parameters
     ----------
-    law : Distribution
-        A ProbPipe law of a continuous scalar, either with closed-form quantiles or a
-        ``BijectorTransformedDistribution`` of such a law.
-
-    Raises
-    ------
-    ResolutionError
-        If neither *law* nor, for a transformed law, its base has closed-form quantiles.
+    output_name : str
+        The name of the law's output.
+    base : Distribution
+        The law of $X$, a scalar law with closed-form quantiles.
+    bijector : Function
+        $g$, strictly monotone.
     """
-    if isinstance(law, BijectorTransformedDistribution):
-        return float(law.bijector(median(law.base)).raw)
-    return float(quantile.using(exact_only=True)(law, 0.5).raw)
+
+    def _quantile(self, q: Any) -> Any:
+        """$q_Y$ at the levels *q*, through the base law's exact quantiles."""
+        levels = jnp.asarray(q)
+        exact_quantile = quantile.using(exact_only=True)
+        low, high = exact_quantile(self.base, jnp.asarray([0.25, 0.75])).raw
+        increasing = self._map(high) > self._map(low)
+        base_levels = levels if increasing else 1.0 - levels
+        return self._map(exact_quantile(self.base, base_levels).raw)
+
+    def _map(self, x: Any) -> Any:
+        """$g(x)$ as a raw array."""
+        return jnp.asarray(self.bijector(x).raw)

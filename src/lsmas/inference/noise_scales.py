@@ -3,7 +3,8 @@ r"""The noise scales' conditional law along a tempering ladder, for EKI with inf
 At tempering level $\beta$ the target is joint in the parameters and the class noise scales,
 
 $$
-\pi_\beta(\theta, s^2) \propto \pi(\theta) \prod_k \mathrm{IG}\!\left(s^2_k;\, \alpha_k, b_k\right)
+\pi_\beta(\theta, s^2) \propto \pi_0(\theta)
+\prod_k \mathrm{IG}\!\left(s^2_k;\, \alpha_k, b_k\right)
 \prod_i \mathcal N\!\left(y_i;\, G_i(\theta),\, s^2_{k(i)} v_i\right)^{\beta \eta_i}.
 $$
 

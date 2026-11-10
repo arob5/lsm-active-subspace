@@ -16,7 +16,7 @@ from lsmas.experiments.reference import (
     rwmh_reference,
     start_rwmh_reference,
 )
-from lsmas.problems import load
+from lsmas.problems import load_inverse_problem
 
 SCALES = {"day": 1.5, "night": 0.7}
 LEARNING_RATE = np.where(CLASSES == "day", 0.5, 0.8)
@@ -86,14 +86,14 @@ def test_criteria_need_every_coordinate_converged():
 
 
 def test_scale_setting_is_read_from_the_problem():
-    assert noise_scale_setting(load("toy")) == "fixed"
-    assert noise_scale_setting(load("toy", scales="inferred")) == "inferred"
+    assert noise_scale_setting(load_inverse_problem("toy")) == "fixed"
+    assert noise_scale_setting(load_inverse_problem("toy", scales="inferred")) == "inferred"
 
 
 @pytest.mark.smoke
 @pytest.mark.filterwarnings("ignore:the toy reference does not meet the convergence criteria")
 def test_rwmh_reference_runs_segments_in_processes_and_resumes(tmp_path):
-    toy = load("toy", scales="inferred")
+    toy = load_inverse_problem("toy", scales="inferred")
     reference = rwmh_reference(toy, tmp_path, n_chains=2, segment_steps=20, max_segments=2)
     assert reference.theta.shape == (2, 20, 14)
     assert set(reference.noise_scales) == {"s2_day", "s2_night"}
@@ -109,7 +109,7 @@ def test_rwmh_reference_runs_segments_in_processes_and_resumes(tmp_path):
 
 @pytest.mark.smoke
 def test_an_unconverged_run_is_marked_and_warned_about(tmp_path):
-    toy = load("toy")
+    toy = load_inverse_problem("toy")
     with pytest.warns(UserWarning, match="does not meet the convergence criteria"):
         reference = rwmh_reference(toy, tmp_path, n_chains=2, segment_steps=10, max_segments=2)
     assert reference.provenance["converged"] is False
@@ -120,7 +120,7 @@ def test_an_unconverged_run_is_marked_and_warned_about(tmp_path):
 
 def test_a_reference_needs_two_chains(tmp_path):
     with pytest.raises(ValueError, match="at least two chains"):
-        start_rwmh_reference(load("toy"), tmp_path, n_chains=1)
+        start_rwmh_reference(load_inverse_problem("toy"), tmp_path, n_chains=1)
 
 
 def test_no_chains_run_nothing():

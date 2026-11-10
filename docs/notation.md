@@ -10,7 +10,7 @@ function (such as the leaf carbon fraction $c$ in a parameter map) is defined th
 | $\theta \in \mathbb R^d$ | the calibration parameters, in their own units; $d$ of them |
 | $z = b^{-1}(\theta)$ | unconstrained coordinates; $b$ applies each parameter's support bijector (exp, logistic, identity) |
 | $\xi = L^{-1}(z - m)$ | whitened coordinates; $m$ and $L L^\top$ are the prior mean and covariance of $z$, so $\xi$ has prior mean $0$ and covariance $I$ |
-| $\pi$ | the prior; $\pi(\cdot \mid y)$ the posterior |
+| $\pi_0$ | the prior; $\pi(\cdot \mid y)$ the posterior |
 
 ## Data, forward map and likelihood
 
@@ -24,7 +24,7 @@ function (such as the leaf carbon fraction $c$ in a parameter map) is defined th
 | $v_k$, $v_i = v_{k(i)}$ | the reference variance of a class |
 | $s^2_k$ | the noise scale of class $k$ |
 | $\eta_i \in (0, 1]$ | the learning rate of observation $i$ |
-| $\Gamma = \operatorname{diag}\!\left(s^2_{k(i)} v_i / \eta_i\right)$ | the tempered noise covariance: for fixed noise scales, the generalized posterior of $\theta$ is $\pi(\theta)\, \mathcal N(y \mid G(\theta), \Gamma)$ up to a constant |
+| $\Gamma = \operatorname{diag}\!\left(s^2_{k(i)} v_i / \eta_i\right)$ | the tempered noise covariance: for fixed noise scales, the generalized posterior of $\theta$ is $\pi_0(\theta)\, \mathcal N(y \mid G(\theta), \Gamma)$ up to a constant |
 
 ## Ensembles and tempering
 
@@ -33,7 +33,7 @@ function (such as the leaf carbon fraction $c$ in a parameter map) is defined th
 | $J$ | the number of particles; particles are indexed by $j$ |
 | $\beta \in [0, 1]$ | the tempering level: $\beta = 0$ is the prior, $\beta = 1$ the posterior |
 | $\Delta\beta_t$ | the increment taken at step $t$, from level $\beta_t$ to $\beta_{t+1}$ |
-| $\mu_\beta$ | the tempered posterior at level $\beta$, $\propto \pi(\theta)\, \mathcal N(y \mid G(\theta), \Gamma / \beta)$ |
+| $\mu_\beta$ | the tempered posterior at level $\beta$, $\propto \pi_0(\theta)\, \mathcal N(y \mid G(\theta), \Gamma / \beta)$ |
 
 ## Subspaces
 

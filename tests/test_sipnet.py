@@ -3,11 +3,11 @@ import logging
 import numpy as np
 import pandas as pd
 import pytest
-from probpipe import NumericRecordBatch
+from probpipe import NumericRecordBatch, quantile
 
 from lsmas.data import load_harvard_forest
 from lsmas.parameters import calibration_to_sipnet, photosynthesis_to_sipnet
-from lsmas.priors import prior_medians
+from lsmas.priors import independent_prior, laws_from_table
 from lsmas.sipnet import SIPNETSimulator, feature_map
 
 pytestmark = pytest.mark.smoke
@@ -22,7 +22,8 @@ def data():
 def simulator(data):
     """SIPNET with every calibration parameter at its prior median."""
     at_medians = calibration_to_sipnet(
-        prior_medians(data.prior_table), data.fixed_sipnet_parameters
+        quantile(independent_prior(laws_from_table(data.prior_table)), 0.5)["theta"],
+        data.fixed_sipnet_parameters,
     )
     return SIPNETSimulator(data.driver_path, at_medians)
 
@@ -75,7 +76,9 @@ def _to_sipnet(theta):
 
 
 def test_feature_map_runs_a_batch_in_threads_as_it_would_in_sequence(data, simulator):
-    forward = feature_map(simulator, data.operator, _to_sipnet, max_workers=4)
+    forward = feature_map(
+        simulator, data.operator, _to_sipnet, parameter_names=["optimum_temperature"], max_workers=4
+    )
     batch = NumericRecordBatch({"optimum_temperature": np.array([18.0, 22.0, 26.0])}, "member")
     threaded = np.asarray(forward(batch).raw)
     sequential = np.asarray(forward.using(executor="sequential")(batch).raw)
@@ -92,7 +95,7 @@ def test_a_failed_run_gives_a_row_of_nan_and_a_warning(data, simulator, caplog):
             "fine_root_allocation": 0.1,
         }
 
-    forward = feature_map(simulator, data.operator, impossible_allocation)
+    forward = feature_map(simulator, data.operator, impossible_allocation, parameter_names=["leaf"])
     batch = NumericRecordBatch({"leaf": np.array([0.1, 0.9])}, "member")
     with caplog.at_level(logging.WARNING, logger="lsmas.sipnet"):
         features = np.asarray(forward(batch).raw)
@@ -100,3 +103,10 @@ def test_a_failed_run_gives_a_row_of_nan_and_a_warning(data, simulator, caplog):
     assert np.all(np.isnan(features[1]))
     assert "SIPNET produced no output" in caplog.text
     assert "ValidationError" in caplog.text and "allocation" in caplog.text
+
+
+def test_the_forward_map_declares_its_parameter_record(data, simulator):
+    forward = feature_map(
+        simulator, data.operator, _to_sipnet, parameter_names=["optimum_temperature"]
+    )
+    assert list(forward.input_spec["theta"].fields) == ["optimum_temperature"]

@@ -31,15 +31,14 @@ from probpipe import (
     EmpiricalDistribution,
     Function,
     Normal,
-    NumericArraySpec,
     NumericRecordBatch,
-    NumericRecordSpec,
 )
 
 from lsmas._stopgaps.coordinates import Coordinates, block_values
 from lsmas._stopgaps.functions import declares_traceable
 from lsmas._stopgaps.likelihood import GaussianSimulatorLikelihood
 from lsmas._stopgaps.sampling import draw_with_key
+from lsmas.parameters import parameter_record_spec
 from lsmas.priors import factors_over, independent_prior
 from lsmas.problems.inverse_problem import InverseProblem
 from lsmas.tools.subspace import Subspace
@@ -160,8 +159,9 @@ class _ReducedForwardMap:
     basis: jax.Array
     names: tuple[str, ...]
 
-    def features(self, active: Any) -> Any:
-        xi = self.basis @ jnp.stack([jnp.asarray(active[name]) for name in self.names])
+    def features(self, theta: Any) -> Any:
+        """$G(W a)$ at the record *theta* of active variables $a$."""
+        xi = self.basis @ jnp.stack([jnp.asarray(theta[name]) for name in self.names])
         record = self.problem.coordinates.parameter_record(xi)
         return self.problem.forward.using(raw=True)(record)
 
@@ -176,6 +176,7 @@ def _reduced_likelihood(
     forward = Function(
         evaluator.features,
         label=f"{problem.forward.label}_reduced",
+        input_spec={"theta": parameter_record_spec(names)},
         output_spec=problem.forward.output_spec,
         traceable=traceable,
         **({} if traceable else {"executor": "thread"}),
@@ -183,14 +184,8 @@ def _reduced_likelihood(
     return GaussianSimulatorLikelihood(
         forward,
         output_name=full_likelihood.output_name,
-        theta_spec=_scalar_record_spec(names),
         reference_variance=full_likelihood.reference_variance,
         classes=full_likelihood.classes,
         scales=full_likelihood.scales,
         label=f"{full_likelihood.label}_reduced",
     )
-
-
-def _scalar_record_spec(names: tuple[str, ...]) -> NumericRecordSpec:
-    """The spec of a record of scalar parameters *names*."""
-    return NumericRecordSpec(**{name: NumericArraySpec(()) for name in names})

@@ -4,7 +4,7 @@ import pytest
 from probpipe import workflow_run
 
 from conftest import CLASSES, exact_linear_information, linear_problem, posterior_moments
-from lsmas.problems import load
+from lsmas.problems import load_inverse_problem
 from lsmas.tools import Subspace, reduced_problem
 
 SCALES = {"day": 1.5, "night": 0.7}
@@ -87,7 +87,7 @@ def test_subspace_of_another_problem_is_refused(problem):
 
 @pytest.mark.smoke
 def test_reduced_sipnet_forward_at_zero_is_the_full_forward_at_the_prior_centre():
-    small = load("harvard_forest_small")
+    small = load_inverse_problem("harvard_forest_small")
     subspace = Subspace.from_information(
         np.diag(np.arange(10.0, 0.0, -1.0)),
         parameter_names=small.coordinates.names,

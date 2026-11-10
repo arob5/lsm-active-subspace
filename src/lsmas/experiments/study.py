@@ -23,7 +23,7 @@ import xarray as xr
 from lsmas.algorithms.result import AlgorithmResult
 from lsmas.experiments.metrics import score, score_names
 from lsmas.experiments.reference import Reference, ScaleSetting, load_reference
-from lsmas.problems import load
+from lsmas.problems import load_inverse_problem
 from lsmas.problems.inverse_problem import InverseProblem
 from lsmas.tools.subspace import Subspace
 
@@ -122,7 +122,7 @@ def run_study(study: Study, directory: Path, *, reference: Reference | None = No
     """
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
-    problem = load(study.problem, scales=study.scales)
+    problem = load_inverse_problem(study.problem, scales=study.scales)
     reference = load_reference(problem) if reference is None else reference
     if (reference.problem_name, reference.scales) != (study.problem, study.scales):
         raise ValueError(

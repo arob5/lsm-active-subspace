@@ -20,7 +20,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any, Literal
 
 import numpy as np
-from probpipe import Distribution, Function, InverseGamma, NumericArraySpec, NumericRecordSpec
+from probpipe import Distribution, Function, InverseGamma
 
 from lsmas._stopgaps.coordinates import Coordinates
 from lsmas._stopgaps.likelihood import GaussianSimulatorLikelihood
@@ -64,7 +64,8 @@ def nee_problem(
     description : str
         A sentence saying what the problem is.
     forward : Function
-        $G$: a ProbPipe ``Function`` of the record of calibration parameters, returning the 400
+        $G$: a ProbPipe ``Function`` of the record ``theta`` of calibration parameters, which it
+        declares as its input (:func:`~lsmas.parameters.parameter_record_spec`), returning the 400
         predicted features.
     laws : Mapping of str to Distribution
         The prior of each calibration parameter, by name, in the order of the parameter record.
@@ -73,16 +74,24 @@ def nee_problem(
         parameters ``s2_day`` and ``s2_night`` with independent $\mathrm{IG}(2, 1.678)$ priors.
     data : HarvardForestData
         The observations, their classes and dates.
+
+    Raises
+    ------
+    ValueError
+        If *forward* does not declare the parameters of *laws*, in their order, as its input.
     """
     likelihood = GaussianSimulatorLikelihood(
         forward,
         output_name="nee",
-        theta_spec=NumericRecordSpec(**{parameter: NumericArraySpec(()) for parameter in laws}),
         reference_variance=np.vectorize(REFERENCE_VARIANCE.get)(data.feature_classes),
         classes=data.feature_classes,
         scales=_likelihood_scales(scales),
         label="nee_likelihood",
     )
+    if (declared := list(forward.input_spec["theta"].fields)) != list(laws):
+        raise ValueError(
+            f"the forward map declares the parameters {declared}; the prior {list(laws)}"
+        )
     prior = _prior_with_noise_scales(laws, likelihood.random_scale_slots)
     return InverseProblem(
         name=name,
@@ -102,7 +111,7 @@ def _prior_with_noise_scales(
     prior = independent_prior(laws)
     for slot in random_scale_slots:
         prior = prior & InverseGamma(slot, **NOISE_SCALE_PRIOR)
-    return prior
+    return prior.with_label("prior")
 
 
 def _likelihood_scales(scales: str) -> dict[str, str | float]:

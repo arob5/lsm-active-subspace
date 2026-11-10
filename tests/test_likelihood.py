@@ -1,15 +1,25 @@
 import numpy as np
 import pytest
-from probpipe import InverseGamma, SupportsLogProb, condition_on, log_prob, sample, workflow_run
+from probpipe import (
+    Function,
+    InverseGamma,
+    SupportsLogProb,
+    condition_on,
+    log_prob,
+    sample,
+    workflow_run,
+)
 from scipy import stats
 
 from conftest import (
     CLASSES,
     FORWARD_MATRIX,
     REFERENCE_VARIANCE,
+    linear_forward,
     linear_likelihood,
     linear_theta_prior,
 )
+from lsmas._stopgaps.likelihood import GaussianSimulatorLikelihood
 
 THETA = {"a": 0.8, "b": -0.6}
 SCALES = {"s2_day": 1.5, "s2_night": 0.7}
@@ -74,3 +84,17 @@ def test_a_model_with_this_likelihood_samples_parameters_and_observations_jointl
 def test_every_class_needs_exactly_one_scale():
     with pytest.raises(ValueError, match="classes without a scale"):
         linear_likelihood({"day": 1.0})
+
+
+def test_the_parameter_record_is_the_forward_maps_declared_input():
+    likelihood = linear_likelihood({"day": 1.0, "night": 1.0})
+    assert likelihood.given_spec["theta"] == linear_forward.input_spec["theta"]
+    undeclared = Function(lambda theta: theta["a"], label="undeclared", traceable=True)
+    with pytest.raises(ValueError, match="must declare one input, theta"):
+        GaussianSimulatorLikelihood(
+            undeclared,
+            output_name="y",
+            reference_variance=REFERENCE_VARIANCE,
+            classes=CLASSES,
+            scales={"day": 1.0, "night": 1.0},
+        )
