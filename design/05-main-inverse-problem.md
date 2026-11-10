@@ -2,7 +2,7 @@
 
 *Approved 2026-11-09 (draft 1), with the recommendations of §6. Revised 2026-11-09 (draft 2) after
 review of the first notebook: §2a replaces the outline of §2, and decisions 7–10 replace decisions 1
-and 2.*
+and 2. Revised again 2026-11-10 (draft 3, §2b, decisions 11–16) to work through ProbPipe.*
 
 Designs 01–04 built the inverse problem, the algorithms and the experiment harness. This design
 specifies the notebook that presents the inverse problem itself, `notebooks/main_inverse_problem.ipynb`.
@@ -82,6 +82,37 @@ section titles; and plotting code out of the way. The notebook as built:
   `lsmas.plots`.
 - **Dropped:** `predictive_check` (it belongs in a posterior tutorial).
 - **No exercises.**
+
+## 2b. Draft 3: working through ProbPipe
+
+Review of draft 2 found the notebook leaving ProbPipe where it need not: wrapping values in NumPy
+to print them, computing medians outside ProbPipe, and handling the forward map through arrays.
+Draft 3 keeps the reviewer's own edits to sections 1–4 and changes the package so that the
+ProbPipe idioms work:
+
+- **Exact quantiles of the prior.** `quantile(prior, 0.5)` was Monte Carlo, because one
+  logit-normal factor makes a product's quantiles Monte Carlo (PG-16). ProbPipe's
+  `SupportsQuantile` hook, a `_quantile` method, gives a law the exact route, and a product of
+  exact factors is then exact. The PG-16 stopgap is now a class,
+  `MonotoneTransformedDistribution`, that adds `_quantile` to a transformed law;
+  `logit_normal_from_interval` returns it. `prior_medians` and the `median` stopgap are removed:
+  `quantile(prior, 0.5)` gives exact medians (verified under `exact_only`), including for the
+  inferred-scale prior.
+- **Declared forward-map inputs.** Every forward map declares its input,
+  `input_spec={"theta": parameter_record_spec(names)}`, and the likelihood reads the record's
+  declaration from the forward map instead of taking its own. A call with the wrong record now says
+  which fields are missing. ProbPipe binds a record passed to a `Function` to its first parameter
+  whole, so the forward map is called on `draw["theta"]` (PG-20).
+- **`plots.plot_marginals(*distributions)`** replaces `plot_prior_marginals`: any ProbPipe
+  distributions or batches of draws, one panel per scalar field, overlaid where they share one;
+  exact densities as curves, draws as histograms.
+- **Names.** `load` is `load_inverse_problem`; the prior is labelled `prior` and the posterior from
+  `InverseProblem.condition` `posterior`; the prior is written $\pi_0$ throughout.
+- **The notebook** sets its seed once, `workflow_run.set_default(seed=0)`, prints ProbPipe values
+  as they are, and builds the one-at-a-time settings with `replace` and `NumericRecordBatch.stack`.
+- **Gaps.** PG-16 widened (a product's quantiles), PG-19 narrowed (a product's mean is Monte Carlo
+  when one factor's is), PG-20 added (record fields are not bound to a `Function`'s parameters by
+  name).
 
 ## 2. The outline (draft 1, superseded by §2a)
 
@@ -429,6 +460,16 @@ Draft 2 (2026-11-09), after review of the first notebook:
    scales" (replaces decision 1's inferred scales throughout).
 9. **Plotting:** notebook-only figures are drawn by helpers in a collapsed cell.
 10. **No exercises.**
+
+Draft 3 (2026-11-10):
+
+11. **Prior notation** $\pi_0$, in the notebook, `docs/notation.md` and the docstrings.
+12. **`load_inverse_problem`** replaces `load`.
+13. **One seed** for the notebook, `workflow_run.set_default(seed=0)`.
+14. **Labels:** the prior is `prior`; the posterior is `posterior`.
+15. **`plot_marginals`** for any ProbPipe distributions, replacing `plot_prior_marginals`.
+16. **The forward map takes `theta`** (option A): it declares its input, and is called on
+    `draw["theta"]`; PG-20 records the by-name binding ProbPipe could offer.
 
 ---
 

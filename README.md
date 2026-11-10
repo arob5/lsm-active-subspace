@@ -48,9 +48,9 @@ uv run jupyter nbconvert --to notebook --execute --inplace notebooks/main_invers
 ```python
 from probpipe import sample, workflow_run
 
-from lsmas.problems import load
+from lsmas.problems import load_inverse_problem
 
-problem = load("harvard_forest_small")
+problem = load_inverse_problem("harvard_forest_small")
 print(problem.describe())
 
 with workflow_run(seed=1):
@@ -70,7 +70,7 @@ exact Jacobians and a reference posterior.
 ```python
 from lsmas.algorithms import active_subspace_mcmc
 
-result = active_subspace_mcmc(load("toy", scales="inferred"), seed=1)
+result = active_subspace_mcmc(load_inverse_problem("toy", scales="inferred"), seed=1)
 result.subspace.rank                    # the number of active directions
 result.subspace.activity_scores()       # each parameter's activity score
 result.posterior                        # draws of every parameter and the noise scales

@@ -37,10 +37,11 @@ stopgap removed).
 | [PG-13](#pg-13) | A renamed factor taken from a joint loses its path names | Medium (bug) | to file | open |
 | [PG-14](#pg-14) | Fingerprinting a closure that captures a sparse matrix recurses without end | Low (bug) | to file | open |
 | [PG-15](#pg-15) | No public operation draws from a law with a given key | Low | to file | open |
-| [PG-16](#pg-16) | A transformed law's quantiles fall back to Monte Carlo | Low | to file | open |
+| [PG-16](#pg-16) | A transformed law's quantiles fall back to Monte Carlo, and with it a product's | Medium: `quantile(prior, 0.5)` | to file | open |
 | [PG-17](#pg-17) | One MCMC run's chains share one initial state | Low | to file | open |
 | [PG-18](#pg-18) | A `Function`'s declared traceability cannot be read back | Low | to file | open |
-| [PG-19](#pg-19) | `summarize` of a product prior is Monte Carlo, though each factor is exact | Low | to file | open |
+| [PG-19](#pg-19) | A product's mean is Monte Carlo when one factor's is | Low | to file | open |
+| [PG-20](#pg-20) | A `Function` called on a record never binds its fields to parameters by name | Low (ergonomics) | to file | open |
 
 Not ProbPipe, but tracked the same way (below): **EK-01**, EnsKit switches JAX to 64-bit floats on
 import; **SP-01**, SIPNET writes NEE to three decimals.
@@ -333,21 +334,29 @@ import; **SP-01**, SIPNET writes NEE to three decimals.
 
 ## PG-16
 
-**A transformed law's quantiles fall back to Monte Carlo.**
+**A transformed law's quantiles fall back to Monte Carlo, and with it a product's.**
 
 - **What happens.** `quantile(law, 0.5)` of a `BijectorTransformedDistribution`, such as the
   logit-normal that `lsmas.priors.logit_normal_from_interval` builds, takes the Monte Carlo route:
   for the logit-normal with 95% in [0.04, 0.20] it returned 0.0910 and 0.0897 in two runs against
   the exact 0.0926, and under `exact_only` it is refused, because the law does not implement
-  `SupportsQuantile` (verified). Yet a quantile passes exactly through a strictly monotone map: for $Y = g(X)$ with
-  $g$ increasing, $q_Y(p) = g(q_X(p))$, and with $g$ decreasing, $q_Y(p) = g(q_X(1 - p))$.
-- **Effect here.** The small Harvard Forest problem holds 36 calibration parameters at their prior
-  medians, which must be exact and the same in every run.
+  `SupportsQuantile` (verified). A `FactoredDistribution` has exact quantiles only when every
+  factor does, so one logit-normal factor makes `quantile(prior, 0.5)` of the whole Harvard Forest
+  prior Monte Carlo too: two calls gave medians of 248.7 and 251.3 for `photosynthetic_capacity`,
+  against the exact 251.0 (verified). Yet a quantile passes exactly through a strictly monotone
+  map: for $Y = g(X)$ with $g$ increasing, $q_Y(p) = g(q_X(p))$, and with $g$ decreasing,
+  $q_Y(p) = g(q_X(1 - p))$.
+- **Effect here.** `quantile(problem.prior, 0.5)` gives the prior medians that the walkthrough
+  notebook runs SIPNET at, and that the small Harvard Forest problem holds 36 calibration
+  parameters at; both must be exact and the same in every run.
 - **Ideal ProbPipe.** A scalar `BijectorTransformedDistribution` of a base with closed-form
   quantiles states its own, through the bijector, whenever the bijector is monotone.
-- **Stopgap.** `lsmas._stopgaps.quantiles.median(law)`: the base's exact median pushed through
-  the bijector, or `quantile(law, 0.5)` under `exact_only` for any other law.
-- **Removal.** Replace its calls with `quantile(law, 0.5)` under `exact_only`; delete the module.
+- **Stopgap.** `lsmas._stopgaps.quantiles.MonotoneTransformedDistribution`, which
+  `logit_normal_from_interval` returns: a `BijectorTransformedDistribution` that adds `_quantile`
+  (ProbPipe's `SupportsQuantile` hook) by the formula above. With it, `quantile` of each
+  logit-normal, and of every prior built from them, is exact (verified under `exact_only`).
+- **Removal.** Return `BijectorTransformedDistribution` from `logit_normal_from_interval`; delete
+  the module.
 
 ## PG-17
 
@@ -382,22 +391,38 @@ import; **SP-01**, SIPNET writes NEE to three decimals.
 
 ## PG-19
 
-**`summarize` of a product prior is Monte Carlo, though each factor is exact.**
+**A product's mean is Monte Carlo when one factor's is.**
 
-- **What happens.** `summarize(problem.prior)` for the full Harvard Forest problem estimates the
-  mean, median and quantiles of every calibration parameter from 1,024 draws, and says so ("Monte
-  Carlo, 1,024 draws"), although the prior is a product of independent laws, each with an exact
-  mean and, except the logit-normals (PG-16), exact quantiles. The estimates change from call to
-  call: for `photosynthetic_capacity`, two calls gave medians of 251.8 and 250.6 and means of 258.6
-  and 261.9, against the exact 251.0 and 262.4 from `quantile` and `mean` of
-  `marginal(problem.prior, "theta/photosynthetic_capacity")`. The two noise scales, factors at the
-  top level of the same prior, are summarized exactly (verified at the pin).
-- **Effect here.** The walkthrough notebook cannot use `summarize` to show the prior. It shows the
-  prior table, the specification, and exact quantiles of single marginals instead.
-- **Ideal ProbPipe.** `summarize` of a `FactoredDistribution` uses each factor's exact statistics,
-  including factors grouped under a record such as `theta`.
-- **Stopgap.** None in code: the notebook avoids `summarize` for the prior.
-- **Removal.** Show `summarize(problem.prior)` in the notebook in place of the prior table.
+- **What happens.** `summarize(problem.prior)` reports "mean: Monte Carlo, 1,024 draws" for every
+  calibration parameter, so the mean of `photosynthetic_capacity` came out 264.7 against the exact
+  262.4 of its log-normal factor. A logit-normal has no closed-form mean, and a
+  `FactoredDistribution` then estimates the means of all its factors from draws, rather than
+  estimating only the factors that need it (verified at the pin). Its medians and quantiles are
+  exact, through PG-16's stopgap.
+- **Effect here.** The walkthrough notebook's `summarize(prior)` shows Monte Carlo means that
+  change with the seed. It does not affect any computation.
+- **Ideal ProbPipe.** The moments of a product are computed factor by factor, each by its own best
+  route, with only the factors that need it estimated.
+- **Stopgap.** None.
+- **Removal.** Nothing to remove; the notebook's summary becomes exact where it can be.
+
+## PG-20
+
+**A `Function` called on a record never binds its fields to parameters by name.**
+
+- **What happens.** A `Function` binds a record passed to it to its first parameter, whole. The
+  forward map $G$ declares one input, the record `theta` of calibration parameters; a draw of the
+  prior is a record with the field `theta` (and the noise scales, when inferred). So
+  `forward(quantile(prior, 0.5))` fails ("input/theta fields do not match the declared fields:
+  missing [...], unexpected ['theta']"), and `forward(draw["theta"])` is needed.
+  `forward(**draw)` fails too, since a record is not a mapping (verified at the pin). The model
+  `likelihood & prior` does bind by name, matching the prior's outputs to the kernel's inputs.
+- **Effect here.** The walkthrough notebook and the algorithms pass `draw["theta"]` to the forward
+  map. It reads naturally, since $G$ depends on $\theta$ alone, but it is one more thing to learn.
+- **Ideal ProbPipe.** A `Function` with declared inputs, called on a record whose fields include its
+  parameter names, binds those fields by name, as kernels do.
+- **Stopgap.** None.
+- **Removal.** Nothing to remove; `forward(draw)` would also work.
 
 ---
 
