@@ -28,10 +28,11 @@ class GaussianSimulatorLikelihood(ConditionalDistribution):
     r"""Observations of a simulator with independent Gaussian noise, scaled per class.
 
     Each observation $i = 1, \dots, n$ belongs to a class $k(i)$ (such as day or night) and has a
-    reference variance $v_i > 0$. Given the parameters $\theta$ and one scale $s^2_k > 0$ per class,
+    reference variance $\sigma^2_i > 0$. Given the parameters $\theta$ and one scale $s^2_k > 0$ per
+    class,
 
     $$
-    y_i \mid \theta, s^2 \sim \mathcal N\!\left(G_i(\theta),\; s^2_{k(i)} v_i\right)
+    y_i \mid \theta, s^2 \sim \mathcal N\!\left(G_i(\theta),\; s^2_{k(i)}\, \sigma^2_i\right)
     \quad \text{independently},
     $$
 
@@ -53,7 +54,7 @@ class GaussianSimulatorLikelihood(ConditionalDistribution):
     output_name : str
         The name of the output that holds the observations, such as ``"nee"``.
     reference_variance : array_like
-        $v$, shape $(n,)$.
+        $\sigma^2_i$ for each observation, shape $(n,)$.
     classes : array_like of str
         $k(i)$ for each observation, shape $(n,)$.
     scales : Mapping of str to str or float
@@ -99,7 +100,7 @@ class GaussianSimulatorLikelihood(ConditionalDistribution):
         return tuple(scale for scale in self.scales.values() if isinstance(scale, str))
 
     def noise_variances(self, scale_values: Mapping[str, Any] | None = None) -> jax.Array:
-        r"""The noise variances $s^2_{k(i)} v_i$.
+        r"""The noise variances $s^2_{k(i)}\, \sigma^2_i$.
 
         Parameters
         ----------
@@ -126,7 +127,7 @@ class GaussianSimulatorLikelihood(ConditionalDistribution):
         r"""Each observation's log-density, shape $(n,)$.
 
         $$
-        \log \mathcal N\!\left(y_i \mid G_i(\theta),\; s^2_{k(i)} v_i\right),
+        \log \mathcal N\!\left(y_i \mid G_i(\theta),\; s^2_{k(i)}\, \sigma^2_i\right),
         \qquad i = 1, \dots, n.
         $$
         """

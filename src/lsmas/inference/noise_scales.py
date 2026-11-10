@@ -5,7 +5,7 @@ At tempering level $\beta$ the target is joint in the parameters and the class n
 $$
 \pi_\beta(\theta, s^2) \propto \pi_0(\theta)
 \prod_k \mathrm{IG}\!\left(s^2_k;\, \alpha_k, b_k\right)
-\prod_i \mathcal N\!\left(y_i;\, G_i(\theta),\, s^2_{k(i)} v_i\right)^{\beta \eta_i}.
+\prod_i \mathcal N\!\left(y_i;\, G_i(\theta),\, s^2_{k(i)}\, \sigma^2_i\right)^{\beta \eta_i}.
 $$
 
 Given $\theta$, each inferred scale is conjugate:
@@ -16,7 +16,7 @@ b_k + \tfrac{\beta}{2} q_k(\theta)\right),
 \qquad
 n_k = \sum_{i:\, k(i) = k} \eta_i,
 \qquad
-q_k(\theta) = \sum_{i:\, k(i) = k} \eta_i \frac{\left(y_i - G_i(\theta)\right)^2}{v_i}.
+q_k(\theta) = \sum_{i:\, k(i) = k} \eta_i \frac{\left(y_i - G_i(\theta)\right)^2}{\sigma^2_i}.
 $$
 
 :class:`NoiseScaleConditionals` evaluates these laws and the importance weights between two levels
@@ -61,7 +61,7 @@ class NoiseScaleConditionals:
     membership : numpy.ndarray
         ``membership[k, i]`` is whether observation $i$ is in class $k$. Shape $(K, n)$.
     observations, reference_variance, learning_rate : numpy.ndarray
-        $y$, $v_{k(i)}$ and $\eta$, each of shape $(n,)$.
+        $y$, $\sigma^2_{k(i)}$ and $\eta$, each of shape $(n,)$.
     """
 
     classes: tuple[str, ...]
@@ -199,7 +199,8 @@ class NoiseScaleConditionals:
         return min(max(low, min_increment), 1.0 - beta)
 
     def noise_variance(self, class_scales: np.ndarray) -> np.ndarray:
-        r"""The diagonal of $\Gamma = \operatorname{diag}(s^2_{k(i)} v_i / \eta_i)$, shape $(n,)$.
+        r"""The diagonal of $\Gamma = \operatorname{diag}(s^2_{k(i)}\, \sigma^2_i / \eta_i)$,
+        shape $(n,)$.
 
         Parameters
         ----------

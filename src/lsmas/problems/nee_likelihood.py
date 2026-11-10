@@ -4,8 +4,8 @@ Every problem calibrates a forward map $G$ against the same 400 half-monthly day
 features $y$, with the same likelihood,
 
 $$
-y_i \mid \theta, s^2 \sim \mathcal N\!\left(G_i(\theta),\; s^2_{k(i)}\, v_{k(i)}\right),
-\qquad v_{\mathrm{day}} = 8,\; v_{\mathrm{night}} = 1.5,
+y_i \mid \theta, s^2 \sim \mathcal N\!\left(G_i(\theta),\; s^2_{k(i)}\, \sigma^2_{k(i)}\right),
+\qquad \sigma^2_{\mathrm{day}} = 8,\; \sigma^2_{\mathrm{night}} = 1.5,
 $$
 
 tempered by the learning rate of :func:`~lsmas.learning_rate.effective_sample_size_learning_rate`
@@ -36,7 +36,7 @@ __all__ = [
     "nee_problem",
 ]
 
-#: The reference variances $v_k$ of the day and night features, in (µmol CO₂ m⁻² s⁻¹)².
+#: The reference variances $\sigma^2_k$ of the day and night features, in (µmol CO₂ m⁻² s⁻¹)².
 REFERENCE_VARIANCE = {"day": 8.0, "night": 1.5}
 
 #: Effective independent observations per class-year of data, which sets the learning rate.

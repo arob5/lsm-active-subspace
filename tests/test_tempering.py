@@ -37,7 +37,7 @@ def point(a, b, day, night):
 
 
 def expected_log_density(prior, value, observations, learning_rate):
-    """log π(value) + Σ_i η_i log N(y_i | G_i, s²_k(i) v_i), computed independently."""
+    """log π(value) + Σ_i η_i log N(y_i | G_i, s²_k(i) σ²_i), computed independently."""
     mean = FORWARD_MATRIX @ np.array([value["theta"]["a"], value["theta"]["b"]])
     variances = np.where(CLASSES == "day", value["s2_day"], value["s2_night"]) * REFERENCE_VARIANCE
     pointwise = stats.norm(mean, np.sqrt(variances)).logpdf(observations)

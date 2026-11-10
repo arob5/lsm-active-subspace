@@ -46,7 +46,7 @@ class EnsKitEKI(InferenceMethod):
     $$
     \pi(\theta, s^2 \mid y) \propto \pi_0(\theta) \prod_{k \text{ inferred}} \mathrm{IG}(s^2_k;
     \alpha_k, b_k)\; \mathcal N\!\left(y \mid G(\theta), \Gamma(s^2)\right),
-    \qquad \Gamma(s^2) = \operatorname{diag}\!\left(\frac{s^2_{k(i)} v_i}{\eta_i}\right),
+    \qquad \Gamma(s^2) = \operatorname{diag}\!\left(\frac{s^2_{k(i)}\, \sigma^2_i}{\eta_i}\right),
     $$
 
     with $\eta_i$ the learning rates (all 1 for the ordinary posterior). Particles $z_j$,

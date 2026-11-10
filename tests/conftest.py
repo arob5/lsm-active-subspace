@@ -67,7 +67,7 @@ def exact_linear_information(scales, learning_rate, whitening_factor):
 
 
 def exact_linear_posterior(observations, scales, learning_rate):
-    r"""Mean and covariance of π(θ) ∏ N(y_i | (Hθ)_i, s²_k(i) v_i)^{η_i}, for fixed scales s²."""
+    r"""Mean and covariance of π(θ) ∏ N(y_i | (Hθ)_i, s²_k(i) σ²_i)^{η_i}, for fixed scales s²."""
     variances = np.where(CLASSES == "day", scales["day"], scales["night"]) * REFERENCE_VARIANCE
     precision_weights = learning_rate / variances
     prior_precision = np.diag(1 / PRIOR_SD**2)

@@ -126,7 +126,7 @@ class InverseProblem:
 
     def noise_variance(self, scale_values: Mapping[str, Any] | None = None) -> np.ndarray:
         r"""The diagonal of the tempered noise covariance,
-        $\Gamma = \operatorname{diag}\!\left(s^2_{k(i)} v_i / \eta_i\right)$, shape $(n,)$.
+        $\Gamma = \operatorname{diag}\!\left(s^2_{k(i)}\, \sigma^2_i / \eta_i\right)$, shape $(n,)$.
 
         $\Gamma^{-1}$ weights the observations in the generalized posterior and in the
         information matrices of :mod:`lsmas.tools`.
