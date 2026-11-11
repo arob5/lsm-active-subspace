@@ -156,7 +156,7 @@ def test_eki_runs_on_the_small_harvard_forest_problem():
             method="enskit_eki", method_options={"n_particles": 16, "callbacks": [records.append]}
         )
     # make_posterior lays out every posterior as chains of draws; EKI's ensemble is one chain.
-    theta = problem.coordinates.array_from_draws(posterior.atoms)
+    theta = np.asarray(posterior.atoms["theta"].to_vector())
     assert theta.shape == (1, 16, 10)
     assert records[0].predictions.shape == (16, 400)
     assert sum(record.n_failed for record in records) == 0

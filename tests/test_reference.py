@@ -3,9 +3,11 @@ import json
 import numpy as np
 import pandas as pd
 import pytest
+from probpipe import NumericRecordBatch
 
 from conftest import CLASSES, exact_linear_information, linear_problem
 from lsmas._stopgaps.parallel_chains import run_in_processes
+from lsmas.coordinates import inverse
 from lsmas.experiments.reference import (
     Reference,
     _meets_criteria,
@@ -76,9 +78,13 @@ def test_a_stored_reference_reads_its_noise_scales_by_class():
 
 
 def test_independent_chains_have_rhat_near_one_and_full_effective_size(problem):
-    theta = problem.coordinates.parameters_from_whitened(
-        np.random.default_rng(2).normal(size=(4, 2000, 2))
+    whiten = problem.coordinates.whiten
+    xi = NumericRecordBatch.from_vector(
+        whiten.output_spec.term_spec,
+        np.random.default_rng(2).normal(size=(4, 2000, 2)),
+        level_names=["chain", "draw"],
     )
+    theta = np.asarray(inverse(whiten)(xi).to_vector())
     diagnostics = convergence_diagnostics(problem, theta, {})
     assert diagnostics["rhat"].max() < 1.01
     assert diagnostics["ess_bulk"].min() > 6000

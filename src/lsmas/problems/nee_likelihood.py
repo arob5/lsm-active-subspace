@@ -22,8 +22,8 @@ from typing import Any, Literal
 import numpy as np
 from probpipe import Distribution, Function, InverseGamma
 
-from lsmas._stopgaps.coordinates import Coordinates
 from lsmas._stopgaps.likelihood import INFERRED, NOISE_SCALES, GaussianSimulatorLikelihood
+from lsmas.coordinates import Coordinates
 from lsmas.data import HarvardForestData
 from lsmas.learning_rate import effective_sample_size_learning_rate
 from lsmas.priors import independent_prior

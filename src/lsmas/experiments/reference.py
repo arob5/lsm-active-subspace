@@ -200,7 +200,7 @@ def convergence_diagnostics(
         Draws of each inferred scale, shape (chains, draws), by class.
     """
     coordinates = problem.coordinates
-    xi = coordinates.whitened_from_parameters(theta)
+    xi = np.asarray(coordinates._whitened(theta))
     variables = {name: xi[..., j] for j, name in enumerate(coordinates.names)} | {
         f"log_{noise_scale_variable(noise_class)}": np.log(draws)
         for noise_class, draws in noise_scales.items()
@@ -229,7 +229,7 @@ def nuts_reference(problem: InverseProblem, *, seed: int = 0) -> Reference:
     start = time.time()
     with workflow_run(seed=seed):
         posterior = problem.condition(method="blackjax_nuts")
-    theta = problem.coordinates.array_from_draws(posterior.atoms)
+    theta = np.asarray(posterior.atoms[problem.coordinates.block].to_vector())
     noise_scales = problem.likelihood.inferred_scale_draws(posterior.atoms)
     return _build_reference(
         problem,
@@ -493,7 +493,7 @@ def _reference_information(
     differentiated, central differences otherwise."""
     pooled = theta.reshape(-1, theta.shape[-1])
     keep = _evenly_spaced(len(pooled), INFORMATION_DRAWS)
-    xi = problem.coordinates.whitened_from_parameters(pooled[keep])
+    xi = np.asarray(problem.coordinates._whitened(pooled[keep]))
     scale_draws = {
         noise_class: draws.reshape(-1)[keep] for noise_class, draws in noise_scales.items()
     }
@@ -558,7 +558,8 @@ def _git(*arguments: str) -> str:
 
 def _flat_states(problem: InverseProblem, atoms: Any) -> np.ndarray:
     """Draws as flat states, shape $(N, D)$: the parameters, then the inferred noise scales."""
-    theta = problem.coordinates.array_from_draws(atoms).reshape(-1, problem.coordinates.dimension)
+    coordinates = problem.coordinates
+    theta = np.asarray(atoms[coordinates.block].to_vector()).reshape(-1, coordinates.dimension)
     scales = [
         draws.reshape(-1, 1) for draws in problem.likelihood.inferred_scale_draws(atoms).values()
     ]
@@ -570,7 +571,7 @@ def _unconstrained_states(problem: InverseProblem, states: np.ndarray) -> np.nda
     dimension = problem.coordinates.dimension
     return np.concatenate(
         [
-            problem.coordinates.bijection.to_unconstrained(states[:, :dimension]),
+            np.asarray(problem.coordinates._unconstrained(states[:, :dimension])),
             np.log(states[:, dimension:]),
         ],
         axis=1,

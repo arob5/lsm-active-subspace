@@ -8,8 +8,8 @@ function (such as the leaf carbon fraction $c$ in a parameter map) is defined th
 | Symbol | Meaning |
 |---|---|
 | $\theta \in \mathbb R^d$ | the calibration parameters, in their own units; $d$ of them |
-| $z = b^{-1}(\theta)$ | unconstrained coordinates; $b$ applies each parameter's support bijector (exp, logistic, identity) |
-| $\xi = L^{-1}(z - m)$ | whitened coordinates; $m$ and $L L^\top$ are the prior mean and covariance of $z$, so $\xi$ has prior mean $0$ and covariance $I$ |
+| $z = b^{-1}(\theta)$ | unconstrained coordinates; $b$ applies each parameter's support bijector (exp, logistic, identity); in code `problem.coordinates.unconstrain` |
+| $\xi = L^{-1}(z - m)$ | whitened coordinates; $m$ and $L L^\top$ are the prior mean and covariance of $z$, so $\xi$ has prior mean $0$ and covariance $I$; in code `problem.coordinates.whiten` |
 | $\pi_0$ | the prior; $\pi(\cdot \mid y)$ the posterior |
 
 ## Data, forward map and likelihood

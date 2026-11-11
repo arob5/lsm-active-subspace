@@ -10,8 +10,8 @@ from typing import Any
 import numpy as np
 from probpipe import Distribution, Function
 
-from lsmas._stopgaps.coordinates import Coordinates
 from lsmas._stopgaps.tempering import tempered_condition_on
+from lsmas.coordinates import Coordinates
 
 __all__ = ["InverseProblem"]
 
@@ -47,7 +47,8 @@ class InverseProblem:
     learning_rate : dict of str to numpy.ndarray
         $\eta$ for each observed output, one rate per element.
     coordinates : Coordinates
-        Constrained, unconstrained and whitened coordinates of ``theta``.
+        The changes of coordinates of ``theta``: ``coordinates.unconstrain`` and
+        ``coordinates.whiten``.
     """
 
     name: str
@@ -62,38 +63,6 @@ class InverseProblem:
     def forward(self) -> Function:
         """The forward map $G$ from the parameter record ``theta`` to the predicted observations."""
         return self.likelihood.forward
-
-    def predicted_observations(self, theta: Any) -> np.ndarray:
-        r"""$G(\theta)$ at each row of an array of constrained parameters.
-
-        This is :attr:`forward` for parameters held as an array, with columns in the order of
-        ``coordinates.names``. The rows are evaluated as one batch, so a forward map that runs
-        SIPNET runs them in parallel. A row at which the forward map fails gives a row of NaN.
-
-        Parameters
-        ----------
-        theta : array_like
-            Constrained parameters, shape $(N, d)$, or one setting of shape $(d,)$.
-
-        Returns
-        -------
-        numpy.ndarray
-            The predicted observations, shape $(N, n)$, or $(n,)$ for one setting.
-
-        Raises
-        ------
-        ValueError
-            If *theta* does not have $d$ columns.
-        """
-        theta = np.asarray(theta, dtype=float)
-        rows = np.atleast_2d(theta)
-        if rows.ndim != 2 or rows.shape[1] != self.coordinates.dimension:
-            raise ValueError(
-                f"expected parameters of shape (N, {self.coordinates.dimension}) or "
-                f"({self.coordinates.dimension},); got {theta.shape}"
-            )
-        predictions = np.asarray(self.forward(self.coordinates.bijection.record_batch(rows)).raw)
-        return predictions[0] if theta.ndim == 1 else predictions
 
     @functools.cached_property
     def model(self) -> Distribution:

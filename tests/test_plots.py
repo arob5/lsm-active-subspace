@@ -24,7 +24,7 @@ def toy_run():
         posterior = toy.condition(
             method="enskit_eki", method_options={"n_particles": 40, "callbacks": [ladder]}
         )
-    theta = toy.coordinates.array_from_draws(posterior.atoms).reshape(-1, 14)
+    theta = np.asarray(posterior.atoms["theta"].to_vector()).reshape(-1, 14)
     reference = Reference(
         problem_name="toy",
         scales="fixed",

@@ -142,8 +142,9 @@ def _rwmh_start_at_eki_mean(reduced: ReducedProblem, eki_posterior: Distribution
     ensemble, then each inferred noise scale's median over the ensemble, in the order of the
     reduced prior's event."""
     coordinates = reduced.full_problem.coordinates
-    eki_theta = coordinates.array_from_draws(eki_posterior.atoms).reshape(-1, coordinates.dimension)
-    eki_mean_xi = coordinates.whitened_from_parameters(eki_theta).mean(axis=0)
+    eki_theta = np.asarray(eki_posterior.atoms[coordinates.block].to_vector())
+    eki_theta = eki_theta.reshape(-1, coordinates.dimension)
+    eki_mean_xi = np.asarray(coordinates._whitened(eki_theta)).mean(axis=0)
     scale_medians = [
         np.median(draws)
         for draws in reduced.likelihood.inferred_scale_draws(eki_posterior.atoms).values()

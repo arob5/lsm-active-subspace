@@ -219,8 +219,8 @@ def plot_qq(
     columns : int
         Panels per row.
     """
-    approximation = problem.coordinates.whitened_from_parameters(theta)
-    target = problem.coordinates.whitened_from_parameters(reference.parameter_draws())
+    approximation = np.asarray(problem.coordinates._whitened(theta))
+    target = np.asarray(problem.coordinates._whitened(reference.parameter_draws()))
     dimension = target.shape[1]
     rows = int(np.ceil(dimension / columns))
     figure, axes = plt.subplots(rows, columns, figsize=(2 * columns, 2 * rows), squeeze=False)
@@ -284,7 +284,7 @@ def plot_sufficient_summary(
         The subspace whose variables to plot against.
     """
     theta = eki_history["theta"].values.reshape(-1, problem.coordinates.dimension)
-    xi = problem.coordinates.whitened_from_parameters(theta)
+    xi = np.asarray(problem.coordinates._whitened(theta))
     residuals = problem.data[problem.likelihood.output_name] - eki_history["predictions"].values
     noise_variance = eki_history["noise_variance"].values[:, None, :]
     misfit = (0.5 * np.sum(residuals**2 / noise_variance, axis=-1)).reshape(-1)

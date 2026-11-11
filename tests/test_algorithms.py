@@ -19,8 +19,7 @@ def toy_result():
 
 def test_result_holds_the_lifted_posterior_over_every_parameter(toy_result):
     assert isinstance(toy_result, AlgorithmResult)
-    toy = load_inverse_problem("toy")
-    theta = toy.coordinates.array_from_draws(toy_result.posterior.atoms)
+    theta = np.asarray(toy_result.posterior.atoms["theta"].to_vector())
     assert theta.shape == (2 * 200, 14)
     assert np.all(np.isfinite(theta))
     assert set(toy_result.posterior.atoms.raw) == {"theta", "s2"}
@@ -51,8 +50,7 @@ def test_runs_on_sipnet():
         sampler_options={"num_chains": 1, "num_warmup": 5, "num_results": 5},
         seed=3,
     )
-    small = load_inverse_problem("harvard_forest_small")
-    theta = small.coordinates.array_from_draws(result.posterior.atoms)
+    theta = np.asarray(result.posterior.atoms["theta"].to_vector())
     assert theta.shape == (5, 10)
     assert np.all(np.isfinite(theta))
 

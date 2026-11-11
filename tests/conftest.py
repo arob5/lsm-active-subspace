@@ -6,8 +6,8 @@ import pytest
 from probpipe import Normal, NumericArraySpec, NumericRecordSpec, cov, function, mean
 
 import lsmas  # noqa: F401  (sets JAX's precision before any test builds an array)
-from lsmas._stopgaps.coordinates import Coordinates
 from lsmas._stopgaps.likelihood import GaussianSimulatorLikelihood
+from lsmas.coordinates import Coordinates
 from lsmas.problems.inverse_problem import InverseProblem
 
 #: The forward map G(θ) = F θ of the linear model, for θ = (a, b) and six observations.

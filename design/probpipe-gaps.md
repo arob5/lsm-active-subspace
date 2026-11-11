@@ -135,22 +135,24 @@ import; **SP-01**, SIPNET writes NEE to three decimals.
 
 **No public map to unconstrained coordinates.**
 
-- **What happens.** Methods need a prior's parameter layout and the maps to unconstrained
-  coordinates. Since `9158a50e` the layout is public: `to_vector` on a record or a batch of records,
-  `NumericRecord.from_vector`, and `vector_size` on a spec, and the draws of a view such as
-  `prior["theta"]` lay out as vectors (verified). The maps are not: `bijector_for(support)` gives
-  the forward map b, but `inverse(bijector)` raises `NotImplementedError`, so b⁻¹ is reachable only
-  through the bijector's private `_inverse`. ProbPipe's own helper, `unconstrained_coordinates`
-  (`inference/_inference_utils.py:1007`), is private and refuses a view (`TypeError: cannot lay out
-  the draws of CoupledMarginal …`).
-- **Ideal ProbPipe.** A public map from a law's values to unconstrained vectors and back, with its
-  log-Jacobian, that accepts views. `plans/deferred/vector-interface.md` proposes it
-  (`vector_bijector`, `unconstrained_law`); the plan is not yet approved.
-- **Stopgap.** `lsmas._stopgaps.coordinates.ParameterBijection.from_prior(prior, block)` builds the
-  map from the block's *declared* supports, using the public `bijector_for`, its `raw` forward
-  map, and its `_inverse`. It works whatever internal form the prior takes. `Coordinates.from_prior`
-  adds whitening (see PG-15 for its draws).
-- **Removal.** Build `ParameterBijection` on the public map; the whitening stays ours.
+- **What happens.** The layout of a prior's parameters is public: `to_vector` on a record or a
+  batch of records, `from_vector` to rebuild them, and `vector_size` on a spec. ProbPipe also
+  defines the contract of an invertible map: a `Function` claiming `SupportsInverse` (`_inverse`)
+  and `SupportsLogDetJacobian` (`_log_det_jacobian`), which `bijector_for` and
+  `BijectorTransformedDistribution` follow. But the operations on it are not implemented:
+  `inverse(f)` and `log_det_jacobian(f, x)` raise `NotImplementedError: … is not implemented yet`
+  (verified at `9158a50e`), so a support bijector's inverse is reachable only through its private
+  `_inverse`. ProbPipe's own `unconstrained_coordinates` (`inference/_inference_utils.py:1007`) is
+  private and refuses a view.
+- **Ideal ProbPipe.** `inverse` and `log_det_jacobian` implemented through the capability, and a
+  public map from a law's values to unconstrained vectors that accepts views
+  (`plans/deferred/vector-interface.md`).
+- **Stopgap.** `lsmas.coordinates` builds the maps `unconstrain` and `whiten` as `Function`s that
+  follow ProbPipe's contract, from the block's declared supports, calling each support bijector's
+  `_inverse`. `lsmas.coordinates.inverse(f)` has the signature of ProbPipe's `inverse` and returns
+  our maps' inverses.
+- **Removal.** Import `inverse` from ProbPipe and delete ours; call the support bijectors through
+  `inverse` instead of `_inverse`. The maps and the whitening stay.
 
 ## PG-06
 
@@ -289,7 +291,7 @@ import; **SP-01**, SIPNET writes NEE to three decimals.
 - **Ideal ProbPipe.** A factor taken from a joint keeps the renaming, so its declaration, its draws
   and its density agree.
 - **Stopgap.** `InverseProblem` stores the likelihood and the prior it was built from and derives
-  the model from them, rather than splitting the model. `lsmas._stopgaps.coordinates.block_values`
+  the model from them, rather than splitting the model. `lsmas.coordinates._parameter_vectors`
   reads a block's values from draws in either layout. (`tempered_condition_on` does rebuild a
   joint from `model.factors`; its tests confirm the resulting target density is correct.)
 - **Removal.** Read draws in the grouped layout only. Storing the parts is the simpler design

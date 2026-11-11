@@ -21,8 +21,8 @@ def stand_in_reference():
     toy = load_inverse_problem("toy")
     with workflow_run(seed=9):
         eki = toy.condition(method="enskit_eki", method_options={"n_particles": 60})
-    theta = toy.coordinates.array_from_draws(eki.atoms).reshape(2, 30, -1)
-    xi = toy.coordinates.whitened_from_parameters(theta.reshape(-1, theta.shape[-1]))
+    theta = np.asarray(eki.atoms["theta"].to_vector()).reshape(2, 30, -1)
+    xi = np.asarray(toy.coordinates.whiten(eki.atoms["theta"]).to_vector()).reshape(60, -1)
     return Reference(
         problem_name="toy",
         scales="fixed",

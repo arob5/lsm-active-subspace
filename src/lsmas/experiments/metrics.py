@@ -84,9 +84,9 @@ def score(
     problem : InverseProblem
         The problem, whose coordinates whiten the draws.
     """
-    theta = problem.coordinates.array_from_draws(result.posterior.atoms).reshape(
-        -1, problem.coordinates.dimension
-    )
+    coordinates = problem.coordinates
+    theta = np.asarray(result.posterior.atoms[coordinates.block].to_vector())
+    theta = theta.reshape(-1, coordinates.dimension)
     noise_scales = {
         noise_class: draws.reshape(-1)
         for noise_class, draws in problem.likelihood.inferred_scale_draws(
@@ -127,8 +127,8 @@ def posterior_scores(
         ``coverage90_min`` over the whitened parameters, and ``marginal_w1_s2_<class>`` for each
         inferred noise scale, on the logarithm of the scale.
     """
-    approximation = problem.coordinates.whitened_from_parameters(theta)
-    target = problem.coordinates.whitened_from_parameters(reference.parameter_draws())
+    approximation = np.asarray(problem.coordinates._whitened(theta))
+    target = np.asarray(problem.coordinates._whitened(reference.parameter_draws()))
     distances = marginal_wasserstein(approximation, target)
     location, spread = mean_errors(approximation, target), sd_errors(approximation, target)
     coverage = interval_coverage(approximation, target)

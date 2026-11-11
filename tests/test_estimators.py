@@ -1,6 +1,6 @@
 import numpy as np
 import pytest
-from probpipe import workflow_run
+from probpipe import NumericRecordBatch, workflow_run
 
 from conftest import (
     CLASSES,
@@ -92,9 +92,13 @@ def test_ladder_directions_capture_the_exact_ladder_information_on_the_toy():
             method="enskit_eki",
             method_options={"n_particles": 100, "callbacks": [ladder, records.append]},
         )
+
+    def whitened(theta):
+        records = NumericRecordBatch.from_vector(toy.coordinates.spec, theta, level_names="member")
+        return np.asarray(toy.coordinates.whiten(records).to_vector())
+
     exact = sum(
-        record.increment
-        * exact_subspace(toy, toy.coordinates.whitened_from_parameters(record.theta)).information
+        record.increment * exact_subspace(toy, whitened(record.theta)).information
         for record in records
     )
     basis = ladder.subspace(rank=3).basis

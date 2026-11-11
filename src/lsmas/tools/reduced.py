@@ -26,6 +26,7 @@ from typing import Any
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 from probpipe import (
     EmpiricalDistribution,
     Function,
@@ -33,10 +34,10 @@ from probpipe import (
     NumericRecordBatch,
 )
 
-from lsmas._stopgaps.coordinates import Coordinates, block_values
 from lsmas._stopgaps.functions import declares_traceable
 from lsmas._stopgaps.likelihood import NOISE_SCALES, GaussianSimulatorLikelihood
 from lsmas._stopgaps.sampling import draw_with_key
+from lsmas.coordinates import Coordinates, _parameter_vectors
 from lsmas.parameters import parameter_record_spec
 from lsmas.priors import factors_over, independent_prior
 from lsmas.problems.inverse_problem import InverseProblem
@@ -128,18 +129,18 @@ class ReducedProblem(InverseProblem):
             Draws of the full problem's parameter record ``theta`` and of any inferred noise scales.
         """
         atoms = posterior.atoms
-        active = block_values(atoms, _PARAMETER_BLOCK, self.coordinates.names).reshape(
+        active = _parameter_vectors(atoms, _PARAMETER_BLOCK, self.coordinates.names).reshape(
             -1, self.subspace.rank
         )
         full = self.full_problem.coordinates
         prior_draws = draw_with_key(self.full_problem.prior, key, (active.shape[0],))
-        prior_xi = full.whitened_from_parameters(
-            block_values(prior_draws, _PARAMETER_BLOCK, full.names)
+        prior_xi = np.asarray(
+            full._whitened(_parameter_vectors(prior_draws, _PARAMETER_BLOCK, full.names))
         )
         xi = self.subspace.whitened_from_active_and_inactive(
             active, self.subspace.inactive_variables(prior_xi)
         )
-        theta = full.parameters_from_whitened(xi)
+        theta = np.asarray(full._from_whitened(xi))
         fields: dict[str, Any] = {
             _PARAMETER_BLOCK: {
                 name: jnp.asarray(theta[:, index]) for index, name in enumerate(full.names)
@@ -162,8 +163,10 @@ class _ReducedForwardMap:
 
     def features(self, theta: Any) -> Any:
         """$G(W a)$ at the record *theta* of active variables $a$."""
+        coordinates = self.problem.coordinates
         xi = self.basis @ jnp.stack([jnp.asarray(theta[name]) for name in self.names])
-        record = self.problem.coordinates.parameter_record(xi)
+        parameters = coordinates._from_whitened(xi)
+        record = {name: parameters[j] for j, name in enumerate(coordinates.names)}
         return self.problem.forward.using(raw=True)(record)
 
 

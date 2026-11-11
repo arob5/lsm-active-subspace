@@ -22,10 +22,10 @@ from enskit.distribution import Ensemble
 from probpipe import Distribution, InverseGamma, NumericRecordBatch
 from probpipe.inference import Feasibility, InferenceMethod, InferenceTarget, make_posterior
 
-from lsmas._stopgaps.coordinates import ParameterBijection, block_values
 from lsmas._stopgaps.likelihood import NOISE_SCALES, GaussianSimulatorLikelihood
 from lsmas._stopgaps.sampling import draw_with_key
 from lsmas._stopgaps.tempering import TemperedLikelihood
+from lsmas.coordinates import Coordinates, _parameter_vectors
 from lsmas.inference.noise_scales import NoiseScaleConditionals
 from lsmas.inference.step_record import StepCallback, StepRecord, history_dataset
 from lsmas.priors import factors_over
@@ -154,7 +154,7 @@ class _GaussianInverseProblem:
     likelihood: GaussianSimulatorLikelihood
     observations: np.ndarray
     prior: Any
-    bijection: ParameterBijection
+    coordinates: Coordinates
     scale_conditionals: NoiseScaleConditionals
 
     @classmethod
@@ -166,7 +166,7 @@ class _GaussianInverseProblem:
             likelihood=likelihood,
             observations=observations,
             prior=factors.prior,
-            bijection=ParameterBijection.from_prior(factors.prior, _PARAMETER_BLOCK),
+            coordinates=Coordinates.from_prior(factors.prior, _PARAMETER_BLOCK),
             scale_conditionals=NoiseScaleConditionals.from_problem(
                 likelihood,
                 _inverse_gamma_scale_priors(factors.prior),
@@ -178,7 +178,7 @@ class _GaussianInverseProblem:
     def draw_initial_particles(self, key: Any, n_particles: int) -> _ParticlesWithScales:
         """*n_particles* prior draws: parameters in unconstrained coordinates, and class scales."""
         draws = draw_with_key(self.prior, key, (n_particles,))
-        theta = block_values(draws, _PARAMETER_BLOCK, self.bijection.names)
+        theta = _parameter_vectors(draws, _PARAMETER_BLOCK, self.coordinates.names)
         conditionals = self.scale_conditionals
         inferred = self.likelihood.inferred_scale_draws(draws)
         scales = np.stack(
@@ -188,12 +188,13 @@ class _GaussianInverseProblem:
             ],
             axis=-1,
         )
-        return _ParticlesWithScales(z=self.bijection.to_unconstrained(theta), scales=scales)
+        z = np.asarray(self.coordinates._unconstrained(theta))
+        return _ParticlesWithScales(z=z, scales=scales)
 
     def forward_in_unconstrained_coordinates(self, z: Any) -> np.ndarray:
         """$G$ at each row of unconstrained coordinates *z*, shape $(J, n)$; EnsKit's simulator."""
-        theta = self.bijection.to_constrained(np.asarray(z))
-        return np.asarray(self.likelihood.forward(self.bijection.record_batch(theta)).raw)
+        theta = self.coordinates._constrained(np.asarray(z))
+        return np.asarray(self.likelihood.forward(self.coordinates._records(theta)).raw)
 
 
 def _run_tempered_eki(
@@ -313,8 +314,8 @@ def _build_step_record(
         step=int(evaluation.step),
         beta=beta,
         increment=float(increment),
-        parameter_names=problem.bijection.names,
-        theta=problem.bijection.to_constrained(unconstrained),
+        parameter_names=problem.coordinates.names,
+        theta=np.asarray(problem.coordinates._constrained(unconstrained)),
         predictions=np.asarray(evaluation.ensemble[eki.PREDICTION]),
         noise_variance=noise_variance,
         noise_scales={
@@ -351,10 +352,10 @@ def _particles_as_target_vectors(
     target: InferenceTarget, problem: _GaussianInverseProblem, particles: _ParticlesWithScales
 ) -> jnp.ndarray:
     """The final particles, with their inferred scales, as vectors of the target's event."""
-    theta = problem.bijection.to_constrained(particles.z)
+    theta = problem.coordinates._constrained(particles.z)
     fields: dict[str, Any] = {
         _PARAMETER_BLOCK: {
-            name: jnp.asarray(theta[:, index]) for index, name in enumerate(problem.bijection.names)
+            name: theta[:, index] for index, name in enumerate(problem.coordinates.names)
         }
     }
     conditionals = problem.scale_conditionals

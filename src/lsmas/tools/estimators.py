@@ -41,8 +41,8 @@ import numpy as np
 from enskit import maps
 from enskit.distribution import Ensemble
 
-from lsmas._stopgaps.coordinates import Coordinates
 from lsmas._stopgaps.functions import declares_traceable
+from lsmas.coordinates import Coordinates
 from lsmas.inference.step_record import StepRecord
 from lsmas.problems.inverse_problem import InverseProblem
 from lsmas.tools.subspace import DEFAULT_DISCARDED_INFORMATION, Subspace
@@ -107,7 +107,7 @@ class LadderLinearization:
             raise ValueError(f"unknown weighting {self.weighting!r}")
 
     def __call__(self, record: StepRecord) -> None:
-        xi = self.coordinates.whitened_from_parameters(record.theta)
+        xi = np.asarray(self.coordinates._whitened(record.theta))
         slope = statistical_linearization(xi, record.predictions)
         self.steps.append(
             LinearizedStep(
@@ -225,7 +225,12 @@ def exact_subspace(
         )
     forward = problem.forward.using(raw=True)
     coordinates = problem.coordinates
-    jacobian = jax.jit(jax.vmap(jax.jacfwd(lambda x: forward(coordinates.parameter_record(x)))))
+
+    def features_at_whitened(x: jax.Array) -> jax.Array:
+        parameters = coordinates._from_whitened(x)
+        return forward({name: parameters[j] for j, name in enumerate(coordinates.names)})
+
+    jacobian = jax.jit(jax.vmap(jax.jacfwd(features_at_whitened)))
     xi = np.asarray(xi, dtype=float)
     precisions = _point_precisions(problem, noise_scales, len(xi))
     total = np.zeros((xi.shape[1], xi.shape[1]))
@@ -277,7 +282,8 @@ def finite_difference_subspace(
     dimension = xi.shape[1]
     shifts = step * np.concatenate([np.eye(dimension), -np.eye(dimension)])
     perturbed = (xi[:, None, :] + shifts[None, :, :]).reshape(-1, dimension)
-    predictions = problem.predicted_observations(coordinates.parameters_from_whitened(perturbed))
+    perturbed_theta = coordinates._records(coordinates._from_whitened(perturbed))
+    predictions = np.asarray(problem.forward(perturbed_theta).raw)
     predictions = predictions.reshape(len(xi), 2 * dimension, -1)
     per_point_information = []
     for point_predictions, precision in zip(predictions, precisions, strict=True):
@@ -320,7 +326,7 @@ def covariance_subspace(
     rank, discarded_information
         As for :meth:`Subspace.from_information`.
     """
-    xi = problem.coordinates.whitened_from_parameters(np.asarray(theta, dtype=float))
+    xi = np.asarray(problem.coordinates._whitened(np.asarray(theta, dtype=float)))
     if xi.shape[0] <= xi.shape[1]:
         raise ValueError(f"need more draws than parameters, got {xi.shape[0]} for {xi.shape[1]}")
     precision = np.linalg.inv(np.cov(xi, rowvar=False))

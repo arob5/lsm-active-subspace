@@ -216,9 +216,9 @@ def _result_tree(
     wall_seconds: float,
 ) -> xr.DataTree:
     """A run's posterior draws and subspace as a DataTree, with the run's settings as attributes."""
-    theta = problem.coordinates.array_from_draws(result.posterior.atoms).reshape(
-        -1, problem.coordinates.dimension
-    )
+    coordinates = problem.coordinates
+    theta = np.asarray(result.posterior.atoms[coordinates.block].to_vector())
+    theta = theta.reshape(-1, coordinates.dimension)
     posterior = xr.Dataset(
         {"theta": (("draw", "parameter"), theta)}
         | {
