@@ -131,6 +131,19 @@ ProbPipe idioms work:
 - **The averaging figure** shows one year in two panels: SIPNET's NEE in the windows each value
   averages, and the average as a bar over them. It replaces a crowded view of half a month.
 
+## 2d. Draft 5: the noise scales as a record
+
+- **The noise scales are grouped like `theta`.** An inferred scale is the field `s2/<class>` of the
+  prior (it was the top-level `s2_<class>`), and the likelihood takes the record `s2` as one given.
+  A likelihood scale is a number or `"inferred"`; values of the scales outside a record, such as
+  `noise_variance(noise_scales)` and `Reference.noise_scales`, are keyed by class. Files and
+  tables keep the flat names `s2_<class>`, so the stored baselines load unchanged.
+- **`plot_marginals`** names each panel's path from the law's outputs, so a view such as
+  `prior["s2"]` can be plotted.
+- **The notebook** names the inferred-scale problem `problem_with_scales` rather than rebinding
+  `problem`, and drops the section 9 slice along with `method="unnormalized"`; it runs SIPNET
+  about 240 times.
+
 ## 2. The outline (draft 1, superseded by §2a)
 
 Each section opens with a short statement of what it introduces, gives the mathematics, then the
