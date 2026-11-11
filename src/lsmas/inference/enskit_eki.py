@@ -49,9 +49,9 @@ class EnsKitEKI(InferenceMethod):
     \qquad \Gamma(s^2) = \operatorname{diag}\!\left(\frac{s^2_{k(i)}\, \sigma^2_i}{\eta_i}\right),
     $$
 
-    with $\eta_i$ the learning rates (all 1 for the ordinary posterior). Particles $z_j$,
-    $j = 1, \dots, J$, live in unconstrained coordinates $z = b^{-1}(\theta)$; they and their scales
-    $s^2_j$ start as prior draws. The method moves through tempering levels
+    with $\eta_i$ the learning rates (all 1 for the ordinary posterior). Particles $\phi_j$,
+    $j = 1, \dots, J$, live in unconstrained coordinates $\phi = b^{-1}(\theta)$; they and their
+    scales $s^2_j$ start as prior draws. The method moves through tempering levels
     $0 = \beta_0 < \beta_1 < \dots < \beta_T = 1$, the level $\beta$ targeting the tempered
     posterior with likelihood $\mathcal N(y \mid G, \Gamma / \beta)$. Each step evaluates $G$ at
     every particle (EnsKit's ``eki.evaluate``, the step's one batch of forward runs) and then:
@@ -61,22 +61,23 @@ class EnsKitEKI(InferenceMethod):
        sample size of at least a fraction of $J$
        (:meth:`~lsmas.inference.noise_scales.NoiseScaleConditionals.largest_increment`). With
        every scale fixed the weights are $\exp(-\Delta\beta_t \Phi_j)$,
-       $\Phi_j = \tfrac12 \lVert \Gamma^{-1/2}(y - G(z_j)) \rVert^2$.
+       $\Phi_j = \tfrac12 \lVert \Gamma^{-1/2}(y - G(\phi_j)) \rVert^2$.
     2. **Kalman update** (EnsKit's ``eki.assimilate``): every particle moves by
 
        $$
-       z_j \leftarrow z_j + C_{zG} \left(C_{GG} + \bar\Gamma / \Delta\beta_t\right)^{-1}
-       \left(y + \varepsilon_j - G(z_j)\right),
+       \phi_j \leftarrow \phi_j + C_{\phi G} \left(C_{GG} + \bar\Gamma / \Delta\beta_t\right)^{-1}
+       \left(y + \varepsilon_j - G(\phi_j)\right),
        \qquad \varepsilon_j \sim \mathcal N(0, \bar\Gamma / \Delta\beta_t),
        $$
 
-       with $C_{zG}$ and $C_{GG}$ the ensemble covariances and $\bar\Gamma = \Gamma(\bar s^2)$ at
-       the ensemble's common scales $\bar s^2_k = (\frac1J \sum_j s^{-2}_{jk})^{-1}$.
+       with $C_{\phi G}$ and $C_{GG}$ the ensemble covariances and
+       $\bar\Gamma = \Gamma(\bar s^2)$ at the ensemble's common scales
+       $\bar s^2_k = (\frac1J \sum_j s^{-2}_{jk})^{-1}$.
     3. **Gibbs draw of the scales**, after the moved particles are evaluated: each particle's
        inferred scales are drawn from their exact conditional law at the new level
        (:class:`~lsmas.inference.noise_scales.NoiseScaleConditionals`).
 
-    For a linear $G$, a Gaussian prior on $z$ and fixed scales, the ensemble's law tends to the
+    For a linear $G$, a Gaussian prior on $\phi$ and fixed scales, the ensemble's law tends to the
     posterior as $J \to \infty$; otherwise the result is an approximation. A particle at which the
     forward map fails is moved to the centre of the valid particles before the update.
 
@@ -134,16 +135,17 @@ class EnsKitEKI(InferenceMethod):
             [_particles_as_target_vectors(target, problem, final_particles)],
             method=self.name,
             annotations=xr.DataTree.from_dict({"eki_history": history_dataset(step_records)}),
-            n_particles=final_particles.z.shape[0],
+            n_particles=final_particles.phi.shape[0],
             n_steps=len(step_records),
         )
 
 
 @dataclass(frozen=True)
 class _ParticlesWithScales:
-    """An ensemble: unconstrained parameters $z$, shape $(J, d)$, and class scales, $(J, K)$."""
+    r"""An ensemble: unconstrained parameters $\phi$, shape $(J, d)$, and class scales,
+    $(J, K)$."""
 
-    z: np.ndarray
+    phi: np.ndarray
     scales: np.ndarray
 
 
@@ -188,12 +190,13 @@ class _GaussianInverseProblem:
             ],
             axis=-1,
         )
-        z = np.asarray(self.coordinates._unconstrained(theta))
-        return _ParticlesWithScales(z=z, scales=scales)
+        phi = np.asarray(self.coordinates._unconstrained(theta))
+        return _ParticlesWithScales(phi=phi, scales=scales)
 
-    def forward_in_unconstrained_coordinates(self, z: Any) -> np.ndarray:
-        """$G$ at each row of unconstrained coordinates *z*, shape $(J, n)$; EnsKit's simulator."""
-        theta = self.coordinates._constrained(np.asarray(z))
+    def forward_in_unconstrained_coordinates(self, phi: Any) -> np.ndarray:
+        """$G$ at each row of unconstrained coordinates *phi*, shape $(J, n)$: EnsKit's
+        simulator."""
+        theta = self.coordinates._constrained(np.asarray(phi))
         return np.asarray(self.likelihood.forward(self.coordinates._records(theta)).raw)
 
 
@@ -218,7 +221,7 @@ def _run_tempered_eki(
     ess_fraction = float(options.get("ess_fraction", 0.5))
     max_steps = int(options.get("max_steps", 1000))
     conditionals = problem.scale_conditionals
-    state = eki.EKIState(Ensemble(u=jnp.asarray(initial_particles.z)), key=key_kalman)
+    state = eki.EKIState(Ensemble(u=jnp.asarray(initial_particles.phi)), key=key_kalman)
     scales = initial_particles.scales
     evaluation = _evaluate_forward_map_at_particles(problem, state, scales)
     step_records: list[StepRecord] = []
@@ -249,7 +252,7 @@ def _run_tempered_eki(
             evaluation = _evaluate_forward_map_at_particles(problem, state, scales)
             scales = _gibbs_draw_noise_scales(problem, evaluation, state, scales, key_scales)
     return _ParticlesWithScales(
-        z=_final_particles_as_evaluated(state, evaluation), scales=scales
+        phi=_final_particles_as_evaluated(state, evaluation), scales=scales
     ), step_records
 
 
@@ -352,7 +355,7 @@ def _particles_as_target_vectors(
     target: InferenceTarget, problem: _GaussianInverseProblem, particles: _ParticlesWithScales
 ) -> jnp.ndarray:
     """The final particles, with their inferred scales, as vectors of the target's event."""
-    theta = problem.coordinates._constrained(particles.z)
+    theta = problem.coordinates._constrained(particles.phi)
     fields: dict[str, Any] = {
         _PARAMETER_BLOCK: {
             name: theta[:, index] for index, name in enumerate(problem.coordinates.names)

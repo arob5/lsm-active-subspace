@@ -1,7 +1,7 @@
 r"""Reduced problems: the posterior of the active variables, with the inactive ones at their prior.
 
 Given a subspace with bases $W$ and $W_\perp$, whitened coordinates split as
-$\xi = W a + W_\perp b$. A reduced posterior keeps the inactive variables $b$ at their prior and
+$z = W a + W_\perp b$. A reduced posterior keeps the inactive variables $b$ at their prior and
 approximates the law of the active variables $a$. The **plug-in** reduced posterior evaluates the
 likelihood with $b$ at its prior mean $0$:
 
@@ -112,7 +112,7 @@ class ReducedProblem(InverseProblem):
         r"""The approximation of the full posterior from draws of this problem's posterior.
 
         Each draw of the active variables $a$ is combined with the inactive part
-        $b = W_\perp^\top \xi$ of an independent prior draw $\xi$, and mapped to the calibration
+        $b = W_\perp^\top z$ of an independent prior draw $z$, and mapped to the calibration
         parameters $\theta(W a + W_\perp b)$. Drawn noise scales are carried over unchanged.
 
         Parameters
@@ -134,13 +134,13 @@ class ReducedProblem(InverseProblem):
         )
         full = self.full_problem.coordinates
         prior_draws = draw_with_key(self.full_problem.prior, key, (active.shape[0],))
-        prior_xi = np.asarray(
+        prior_z = np.asarray(
             full._whitened(_parameter_vectors(prior_draws, _PARAMETER_BLOCK, full.names))
         )
-        xi = self.subspace.whitened_from_active_and_inactive(
-            active, self.subspace.inactive_variables(prior_xi)
+        z = self.subspace.whitened_from_active_and_inactive(
+            active, self.subspace.inactive_variables(prior_z)
         )
-        theta = np.asarray(full._from_whitened(xi))
+        theta = np.asarray(full._from_whitened(z))
         fields: dict[str, Any] = {
             _PARAMETER_BLOCK: {
                 name: jnp.asarray(theta[:, index]) for index, name in enumerate(full.names)
@@ -164,8 +164,8 @@ class _ReducedForwardMap:
     def features(self, theta: Any) -> Any:
         """$G(W a)$ at the record *theta* of active variables $a$."""
         coordinates = self.problem.coordinates
-        xi = self.basis @ jnp.stack([jnp.asarray(theta[name]) for name in self.names])
-        parameters = coordinates._from_whitened(xi)
+        z = self.basis @ jnp.stack([jnp.asarray(theta[name]) for name in self.names])
+        parameters = coordinates._from_whitened(z)
         record = {name: parameters[j] for j, name in enumerate(coordinates.names)}
         return self.problem.forward.using(raw=True)(record)
 

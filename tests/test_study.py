@@ -22,14 +22,14 @@ def stand_in_reference():
     with workflow_run(seed=9):
         eki = toy.condition(method="enskit_eki", method_options={"n_particles": 60})
     theta = np.asarray(eki.atoms["theta"].to_vector()).reshape(2, 30, -1)
-    xi = np.asarray(toy.coordinates.whiten(eki.atoms["theta"]).to_vector()).reshape(60, -1)
+    z = np.asarray(toy.coordinates.whiten(eki.atoms["theta"]).to_vector()).reshape(60, -1)
     return Reference(
         problem_name="toy",
         scales="fixed",
         parameter_names=toy.coordinates.names,
         theta=theta,
         noise_scales={},
-        information=exact_subspace(toy, xi).information,
+        information=exact_subspace(toy, z).information,
         diagnostics=convergence_diagnostics(toy, theta, {}),
         provenance={"method": "stand-in"},
     )

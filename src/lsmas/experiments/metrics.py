@@ -1,13 +1,13 @@
 r"""Scores of an approximate posterior and an estimated subspace against a reference.
 
 The posterior metrics compare draws of an approximation $q$ with the reference $p$ coordinate by
-coordinate, in whitened coordinates $\xi_j$ (and $\log s^2_k$ for inferred noise scales), each
+coordinate, in whitened coordinates $z_j$ (and $\log s^2_k$ for inferred noise scales), each
 divided by the reference's standard deviation $\sigma_j$ of that coordinate:
 
 - the **marginal 1-Wasserstein distance** $W_1(q_j, p_j) / \sigma_j$, which is sensitive to both
   location and spread; its mean and maximum over coordinates are the headline scores;
-- the **mean error** $\lvert \mathbb E_q \xi_j - \mathbb E_p \xi_j \rvert / \sigma_j$;
-- the **sd error** $\lvert \log(\mathrm{sd}_q\, \xi_j / \sigma_j) \rvert$;
+- the **mean error** $\lvert \mathbb E_q z_j - \mathbb E_p z_j \rvert / \sigma_j$;
+- the **sd error** $\lvert \log(\mathrm{sd}_q\, z_j / \sigma_j) \rvert$;
 - the **Gaussian 2-Wasserstein distance** between Gaussian fits of $q$ and $p$, which is sensitive
   to correlations;
 - the **coverage** of $p$'s draws by $q$'s central 90% interval, a diagnostic only: it cannot
@@ -186,12 +186,12 @@ def marginal_wasserstein(approximation: np.ndarray, target: np.ndarray) -> np.nd
 
 
 def mean_errors(approximation: np.ndarray, target: np.ndarray) -> np.ndarray:
-    r"""$\lvert \mathbb E_q \xi_j - \mathbb E_p \xi_j \rvert / \sigma_j$ for each coordinate."""
+    r"""$\lvert \mathbb E_q z_j - \mathbb E_p z_j \rvert / \sigma_j$ for each coordinate."""
     return np.abs(approximation.mean(axis=0) - target.mean(axis=0)) / target.std(axis=0)
 
 
 def sd_errors(approximation: np.ndarray, target: np.ndarray) -> np.ndarray:
-    r"""$\lvert \log(\mathrm{sd}_q\, \xi_j / \sigma_j) \rvert$ for each coordinate."""
+    r"""$\lvert \log(\mathrm{sd}_q\, z_j / \sigma_j) \rvert$ for each coordinate."""
     return np.abs(np.log(approximation.std(axis=0) / target.std(axis=0)))
 
 

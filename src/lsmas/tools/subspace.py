@@ -4,13 +4,13 @@ Every estimator in :mod:`lsmas.tools.estimators` returns an estimate of an infor
 whitened coordinates,
 
 $$
-H(\mu) = \mathbb E_\mu\!\left[DG(\xi)^\top \Gamma^{-1} DG(\xi)\right],
+H(\mu) = \mathbb E_\mu\!\left[DG(z)^\top \Gamma^{-1} DG(z)\right],
 $$
 
 and :class:`Subspace` computes from it the eigenvalues
 $\lambda_1 \ge \dots \ge \lambda_d$, the basis $W$ of the leading $r$ eigenvectors and the
-basis $W_\perp$ of the rest, the active and inactive variables $a = W^\top \xi$ and
-$b = W_\perp^\top \xi$, and each parameter's loadings and activity score. Because the prior's
+basis $W_\perp$ of the rest, the active and inactive variables $a = W^\top z$ and
+$b = W_\perp^\top z$, and each parameter's loadings and activity score. Because the prior's
 information in whitened coordinates is the identity, $\lambda_i > 1$ means the data inform
 direction $i$ more than the prior does.
 """
@@ -119,18 +119,18 @@ class Subspace:
         _check_rank(rank, self.dimension)
         return dataclasses.replace(self, rank=rank)
 
-    def active_variables(self, xi: np.ndarray) -> np.ndarray:
-        r"""$a = W^\top \xi$ for whitened coordinates *xi*, shape $(\ldots, d) \to (\ldots, r)$."""
-        return np.asarray(xi, dtype=float) @ self.basis
+    def active_variables(self, z: np.ndarray) -> np.ndarray:
+        r"""$a = W^\top z$ for whitened coordinates *z*, shape $(\ldots, d) \to (\ldots, r)$."""
+        return np.asarray(z, dtype=float) @ self.basis
 
-    def inactive_variables(self, xi: np.ndarray) -> np.ndarray:
-        r"""$b = W_\perp^\top \xi$, shape $(\ldots, d) \to (\ldots, d - r)$."""
-        return np.asarray(xi, dtype=float) @ self.complement
+    def inactive_variables(self, z: np.ndarray) -> np.ndarray:
+        r"""$b = W_\perp^\top z$, shape $(\ldots, d) \to (\ldots, d - r)$."""
+        return np.asarray(z, dtype=float) @ self.complement
 
     def whitened_from_active_and_inactive(
         self, active: np.ndarray, inactive: np.ndarray
     ) -> np.ndarray:
-        r"""$\xi = W a + W_\perp b$ from active and inactive variables, shape $(\ldots, d)$."""
+        r"""$z = W a + W_\perp b$ from active and inactive variables, shape $(\ldots, d)$."""
         return (
             np.asarray(active, dtype=float) @ self.basis.T
             + np.asarray(inactive, dtype=float) @ self.complement.T

@@ -36,20 +36,20 @@ def exact_information(problem):
 
 
 def test_statistical_linearization_of_a_linear_map_is_its_matrix():
-    xi = np.random.default_rng(0).normal(size=(20, 2))
-    np.testing.assert_allclose(statistical_linearization(xi, xi @ FORWARD_MATRIX.T), FORWARD_MATRIX)
+    z = np.random.default_rng(0).normal(size=(20, 2))
+    np.testing.assert_allclose(statistical_linearization(z, z @ FORWARD_MATRIX.T), FORWARD_MATRIX)
 
 
 def test_exact_subspace_matches_the_linear_information(problem, exact_information):
-    xi = np.random.default_rng(1).normal(size=(30, 2))
-    subspace = exact_subspace(problem, xi)
+    z = np.random.default_rng(1).normal(size=(30, 2))
+    subspace = exact_subspace(problem, z)
     np.testing.assert_allclose(subspace.information, exact_information, rtol=EXACT)
     assert subspace.estimator == "exact"
 
 
 def test_finite_differences_match_the_linear_information(problem, exact_information):
-    xi = np.random.default_rng(2).normal(size=(3, 2))
-    subspace = finite_difference_subspace(problem, xi)
+    z = np.random.default_rng(2).normal(size=(3, 2))
+    subspace = finite_difference_subspace(problem, z)
     np.testing.assert_allclose(subspace.information, exact_information, rtol=EXACT)
 
 

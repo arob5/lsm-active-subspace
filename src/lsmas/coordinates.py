@@ -3,22 +3,22 @@ r"""Constrained, unconstrained and whitened coordinates of the calibration param
 For a block of $d$ scalar parameters $\theta$, such as a prior's ``theta``:
 
 - **constrained** $\theta$, each parameter in its own units and support;
-- **unconstrained** $z = b^{-1}(\theta) \in \mathbb R^d$, where $b_j$ is the bijector ProbPipe
+- **unconstrained** $\phi = b^{-1}(\theta) \in \mathbb R^d$, where $b_j$ is the bijector ProbPipe
   assigns to the support of $\theta_j$ (the exponential for a positive parameter, the logistic
   function for one in $(0, 1)$, the identity for a real one);
-- **whitened** $\xi = L^{-1}(z - m)$, where $m$ and $L L^\top$ are the prior mean and covariance
-  of $z$, so that $\xi$ has prior mean $0$ and covariance $I$.
+- **whitened** $z = L^{-1}(\phi - m)$, where $m$ and $L L^\top$ are the prior mean and covariance
+  of $\phi$, so that $z$ has prior mean $0$ and covariance $I$.
 
 :class:`Coordinates` gives the changes of coordinates as invertible ProbPipe ``Function``\ s,
-:attr:`~Coordinates.unconstrain` ($\theta \mapsto z$) and :attr:`~Coordinates.whiten`
-($\theta \mapsto \xi$). Each takes the record ``theta`` and returns a record with the same field
+:attr:`~Coordinates.unconstrain` ($\theta \mapsto \phi$) and :attr:`~Coordinates.whiten`
+($\theta \mapsto z$). Each takes the record ``theta`` and returns a record with the same field
 names, so it maps a record, a batch of draws or a distribution, as any ``Function`` does:
 
 >>> coordinates = problem.coordinates                            # doctest: +SKIP
->>> xi = coordinates.whiten(draws["theta"])  # whitened draws      # doctest: +SKIP
->>> xi.to_vector()  # as an array of shape (n, d)                   # doctest: +SKIP
+>>> z = coordinates.whiten(draws["theta"])  # whitened draws      # doctest: +SKIP
+>>> z.to_vector()  # as an array of shape (n, d)                   # doctest: +SKIP
 >>> coordinates.whiten(posterior["theta"])  # a distribution        # doctest: +SKIP
->>> inverse(coordinates.whiten)(xi)  # back to the parameters      # doctest: +SKIP
+>>> inverse(coordinates.whiten)(z)  # back to the parameters      # doctest: +SKIP
 """
 
 from __future__ import annotations
@@ -231,7 +231,7 @@ class Coordinates:
 
     @functools.cached_property
     def unconstrain(self) -> CoordinateMap:
-        r"""$\theta \mapsto z = b^{-1}(\theta)$, a ``Function`` of the record ``theta``."""
+        r"""$\theta \mapsto \phi = b^{-1}(\theta)$, a ``Function`` of the record ``theta``."""
         return CoordinateMap(
             self._unconstrained,
             self._constrained,
@@ -239,13 +239,13 @@ class Coordinates:
             input_spec=self.spec,
             output_spec=_real_record_spec(self.names),
             input_name=self.block,
-            output_name="z",
+            output_name="phi",
             label="unconstrain",
         )
 
     @functools.cached_property
     def whiten(self) -> CoordinateMap:
-        r"""$\theta \mapsto \xi = L^{-1}\left(b^{-1}(\theta) - m\right)$, a ``Function`` of the
+        r"""$\theta \mapsto z = L^{-1}\left(b^{-1}(\theta) - m\right)$, a ``Function`` of the
         record ``theta``."""
         log_det_l = float(np.sum(np.log(np.diag(self.whitening_factor))))
         return CoordinateMap(
@@ -255,18 +255,18 @@ class Coordinates:
             input_spec=self.spec,
             output_spec=_real_record_spec(self.names),
             input_name=self.block,
-            output_name="xi",
+            output_name="z",
             label="whiten",
         )
 
     @property
     def whitening_mean(self) -> np.ndarray:
-        """$m$, the prior mean of $z$, shape $(d,)$."""
+        r"""$m$, the prior mean of $\phi$, shape $(d,)$."""
         return self._moments[0]
 
     @property
     def whitening_factor(self) -> np.ndarray:
-        """$L$, the lower-triangular Cholesky factor of the prior covariance of $z$, shape
+        r"""$L$, the lower-triangular Cholesky factor of the prior covariance of $\phi$, shape
         $(d, d)$."""
         return self._moments[1]
 
@@ -275,26 +275,26 @@ class Coordinates:
     # so they can be traced and differentiated.
 
     def _unconstrained(self, theta: Any) -> jax.Array:
-        r"""$z = b^{-1}(\theta)$ for an array *theta* of shape $(\ldots, d)$."""
+        r"""$\phi = b^{-1}(\theta)$ for an array *theta* of shape $(\ldots, d)$."""
         theta = jnp.asarray(theta)
         # STOPGAP(PG-05): a support bijector's inverse is reachable only through its _inverse.
         columns = [b._inverse(theta[..., j]) for j, b in enumerate(self._bijectors)]
         return jnp.stack(columns, axis=-1)
 
-    def _constrained(self, z: Any) -> jax.Array:
-        r"""$\theta = b(z)$ for an array *z* of shape $(\ldots, d)$."""
-        z = jnp.asarray(z)
-        return jnp.stack([b.raw(z[..., j]) for j, b in enumerate(self._bijectors)], axis=-1)
+    def _constrained(self, phi: Any) -> jax.Array:
+        r"""$\theta = b(\phi)$ for an array *phi* of shape $(\ldots, d)$."""
+        phi = jnp.asarray(phi)
+        return jnp.stack([b.raw(phi[..., j]) for j, b in enumerate(self._bijectors)], axis=-1)
 
     def _whitened(self, theta: Any) -> jax.Array:
-        r"""$\xi = L^{-1}(b^{-1}(\theta) - m)$ for an array *theta* of shape $(\ldots, d)$."""
+        r"""$z = L^{-1}(b^{-1}(\theta) - m)$ for an array *theta* of shape $(\ldots, d)$."""
         mean, _, inverse_factor = self._moments
         return (self._unconstrained(theta) - mean) @ inverse_factor.T
 
-    def _from_whitened(self, xi: Any) -> jax.Array:
-        r"""$\theta = b(m + L \xi)$ for an array *xi* of shape $(\ldots, d)$."""
+    def _from_whitened(self, z: Any) -> jax.Array:
+        r"""$\theta = b(m + L z)$ for an array *z* of shape $(\ldots, d)$."""
         mean, factor, _ = self._moments
-        return self._constrained(mean + jnp.asarray(xi) @ factor.T)
+        return self._constrained(mean + jnp.asarray(z) @ factor.T)
 
     def _records(self, theta: Any, level: str = "member") -> NumericRecordBatch:
         """Constrained parameters *theta*, shape $(n, d)$, as a batch of records ``theta``."""
@@ -303,17 +303,18 @@ class Coordinates:
         )
 
     def _unconstrain_log_det(self, theta: Any) -> jax.Array:
-        r"""$\log \lvert \det \partial z / \partial \theta \rvert = -\sum_j \log b_j'(z_j)$."""
-        z = self._unconstrained(theta)
-        return -sum(b._log_det_jacobian(z[..., j]) for j, b in enumerate(self._bijectors))
+        r"""$\log \lvert \det \partial \phi / \partial \theta \rvert
+        = -\sum_j \log b_j'(\phi_j)$."""
+        phi = self._unconstrained(theta)
+        return -sum(b._log_det_jacobian(phi[..., j]) for j, b in enumerate(self._bijectors))
 
     @functools.cached_property
     def _moments(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """$m$, $L$ and $L^{-1}$, from prior draws made with a fixed key."""
         draws = draw_with_key(self._prior, jax.random.key(self._seed), (self._n_moment_draws,))
-        z = np.asarray(self._unconstrained(_parameter_vectors(draws, self.block, self.names)))
-        factor = np.linalg.cholesky(np.atleast_2d(np.cov(z, rowvar=False)))
-        return z.mean(axis=0), factor, np.linalg.inv(factor)
+        phi = np.asarray(self._unconstrained(_parameter_vectors(draws, self.block, self.names)))
+        factor = np.linalg.cholesky(np.atleast_2d(np.cov(phi, rowvar=False)))
+        return phi.mean(axis=0), factor, np.linalg.inv(factor)
 
 
 def _parameter_vectors(draws: Any, block: str, names: tuple[str, ...]) -> np.ndarray:

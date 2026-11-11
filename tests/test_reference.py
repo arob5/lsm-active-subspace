@@ -79,12 +79,12 @@ def test_a_stored_reference_reads_its_noise_scales_by_class():
 
 def test_independent_chains_have_rhat_near_one_and_full_effective_size(problem):
     whiten = problem.coordinates.whiten
-    xi = NumericRecordBatch.from_vector(
+    z = NumericRecordBatch.from_vector(
         whiten.output_spec.term_spec,
         np.random.default_rng(2).normal(size=(4, 2000, 2)),
         level_names=["chain", "draw"],
     )
-    theta = np.asarray(inverse(whiten)(xi).to_vector())
+    theta = np.asarray(inverse(whiten)(z).to_vector())
     diagnostics = convergence_diagnostics(problem, theta, {})
     assert diagnostics["rhat"].max() < 1.01
     assert diagnostics["ess_bulk"].min() > 6000

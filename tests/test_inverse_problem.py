@@ -13,11 +13,11 @@ def problem(observations):
 
 def test_the_forward_map_takes_parameters_mapped_back_from_whitened_coordinates(problem):
     coordinates = problem.coordinates
-    xi = np.random.default_rng(0).normal(size=(3, 2))
-    xi_records = NumericRecordBatch.from_vector(
-        coordinates.whiten.output_spec.term_spec, xi, level_names="member"
+    z = np.random.default_rng(0).normal(size=(3, 2))
+    z_records = NumericRecordBatch.from_vector(
+        coordinates.whiten.output_spec.term_spec, z, level_names="member"
     )
-    theta = inverse(coordinates.whiten)(xi_records)
+    theta = inverse(coordinates.whiten)(z_records)
     predictions = np.asarray(problem.forward(theta).raw)
     np.testing.assert_allclose(predictions, theta.to_vector() @ FORWARD_MATRIX.T, rtol=1e-12)
 

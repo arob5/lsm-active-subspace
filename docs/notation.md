@@ -8,8 +8,8 @@ function (such as the leaf carbon fraction $c$ in a parameter map) is defined th
 | Symbol | Meaning |
 |---|---|
 | $\theta \in \mathbb R^d$ | the calibration parameters, in their own units; $d$ of them |
-| $z = b^{-1}(\theta)$ | unconstrained coordinates; $b$ applies each parameter's support bijector (exp, logistic, identity); in code `problem.coordinates.unconstrain` |
-| $\xi = L^{-1}(z - m)$ | whitened coordinates; $m$ and $L L^\top$ are the prior mean and covariance of $z$, so $\xi$ has prior mean $0$ and covariance $I$; in code `problem.coordinates.whiten` |
+| $\phi = b^{-1}(\theta)$ | unconstrained coordinates; $b$ applies each parameter's support bijector (exp, logistic, identity); in code `problem.coordinates.unconstrain` |
+| $z = L^{-1}(\phi - m)$ | whitened coordinates; $m$ and $L L^\top$ are the prior mean and covariance of $\phi$, so $z$ has prior mean $0$ and covariance $I$; in code `problem.coordinates.whiten` |
 | $\pi_0$ | the prior; $\pi(\cdot \mid y)$ the posterior |
 
 ## Data, forward map and likelihood
@@ -19,7 +19,7 @@ function (such as the leaf carbon fraction $c$ in a parameter map) is defined th
 | $y \in \mathbb R^n$ | the observed features; $n = 400$ for the Harvard Forest problems |
 | $x(\theta) \in \mathbb R^S$ | SIPNET's NEE rate at each of its $S$ output steps |
 | $A$ | the observation operator, $n \times S$: each feature averages its steps |
-| $G(\theta) = A\, x(\theta)$ | the forward map; written $G(\xi)$ when evaluated at $\theta(\xi)$ |
+| $G(\theta) = A\, x(\theta)$ | the forward map; written $G(z)$ when evaluated at $\theta(z)$ |
 | $k(i)$ | the class of observation $i$ (day or night) |
 | $\sigma^2_k$, $\sigma^2_i = \sigma^2_{k(i)}$ | the reference noise variance of a class; $\sigma_k$ is its standard deviation |
 | $s^2_k$ | the noise scale of class $k$; in code, the field `s2/<class>` of the parameters, as `theta` holds $\theta$ |
@@ -39,10 +39,10 @@ function (such as the leaf carbon fraction $c$ in a parameter map) is defined th
 
 | Symbol | Meaning |
 |---|---|
-| $DG(\xi)$ | the Jacobian of $G$ in whitened coordinates, $n \times d$ |
+| $DG(z)$ | the Jacobian of $G$ in whitened coordinates, $n \times d$ |
 | $\widehat{DG}$ | a statistical linearization of $G$ over an ensemble, an estimate of an average Jacobian |
-| $H(\mu) = \mathbb E_\mu\!\left[DG(\xi)^\top \Gamma^{-1} DG(\xi)\right]$ | the information matrix averaged over a law $\mu$; $d \times d$ |
+| $H(\mu) = \mathbb E_\mu\!\left[DG(z)^\top \Gamma^{-1} DG(z)\right]$ | the information matrix averaged over a law $\mu$; $d \times d$ |
 | $\lambda_1 \ge \dots \ge \lambda_d$ | the eigenvalues of an information matrix |
 | $r$ | the rank of a subspace |
 | $W$, $W_\perp$ | orthonormal bases of the subspace ($d \times r$) and of its complement ($d \times (d - r)$) |
-| $a = W^\top \xi$, $b = W_\perp^\top \xi$ | the active and inactive variables, so $\xi = W a + W_\perp b$ |
+| $a = W^\top z$, $b = W_\perp^\top z$ | the active and inactive variables, so $z = W a + W_\perp b$ |

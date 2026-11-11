@@ -46,11 +46,11 @@ def records(coordinates, theta, levels="draw"):
 
 def test_unconstrain_applies_each_support_bijector(coordinates):
     expected = np.column_stack([np.log(THETA[:, 0]), logit(THETA[:, 1]), THETA[:, 2]])
-    z = coordinates.unconstrain(records(coordinates, THETA))
+    phi = coordinates.unconstrain(records(coordinates, THETA))
     assert coordinates.names == ("a", "r", "t")
-    assert list(z.raw) == ["a", "r", "t"]
-    np.testing.assert_allclose(z.to_vector(), expected, rtol=1e-12)
-    back = inverse(coordinates.unconstrain)(z)
+    assert list(phi.raw) == ["a", "r", "t"]
+    np.testing.assert_allclose(phi.to_vector(), expected, rtol=1e-12)
+    back = inverse(coordinates.unconstrain)(phi)
     np.testing.assert_allclose(back.to_vector(), THETA, rtol=1e-12)
 
 
@@ -64,21 +64,21 @@ def test_whitening_matches_the_prior_moments(coordinates):
 
 def test_whitened_prior_draws_have_mean_zero_and_covariance_identity(prior, coordinates):
     with workflow_run(seed=2):
-        xi = np.asarray(coordinates.whiten(sample(prior, 20_000)["theta"]).to_vector())
-    np.testing.assert_allclose(xi.mean(axis=0), 0.0, atol=0.03)
-    np.testing.assert_allclose(np.cov(xi, rowvar=False), np.eye(3), atol=0.04)
+        z = np.asarray(coordinates.whiten(sample(prior, 20_000)["theta"]).to_vector())
+    np.testing.assert_allclose(z.mean(axis=0), 0.0, atol=0.03)
+    np.testing.assert_allclose(np.cov(z, rowvar=False), np.eye(3), atol=0.04)
 
 
 def test_whitening_is_invertible_on_batches_of_several_levels(prior, coordinates):
     with workflow_run(seed=3):
         theta = sample(prior["theta"], sample_shape=(4, 5))
-    xi = coordinates.whiten(theta)
-    assert xi.to_vector().shape == (4, 5, 3)
-    back = inverse(coordinates.whiten)(xi)
+    z = coordinates.whiten(theta)
+    assert z.to_vector().shape == (4, 5, 3)
+    back = inverse(coordinates.whiten)(z)
     np.testing.assert_allclose(back.to_vector(), theta.to_vector(), rtol=1e-10)
     assert is_invertible(coordinates.whiten)
     twice = inverse(inverse(coordinates.whiten))(theta)
-    np.testing.assert_allclose(twice.to_vector(), xi.to_vector(), rtol=1e-12)
+    np.testing.assert_allclose(twice.to_vector(), z.to_vector(), rtol=1e-12)
 
 
 def test_a_distribution_maps_to_a_distribution_of_its_draws_mapped(prior, coordinates):
@@ -111,4 +111,4 @@ def test_coordinates_do_not_depend_on_where_they_are_built(prior):
 
 def test_unknown_block_is_refused(prior):
     with pytest.raises(ValueError, match="no block"):
-        Coordinates.from_prior(prior, "phi")
+        Coordinates.from_prior(prior, "psi")

@@ -4,7 +4,7 @@ Functions that draw one panel take an optional matplotlib ``Axes`` and return it
 draw several panels return a ``Figure``. Figures of the data and of marginal distributions show
 values in their own units. Figures of subspaces and of posteriors against a reference use whitened
 coordinates,
-$\xi = L^{-1}(z - m)$, so that every parameter is shown on the same scale.
+$z = L^{-1}(\phi - m)$, so that every parameter is shown on the same scale.
 """
 
 from __future__ import annotations
@@ -284,16 +284,16 @@ def plot_sufficient_summary(
         The subspace whose variables to plot against.
     """
     theta = eki_history["theta"].values.reshape(-1, problem.coordinates.dimension)
-    xi = np.asarray(problem.coordinates._whitened(theta))
+    z = np.asarray(problem.coordinates._whitened(theta))
     residuals = problem.data[problem.likelihood.output_name] - eki_history["predictions"].values
     noise_variance = eki_history["noise_variance"].values[:, None, :]
     misfit = (0.5 * np.sum(residuals**2 / noise_variance, axis=-1)).reshape(-1)
-    active = subspace.active_variables(xi)
+    active = subspace.active_variables(z)
     panels = [(active[:, 0], "$a_1$")]
     if subspace.rank > 1:
         panels.append((active[:, 1], "$a_2$"))
     if subspace.rank < subspace.dimension:
-        panels.append((subspace.inactive_variables(xi)[:, -1], "last inactive variable $b$"))
+        panels.append((subspace.inactive_variables(z)[:, -1], "last inactive variable $b$"))
     figure, axes = plt.subplots(1, len(panels), figsize=(4 * len(panels), 3.5), squeeze=False)
     for axis, (values, label) in zip(axes[0], panels, strict=True):
         axis.semilogy(values, misfit, ".", ms=3, alpha=0.6)

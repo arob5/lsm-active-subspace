@@ -4,7 +4,7 @@ A reference holds draws of the posterior of one problem with one noise-scale set
 information matrix averaged over those draws,
 
 $$
-H_{\mathrm{ref}} = \mathbb E_{\mathrm{ref}}\!\left[DG(\xi)^\top \Gamma^{-1} DG(\xi)\right],
+H_{\mathrm{ref}} = \mathbb E_{\mathrm{ref}}\!\left[DG(z)^\top \Gamma^{-1} DG(z)\right],
 $$
 
 each draw with its own $\Gamma$ when the noise scales are inferred, the chains' convergence
@@ -188,7 +188,7 @@ def convergence_diagnostics(
 ) -> pd.DataFrame:
     r"""R-hat and bulk and tail effective sample sizes of each coordinate (Vehtari et al. 2021).
 
-    The coordinates are the whitened parameters $\xi_j$ and the logarithm of each inferred scale.
+    The coordinates are the whitened parameters $z_j$ and the logarithm of each inferred scale.
 
     Parameters
     ----------
@@ -200,8 +200,8 @@ def convergence_diagnostics(
         Draws of each inferred scale, shape (chains, draws), by class.
     """
     coordinates = problem.coordinates
-    xi = np.asarray(coordinates._whitened(theta))
-    variables = {name: xi[..., j] for j, name in enumerate(coordinates.names)} | {
+    z = np.asarray(coordinates._whitened(theta))
+    variables = {name: z[..., j] for j, name in enumerate(coordinates.names)} | {
         f"log_{noise_scale_variable(noise_class)}": np.log(draws)
         for noise_class, draws in noise_scales.items()
     }
@@ -493,14 +493,14 @@ def _reference_information(
     differentiated, central differences otherwise."""
     pooled = theta.reshape(-1, theta.shape[-1])
     keep = _evenly_spaced(len(pooled), INFORMATION_DRAWS)
-    xi = np.asarray(problem.coordinates._whitened(pooled[keep]))
+    z = np.asarray(problem.coordinates._whitened(pooled[keep]))
     scale_draws = {
         noise_class: draws.reshape(-1)[keep] for noise_class, draws in noise_scales.items()
     }
     estimator = (
         exact_subspace if declares_traceable(problem.forward) else finite_difference_subspace
     )
-    return estimator(problem, xi, noise_scales=scale_draws or None).information
+    return estimator(problem, z, noise_scales=scale_draws or None).information
 
 
 def _provenance(
@@ -567,7 +567,7 @@ def _flat_states(problem: InverseProblem, atoms: Any) -> np.ndarray:
 
 
 def _unconstrained_states(problem: InverseProblem, states: np.ndarray) -> np.ndarray:
-    r"""Flat states in unconstrained coordinates: $z = b^{-1}(\theta)$, then $\log s^2$."""
+    r"""Flat states in unconstrained coordinates: $\phi = b^{-1}(\theta)$, then $\log s^2$."""
     dimension = problem.coordinates.dimension
     return np.concatenate(
         [
