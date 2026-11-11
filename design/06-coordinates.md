@@ -2,6 +2,10 @@
 
 Status: **implemented** (2026-11-11); decisions 1–4 approved as recommended. Prototype: `design/prototypes/06-coordinates/t1_maps.py`.
 
+**Notation changed after implementation (2026-11-11).** The unconstrained coordinates are now
+$\phi$ and the whitened ones $z$, since $z$ reads as a z-score; this document keeps the old $z$
+and $\xi$. In code, `unconstrain` returns `phi` and `whiten` returns `z`.
+
 ## 1. What is wrong with the current interface
 
 `problem.coordinates` (`lsmas._stopgaps.coordinates`) works on NumPy arrays of shape $(\ldots, d)$,
