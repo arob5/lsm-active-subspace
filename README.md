@@ -6,41 +6,88 @@ algorithms that find the directions in parameter space that the data inform.
 The inverse problem (the model, the data, the likelihood and the prior) is fixed and shipped with
 the repository. This repository is for building and comparing parameter-reduction algorithms.
 
-> **Status:** under construction. The probability model, the SIPNET forward map, ensemble Kalman
-> inversion, the parameter-reduction tools, the first algorithm, the experiment harness and the
-> walkthrough notebook of the inverse problem work; tutorials on the algorithms are next.
+> **Status:** under construction. The tutorial on the inverse problem is ready; tutorials on
+> the algorithms are next.
 
-## Setup
+## Getting started
 
-The project uses [uv](https://docs.astral.sh/uv/) to manage its environment.
+These steps work on macOS and Linux. On Windows, work inside
+[WSL](https://learn.microsoft.com/windows/wsl/install) (Ubuntu) and follow the Linux steps.
+
+**1. Install the tools.** You need [git](https://git-scm.com/downloads) and
+[uv](https://docs.astral.sh/uv/), which installs Python and every package the project uses:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+Then open a new terminal, so that `uv` is on your path.
+
+**2. Get the code and its environment.**
+
+```bash
+git clone https://github.com/arob5/lsm-active-subspace.git
+```
+
+```bash
+cd lsm-active-subspace
+```
 
 ```bash
 uv sync
 ```
 
-Check that everything works:
+`uv sync` creates the environment in `.venv/`, with the right Python version. Run every command
+below from the `lsm-active-subspace` folder.
+
+**3. Install SIPNET.** The model itself is a separate program:
 
 ```bash
-uv run pytest
+uv run pysipnet install-sipnet
 ```
 
-The first run builds SIPNET, which takes a minute.
+On an Apple Silicon Mac or on x86-64 Linux this downloads a prebuilt copy. Elsewhere it compiles
+SIPNET, which needs `make` and a C compiler (on a Mac, run `xcode-select --install` first).
 
-## The walkthrough notebook
+**4. Check the setup** (a few minutes; it runs SIPNET and the tutorial):
 
-[`notebooks/main_inverse_problem.ipynb`](notebooks/main_inverse_problem.ipynb) introduces the
-Harvard Forest inverse problem. After an overview, it takes the pieces one at a time (the data,
-the prior, the forward model, the likelihood) and shows how to work with each in code, then puts
-them together. It ends with the full mathematical statement of the problem. Start there. It is committed with its outputs, so it can be read on GitHub without running it. To open it:
+```bash
+uv run pytest -m smoke
+```
+
+## The tutorial
+
+Start with [`notebooks/main_inverse_problem.ipynb`](notebooks/main_inverse_problem.ipynb). It
+introduces the Harvard Forest inverse problem: the data, the prior, the forward model and the
+likelihood, one at a time, and how to work with each in code. It is saved with its outputs, so you
+can read it on GitHub first.
+
+To run it, open it in JupyterLab:
 
 ```bash
 uv run jupyter lab notebooks/main_inverse_problem.ipynb
 ```
 
-To rerun it and save the outputs (under a minute; it runs SIPNET about 240 times):
+Or in VS Code: open the `lsm-active-subspace` folder, install the Python and Jupyter extensions,
+open the notebook, and choose the kernel `.venv/bin/python` (**Select Kernel** at the top right).
+
+The whole notebook runs in under a minute. To experiment, work in a copy, so that updating the
+code never conflicts with your changes:
 
 ```bash
-uv run jupyter nbconvert --to notebook --execute --inplace notebooks/main_inverse_problem.ipynb
+cp notebooks/main_inverse_problem.ipynb notebooks/my_main_inverse_problem.ipynb
+```
+
+The notation is listed in [`docs/notation.md`](docs/notation.md).
+
+## Staying up to date
+
+```bash
+git pull
+```
+
+```bash
+uv sync
 ```
 
 ## A first look

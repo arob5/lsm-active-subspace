@@ -10,3 +10,6 @@ build/
 
 # Reference runs and studies in progress
 runs/
+
+# Personal copies of the tutorials (see the README)
+notebooks/my_*.ipynb
