@@ -1,39 +1,98 @@
 # lsm-active-subspace
 
-Calibrating the SIPNET land-surface model to eddy-covariance data from Harvard Forest, with
-algorithms that find the directions in parameter space that the data inform.
+This repo is a toolbox for developing and testing parameter reduction methods for 
+solving Bayesian inverse problems. It includes:
+- Pre-built inverse problems: one main problem using the SIPNET land surface model, plus toy problems for fast testing and benchmarking.
+- A toolkit of methods that provide a high-level interface to construct algorithms in a modular fashion.
 
-The inverse problem (the model, the data, the likelihood and the prior) is fixed and shipped with
-the repository. This repository is for building and comparing parameter-reduction algorithms.
+> **Status:** under construction. The tutorial on the inverse problem is ready; tutorials on
+> the algorithms are next.
 
-> **Status:** under construction. The probability model, the SIPNET forward map, ensemble Kalman
-> inversion, the parameter-reduction tools, the first algorithm and the experiment harness work;
-> the walkthrough notebook and the tutorials are next.
+## Getting started
 
-## Setup
+These steps work on macOS and Linux. On Windows, work inside
+[WSL](https://learn.microsoft.com/windows/wsl/install) (Ubuntu) and follow the Linux steps.
 
-The project uses [uv](https://docs.astral.sh/uv/) to manage its environment.
+**1. Install the tools.** You need [git](https://git-scm.com/downloads) and
+[uv](https://docs.astral.sh/uv/), which installs Python and every package the project uses:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+Then open a new terminal, so that `uv` is on your path.
+
+**2. Get the code and its environment.**
+
+```bash
+git clone https://github.com/arob5/lsm-active-subspace.git
+```
+
+```bash
+cd lsm-active-subspace
+```
 
 ```bash
 uv sync
 ```
 
-Check that everything works:
+`uv sync` creates the environment in `.venv/`, with the right Python version. Run every command
+below from the `lsm-active-subspace` folder.
+
+**3. Install SIPNET.** The model itself is a separate program:
 
 ```bash
-uv run pytest
+uv run pysipnet install-sipnet
 ```
 
-The first run builds SIPNET, which takes a minute.
+On an Apple Silicon Mac or on x86-64 Linux this downloads a prebuilt copy. Elsewhere it compiles
+SIPNET, which needs `make` and a C compiler (on a Mac, run `xcode-select --install` first).
+
+**4. Check the setup** (a few minutes; it runs SIPNET and the tutorial):
+
+```bash
+uv run pytest -m smoke
+```
+
+## The tutorial
+
+Start with [`notebooks/main_inverse_problem.ipynb`](notebooks/main_inverse_problem.ipynb). It
+introduces the Harvard Forest inverse problem, the main pre-built problem in this repo.
+
+To run it, open it in JupyterLab:
+
+```bash
+uv run jupyter lab notebooks/main_inverse_problem.ipynb
+```
+
+Or in VS Code: open the `lsm-active-subspace` folder, install the Python and Jupyter extensions,
+open the notebook, and choose the kernel `.venv/bin/python` (**Select Kernel** at the top right).
+
+The whole notebook runs in under a minute. To experiment, work in a copy, so that updating the
+code never conflicts with your changes:
+
+```bash
+cp notebooks/main_inverse_problem.ipynb notebooks/my_main_inverse_problem.ipynb
+```
+
+## Staying up to date
+
+```bash
+git pull
+```
+
+```bash
+uv sync
+```
 
 ## A first look
 
 ```python
 from probpipe import sample, workflow_run
 
-from lsmas.problems import load
+from lsmas.problems import load_inverse_problem
 
-problem = load("harvard_forest_small")
+problem = load_inverse_problem("harvard_forest_small")
 print(problem.describe())
 
 with workflow_run(seed=1):
@@ -53,7 +112,7 @@ exact Jacobians and a reference posterior.
 ```python
 from lsmas.algorithms import active_subspace_mcmc
 
-result = active_subspace_mcmc(load("toy", scales="inferred"), seed=1)
+result = active_subspace_mcmc(load_inverse_problem("toy", scales="inferred"), seed=1)
 result.subspace.rank                    # the number of active directions
 result.subspace.activity_scores()       # each parameter's activity score
 result.posterior                        # draws of every parameter and the noise scales
@@ -113,6 +172,7 @@ help).
 
 ```
 data/harvard_forest/   the shipped inputs: driver, NEE features, observation operator, fixed SIPNET values, prior
+notebooks/             the walkthrough notebook
 src/lsmas/
     data.py            loads the shipped inputs
     sipnet.py          runs SIPNET and builds the forward map
@@ -128,7 +188,7 @@ src/lsmas/
     _stopgaps/         temporary code that fills gaps in ProbPipe
 baselines/             the stored reference posteriors
 scripts/               command-line tools, such as computing a reference
-tests/                 unit tests; `-m smoke` selects the end-to-end checks that run SIPNET
+tests/                 unit tests; `-m smoke` selects the end-to-end checks that run SIPNET or a notebook
 docs/notation.md       the mathematical notation every docstring uses
 design/                design documents
 ```

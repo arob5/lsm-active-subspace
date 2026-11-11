@@ -1,16 +1,18 @@
+import jax.numpy as jnp
 import numpy as np
 import pandas as pd
 import pytest
-from probpipe import Normal, sample, workflow_run
+import tensorflow_probability.substrates.jax.bijectors as tfb
+from probpipe import Normal, quantile, sample, workflow_run
+from scipy import stats
 
-from lsmas._stopgaps.quantiles import median
+from lsmas._stopgaps.quantiles import MonotoneTransformedDistribution
 from lsmas.data import load_harvard_forest
 from lsmas.priors import (
     independent_prior,
     laws_from_table,
     log_normal_from_interval,
     logit_normal_from_interval,
-    prior_medians,
 )
 
 TABLE = pd.DataFrame(
@@ -52,7 +54,8 @@ def test_each_row_gives_its_familys_law_with_the_exact_median():
         "fraction": 1.0,
     }
     for name, law in laws.items():
-        assert median(law) == pytest.approx(expected[name], rel=1e-12), name
+        exact_median = quantile.using(exact_only=True)(law, 0.5)
+        assert float(exact_median) == pytest.approx(expected[name], rel=1e-12), name
 
 
 def test_each_row_gives_its_familys_spread():
@@ -98,10 +101,26 @@ def test_independent_prior_groups_the_laws():
     assert np.mean(np.asarray(draws["theta"]["b"].raw)) == pytest.approx(5.0, abs=0.2)
 
 
-def test_shipped_prior_medians_are_the_designs():
-    medians = prior_medians(load_harvard_forest().prior_table)
+def test_shipped_prior_has_exact_quantiles_at_the_designs_medians():
+    prior = independent_prior(laws_from_table(load_harvard_forest().prior_table))
+    medians = quantile.using(exact_only=True)(prior, 0.5)["theta"].raw
     assert len(medians) == 46
     assert medians["photosynthetic_capacity"] == pytest.approx(251.0, rel=1e-3)
     assert medians["respiration_share"] == pytest.approx(0.0926, rel=1e-3)
     assert medians["leaf_off_day"] == 285.0
     assert medians["frozen_soil_water_fraction"] == 0.5
+
+
+def test_a_logit_normal_law_has_exact_quantiles_at_any_levels():
+    law = logit_normal_from_interval("share", 0.04, 0.20)
+    levels = quantile.using(exact_only=True)(law, np.array([0.025, 0.5, 0.975]))
+    np.testing.assert_allclose(np.asarray(levels)[[0, 2]], [0.04, 0.20], rtol=1e-10)
+
+
+def test_a_decreasing_bijector_reverses_the_levels():
+    # Y = exp(-X) for standard normal X, so q_Y(p) = exp(-q_X(1 - p)) = exp(Phi^{-1}(p)).
+    decreasing = tfb.Chain([tfb.Exp(), tfb.Scale(jnp.float64(-1.0))])
+    law = MonotoneTransformedDistribution("y", Normal("x", 0.0, 1.0), decreasing)
+    levels = np.array([0.1, 0.5, 0.9])
+    exact = quantile.using(exact_only=True)(law, levels)
+    np.testing.assert_allclose(np.asarray(exact), np.exp(stats.norm.ppf(levels)), rtol=1e-10)

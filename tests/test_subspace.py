@@ -29,11 +29,11 @@ def test_subspace_recovers_eigenvalues_and_spans_the_leading_eigenvectors():
 def test_active_and_inactive_variables_recompose_the_whitened_coordinates():
     information, _ = information_with([5.0, 2.0, 0.3, 0.1])
     subspace = Subspace.from_information(information, parameter_names=NAMES, estimator="exact")
-    xi = np.random.default_rng(1).normal(size=(7, 4))
+    z = np.random.default_rng(1).normal(size=(7, 4))
     recomposed = subspace.whitened_from_active_and_inactive(
-        subspace.active_variables(xi), subspace.inactive_variables(xi)
+        subspace.active_variables(z), subspace.inactive_variables(z)
     )
-    np.testing.assert_allclose(recomposed, xi, atol=1e-12)
+    np.testing.assert_allclose(recomposed, z, atol=1e-12)
 
 
 def test_full_rank_activity_scores_are_the_diagonal():

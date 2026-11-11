@@ -3,7 +3,7 @@ r"""Estimators of the information matrix in whitened coordinates, each returning
 The information matrix averaged over a law $\mu$ of whitened coordinates is
 
 $$
-H(\mu) = \mathbb E_\mu\!\left[DG(\xi)^\top \Gamma^{-1} DG(\xi)\right].
+H(\mu) = \mathbb E_\mu\!\left[DG(z)^\top \Gamma^{-1} DG(z)\right].
 $$
 
 Its leading eigenvectors span the directions the data inform most. The estimators differ in what
@@ -41,8 +41,8 @@ import numpy as np
 from enskit import maps
 from enskit.distribution import Ensemble
 
-from lsmas._stopgaps.coordinates import Coordinates
 from lsmas._stopgaps.functions import declares_traceable
+from lsmas.coordinates import Coordinates
 from lsmas.inference.step_record import StepRecord
 from lsmas.problems.inverse_problem import InverseProblem
 from lsmas.tools.subspace import DEFAULT_DISCARDED_INFORMATION, Subspace
@@ -66,8 +66,8 @@ Weighting = Literal["increment", "uniform", "last"]
 class LadderLinearization:
     r"""A callback that accumulates statistical linearizations over an ensemble method's ladder.
 
-    At each step $t$ the method reports its ensemble $\xi_{tj}$, $j = 1, \dots, J$ (whitened here),
-    the predictions $G(\xi_{tj})$ and its noise covariance $\Gamma_t$. The callback fits the
+    At each step $t$ the method reports its ensemble $z_{tj}$, $j = 1, \dots, J$ (whitened here),
+    the predictions $G(z_{tj})$ and its noise covariance $\Gamma_t$. The callback fits the
     least-squares slope $\widehat{DG}_t$ of the predictions on the particles (EnsKit's statistical
     linearization) and accumulates
 
@@ -107,8 +107,8 @@ class LadderLinearization:
             raise ValueError(f"unknown weighting {self.weighting!r}")
 
     def __call__(self, record: StepRecord) -> None:
-        xi = self.coordinates.whitened_from_parameters(record.theta)
-        slope = statistical_linearization(xi, record.predictions)
+        z = np.asarray(self.coordinates._whitened(record.theta))
+        slope = statistical_linearization(z, record.predictions)
         self.steps.append(
             LinearizedStep(
                 beta=record.beta,
@@ -169,37 +169,37 @@ class LinearizedStep:
     information: np.ndarray
 
 
-def statistical_linearization(xi: np.ndarray, predictions: np.ndarray) -> np.ndarray:
-    r"""The least-squares slope $\widehat{DG}$ of *predictions* on *xi*, shape $(n, d)$.
+def statistical_linearization(z: np.ndarray, predictions: np.ndarray) -> np.ndarray:
+    r"""The least-squares slope $\widehat{DG}$ of *predictions* on *z*, shape $(n, d)$.
 
-    $\widehat{DG} = C_{G\xi}\, C_{\xi\xi}^{-1}$ for the ensemble's covariances, computed by EnsKit
-    (``maps.statistical_linearization``, minimum-norm when $C_{\xi\xi}$ is singular).
+    $\widehat{DG} = C_{Gz}\, C_{zz}^{-1}$ for the ensemble's covariances, computed by EnsKit
+    (``maps.statistical_linearization``, minimum-norm when $C_{zz}$ is singular).
 
     Parameters
     ----------
-    xi : numpy.ndarray
+    z : numpy.ndarray
         The particles, shape $(J, d)$.
     predictions : numpy.ndarray
         $G$ at each particle, shape $(J, n)$.
     """
-    ensemble = Ensemble(xi=jnp.asarray(xi), predictions=jnp.asarray(predictions))
-    fit = maps.statistical_linearization(ensemble, inputs="xi", output="predictions", min_norm=True)
+    ensemble = Ensemble(z=jnp.asarray(z), predictions=jnp.asarray(predictions))
+    fit = maps.statistical_linearization(ensemble, inputs="z", output="predictions", min_norm=True)
     return np.asarray(fit.map.op.to_dense())
 
 
 def exact_subspace(
     problem: InverseProblem,
-    xi: np.ndarray,
+    z: np.ndarray,
     *,
-    scale_values: Mapping[str, float | np.ndarray] | None = None,
+    noise_scales: Mapping[str, float | np.ndarray] | None = None,
     rank: int | None = None,
     discarded_information: float = DEFAULT_DISCARDED_INFORMATION,
     chunk_size: int = 25,
 ) -> Subspace:
-    r"""The subspace of $\hat H = \frac1N \sum_{m} DG(\xi_m)^\top \Gamma^{-1} DG(\xi_m)$, with
+    r"""The subspace of $\hat H = \frac1N \sum_{m} DG(z_m)^\top \Gamma^{-1} DG(z_m)$, with
     exact Jacobians.
 
-    The points $\xi_m$ are draws of the law to average over, such as prior or posterior draws in
+    The points $z_m$ are draws of the law to average over, such as prior or posterior draws in
     whitened coordinates. The forward map must be one JAX can differentiate (``traceable=True``),
     as the toy problem's is.
 
@@ -207,12 +207,12 @@ def exact_subspace(
     ----------
     problem : InverseProblem
         The problem whose forward map and noise covariance to use.
-    xi : numpy.ndarray
+    z : numpy.ndarray
         The points, shape $(N, d)$.
-    scale_values : Mapping of str to float or numpy.ndarray, optional
-        Each inferred noise scale's value in $\Gamma$: one number for every point, or one value per
-        point, shape $(N,)$, such as posterior draws of the scales. Not needed when the scales are
-        fixed.
+    noise_scales : Mapping of str to float or numpy.ndarray, optional
+        Each inferred noise scale's value in $\Gamma$, by class, such as ``{"day": 1.0, "night":
+        1.0}``: one number for every point, or one value per point, shape $(N,)$, such as posterior
+        draws of the scales. Not needed when the scales are fixed.
     rank, discarded_information
         As for :meth:`Subspace.from_information`.
     chunk_size : int
@@ -225,16 +225,21 @@ def exact_subspace(
         )
     forward = problem.forward.using(raw=True)
     coordinates = problem.coordinates
-    jacobian = jax.jit(jax.vmap(jax.jacfwd(lambda x: forward(coordinates.parameter_record(x)))))
-    xi = np.asarray(xi, dtype=float)
-    precisions = _point_precisions(problem, scale_values, len(xi))
-    total = np.zeros((xi.shape[1], xi.shape[1]))
-    for start in range(0, len(xi), chunk_size):
-        jacobians = np.asarray(jacobian(jnp.asarray(xi[start : start + chunk_size])))
+
+    def features_at_whitened(x: jax.Array) -> jax.Array:
+        parameters = coordinates._from_whitened(x)
+        return forward({name: parameters[j] for j, name in enumerate(coordinates.names)})
+
+    jacobian = jax.jit(jax.vmap(jax.jacfwd(features_at_whitened)))
+    z = np.asarray(z, dtype=float)
+    precisions = _point_precisions(problem, noise_scales, len(z))
+    total = np.zeros((z.shape[1], z.shape[1]))
+    for start in range(0, len(z), chunk_size):
+        jacobians = np.asarray(jacobian(jnp.asarray(z[start : start + chunk_size])))
         chunk_precisions = precisions[start : start + chunk_size]
         total += np.einsum("mni,mn,mnj->ij", jacobians, chunk_precisions, jacobians)
     return Subspace.from_information(
-        total / len(xi),
+        total / len(z),
         parameter_names=coordinates.names,
         estimator="exact",
         rank=rank,
@@ -244,16 +249,16 @@ def exact_subspace(
 
 def finite_difference_subspace(
     problem: InverseProblem,
-    xi: np.ndarray,
+    z: np.ndarray,
     *,
     step: float = 0.2,
-    scale_values: Mapping[str, float | np.ndarray] | None = None,
+    noise_scales: Mapping[str, float | np.ndarray] | None = None,
     rank: int | None = None,
     discarded_information: float = DEFAULT_DISCARDED_INFORMATION,
 ) -> Subspace:
     r"""The subspace of $\hat H$ with Jacobians by central differences in whitened coordinates.
 
-    At each point, column $i$ of $DG(\xi_m)$ is $\left(G(\xi_m + h e_i) - G(\xi_m - h e_i)\right)
+    At each point, column $i$ of $DG(z_m)$ is $\left(G(\z_m + h e_i) - G(\z_m - h e_i)\right)
     / 2h$, from $2d$ forward runs; the runs of every point are evaluated as one batch. A point at
     which any run fails is left out, with a warning.
 
@@ -264,22 +269,22 @@ def finite_difference_subspace(
     ----------
     problem : InverseProblem
         The problem whose forward map and noise covariance to use.
-    xi : numpy.ndarray
+    z : numpy.ndarray
         The points, shape $(N, d)$.
     step : float
         $h$, in prior standard deviations.
-    scale_values, rank, discarded_information
+    noise_scales, rank, discarded_information
         As for :func:`exact_subspace`.
     """
     coordinates = problem.coordinates
-    xi = np.asarray(xi, dtype=float)
-    precisions = _point_precisions(problem, scale_values, len(xi))
-    dimension = xi.shape[1]
+    z = np.asarray(z, dtype=float)
+    precisions = _point_precisions(problem, noise_scales, len(z))
+    dimension = z.shape[1]
     shifts = step * np.concatenate([np.eye(dimension), -np.eye(dimension)])
-    perturbed = (xi[:, None, :] + shifts[None, :, :]).reshape(-1, dimension)
-    theta = coordinates.parameters_from_whitened(perturbed)
-    predictions = np.asarray(problem.forward(coordinates.bijection.record_batch(theta)).raw)
-    predictions = predictions.reshape(len(xi), 2 * dimension, -1)
+    perturbed = (z[:, None, :] + shifts[None, :, :]).reshape(-1, dimension)
+    perturbed_theta = coordinates._records(coordinates._from_whitened(perturbed))
+    predictions = np.asarray(problem.forward(perturbed_theta).raw)
+    predictions = predictions.reshape(len(z), 2 * dimension, -1)
     per_point_information = []
     for point_predictions, precision in zip(predictions, precisions, strict=True):
         if not np.all(np.isfinite(point_predictions)):
@@ -321,12 +326,12 @@ def covariance_subspace(
     rank, discarded_information
         As for :meth:`Subspace.from_information`.
     """
-    xi = problem.coordinates.whitened_from_parameters(np.asarray(theta, dtype=float))
-    if xi.shape[0] <= xi.shape[1]:
-        raise ValueError(f"need more draws than parameters, got {xi.shape[0]} for {xi.shape[1]}")
-    precision = np.linalg.inv(np.cov(xi, rowvar=False))
+    z = np.asarray(problem.coordinates._whitened(np.asarray(theta, dtype=float)))
+    if z.shape[0] <= z.shape[1]:
+        raise ValueError(f"need more draws than parameters, got {z.shape[0]} for {z.shape[1]}")
+    precision = np.linalg.inv(np.cov(z, rowvar=False))
     return Subspace.from_information(
-        precision - np.eye(xi.shape[1]),
+        precision - np.eye(z.shape[1]),
         parameter_names=problem.coordinates.names,
         estimator="covariance",
         rank=rank,
@@ -336,25 +341,27 @@ def covariance_subspace(
 
 def _point_precisions(
     problem: InverseProblem,
-    scale_values: Mapping[str, float | np.ndarray] | None,
+    noise_scales: Mapping[str, float | np.ndarray] | None,
     n_points: int,
 ) -> np.ndarray:
     r"""The diagonal of $\Gamma^{-1}$ at each point, shape $(N, n)$, from each inferred scale's
     value: one number, or one value per point."""
-    slots = problem.likelihood.random_scale_slots
-    if not slots:
+    inferred = problem.likelihood.inferred_scale_classes
+    if not inferred:
         return np.broadcast_to(
             1.0 / problem.noise_variance(), (n_points, len(problem.noise_variance()))
         )
-    if missing := sorted(set(slots) - set(scale_values or {})):
+    if missing := sorted(set(inferred) - set(noise_scales or {})):
         raise ValueError(f"the noise scales are inferred; give values for {missing}")
     per_point = {
-        slot: np.broadcast_to(np.asarray(scale_values[slot], dtype=float), (n_points,))
-        for slot in slots
+        noise_class: np.broadcast_to(
+            np.asarray(noise_scales[noise_class], dtype=float), (n_points,)
+        )
+        for noise_class in inferred
     }
     return np.stack(
         [
-            1.0 / problem.noise_variance({slot: values[m] for slot, values in per_point.items()})
+            1.0 / problem.noise_variance({c: values[m] for c, values in per_point.items()})
             for m in range(n_points)
         ]
     )

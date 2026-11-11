@@ -4,7 +4,7 @@ A reference holds draws of the posterior of one problem with one noise-scale set
 information matrix averaged over those draws,
 
 $$
-H_{\mathrm{ref}} = \mathbb E_{\mathrm{ref}}\!\left[DG(\xi)^\top \Gamma^{-1} DG(\xi)\right],
+H_{\mathrm{ref}} = \mathbb E_{\mathrm{ref}}\!\left[DG(z)^\top \Gamma^{-1} DG(z)\right],
 $$
 
 each draw with its own $\Gamma$ when the noise scales are inferred, the chains' convergence
@@ -42,8 +42,9 @@ import xarray as xr
 from probpipe import workflow_run
 
 from lsmas._stopgaps.functions import declares_traceable
+from lsmas._stopgaps.likelihood import noise_scale_variable
 from lsmas._stopgaps.parallel_chains import run_in_processes
-from lsmas.problems import load
+from lsmas.problems import load_inverse_problem
 from lsmas.problems.inverse_problem import InverseProblem
 from lsmas.tools import exact_subspace, finite_difference_subspace
 
@@ -93,7 +94,8 @@ class Reference:
     theta : numpy.ndarray
         Draws of the calibration parameters, shape (chains, draws, $d$).
     noise_scales : dict of str to numpy.ndarray
-        Draws of each inferred noise scale, shape (chains, draws); empty when the scales are fixed.
+        Draws of each inferred noise scale, shape (chains, draws), by class, such as ``"day"``;
+        empty when the scales are fixed. The file names each ``s2_<class>``.
     information : numpy.ndarray
         $H_{\mathrm{ref}}$, shape $(d, d)$.
     diagnostics : pandas.DataFrame
@@ -120,7 +122,7 @@ class Reference:
 
     def noise_scale_draws(self) -> dict[str, np.ndarray]:
         """Every draw of each inferred noise scale with the chains pooled, shape $(N,)$."""
-        return {slot: draws.reshape(-1) for slot, draws in self.noise_scales.items()}
+        return {noise_class: draws.reshape(-1) for noise_class, draws in self.noise_scales.items()}
 
     def save(self, path: Path | None = None) -> Path:
         """Write the reference as netCDF, by default to its place in ``baselines/``.
@@ -147,7 +149,9 @@ class Reference:
             parameter_names=tuple(str(name) for name in posterior["parameter"].values),
             theta=posterior["theta"].values,
             noise_scales={
-                str(name): posterior[name].values for name in posterior.data_vars if name != "theta"
+                str(name).removeprefix(noise_scale_variable("")): posterior[name].values
+                for name in posterior.data_vars
+                if name != "theta"
             },
             information=tree["information"]["information"].values,
             diagnostics=tree["diagnostics"].to_dataset().to_dataframe(),
@@ -162,7 +166,7 @@ def reference_path(problem_name: str, scales: ScaleSetting) -> Path:
 
 def noise_scale_setting(problem: InverseProblem) -> ScaleSetting:
     """``"inferred"`` if *problem* infers its noise scales, ``"fixed"`` otherwise."""
-    return "inferred" if problem.likelihood.random_scale_slots else "fixed"
+    return "inferred" if problem.likelihood.inferred_scale_classes else "fixed"
 
 
 def load_reference(problem: InverseProblem) -> Reference:
@@ -184,7 +188,7 @@ def convergence_diagnostics(
 ) -> pd.DataFrame:
     r"""R-hat and bulk and tail effective sample sizes of each coordinate (Vehtari et al. 2021).
 
-    The coordinates are the whitened parameters $\xi_j$ and the logarithm of each inferred scale.
+    The coordinates are the whitened parameters $z_j$ and the logarithm of each inferred scale.
 
     Parameters
     ----------
@@ -193,12 +197,13 @@ def convergence_diagnostics(
     theta : numpy.ndarray
         Draws, shape (chains, draws, $d$).
     noise_scales : dict of str to numpy.ndarray
-        Draws of each inferred scale, shape (chains, draws).
+        Draws of each inferred scale, shape (chains, draws), by class.
     """
     coordinates = problem.coordinates
-    xi = coordinates.whitened_from_parameters(theta)
-    variables = {name: xi[..., j] for j, name in enumerate(coordinates.names)} | {
-        f"log_{slot}": np.log(draws) for slot, draws in noise_scales.items()
+    z = np.asarray(coordinates._whitened(theta))
+    variables = {name: z[..., j] for j, name in enumerate(coordinates.names)} | {
+        f"log_{noise_scale_variable(noise_class)}": np.log(draws)
+        for noise_class, draws in noise_scales.items()
     }
     tree = az.from_dict({"posterior": variables})
     return pd.DataFrame(
@@ -224,11 +229,8 @@ def nuts_reference(problem: InverseProblem, *, seed: int = 0) -> Reference:
     start = time.time()
     with workflow_run(seed=seed):
         posterior = problem.condition(method="blackjax_nuts")
-    theta = problem.coordinates.array_from_draws(posterior.atoms)
-    noise_scales = {
-        slot: np.asarray(posterior.atoms[slot].raw)
-        for slot in problem.likelihood.random_scale_slots
-    }
+    theta = np.asarray(posterior.atoms[problem.coordinates.block].to_vector())
+    noise_scales = problem.likelihood.inferred_scale_draws(posterior.atoms)
     return _build_reference(
         problem,
         theta,
@@ -281,7 +283,7 @@ def start_rwmh_reference(
     chosen = np.random.default_rng(seed).choice(len(states), n_chains, replace=False)
     np.savez(run_directory / "pilot.npz", starts=states[chosen], proposal_cholesky=proposal)
     n_steps = eki.annotations["arviz/eki_history"]["beta"].size
-    final_evaluation = 1 if problem.likelihood.random_scale_slots else 0
+    final_evaluation = 1 if problem.likelihood.inferred_scale_classes else 0
     settings = {
         "problem_name": problem.name,
         "scales": noise_scale_setting(problem),
@@ -322,7 +324,7 @@ def run_rwmh_segment(run_directory: Path, chain: int, segment: int, steps: int) 
         if segment == 0
         else np.load(_segment_path(run_directory, chain, segment - 1))["states"][-1]
     )
-    problem = load(settings["problem_name"], scales=settings["scales"])
+    problem = load_inverse_problem(settings["problem_name"], scales=settings["scales"])
     seed = int(np.random.SeedSequence([settings["seed"], chain, segment]).generate_state(1)[0])
     start = time.time()
     with workflow_run(seed=seed):
@@ -470,7 +472,7 @@ def _build_reference(
     keep = _evenly_spaced(theta.shape[1], max(1, MAX_STORED_DRAWS // theta.shape[0]))
     theta, noise_scales = (
         theta[:, keep],
-        {slot: draws[:, keep] for slot, draws in noise_scales.items()},
+        {noise_class: draws[:, keep] for noise_class, draws in noise_scales.items()},
     )
     return Reference(
         problem_name=problem.name,
@@ -491,12 +493,14 @@ def _reference_information(
     differentiated, central differences otherwise."""
     pooled = theta.reshape(-1, theta.shape[-1])
     keep = _evenly_spaced(len(pooled), INFORMATION_DRAWS)
-    xi = problem.coordinates.whitened_from_parameters(pooled[keep])
-    scale_values = {slot: draws.reshape(-1)[keep] for slot, draws in noise_scales.items()}
+    z = np.asarray(problem.coordinates._whitened(pooled[keep]))
+    scale_draws = {
+        noise_class: draws.reshape(-1)[keep] for noise_class, draws in noise_scales.items()
+    }
     estimator = (
         exact_subspace if declares_traceable(problem.forward) else finite_difference_subspace
     )
-    return estimator(problem, xi, scale_values=scale_values or None).information
+    return estimator(problem, z, noise_scales=scale_draws or None).information
 
 
 def _provenance(
@@ -554,19 +558,20 @@ def _git(*arguments: str) -> str:
 
 def _flat_states(problem: InverseProblem, atoms: Any) -> np.ndarray:
     """Draws as flat states, shape $(N, D)$: the parameters, then the inferred noise scales."""
-    theta = problem.coordinates.array_from_draws(atoms).reshape(-1, problem.coordinates.dimension)
+    coordinates = problem.coordinates
+    theta = np.asarray(atoms[coordinates.block].to_vector()).reshape(-1, coordinates.dimension)
     scales = [
-        np.asarray(atoms[slot].raw).reshape(-1, 1) for slot in problem.likelihood.random_scale_slots
+        draws.reshape(-1, 1) for draws in problem.likelihood.inferred_scale_draws(atoms).values()
     ]
     return np.concatenate([theta, *scales], axis=1)
 
 
 def _unconstrained_states(problem: InverseProblem, states: np.ndarray) -> np.ndarray:
-    r"""Flat states in unconstrained coordinates: $z = b^{-1}(\theta)$, then $\log s^2$."""
+    r"""Flat states in unconstrained coordinates: $\phi = b^{-1}(\theta)$, then $\log s^2$."""
     dimension = problem.coordinates.dimension
     return np.concatenate(
         [
-            problem.coordinates.bijection.to_unconstrained(states[:, :dimension]),
+            np.asarray(problem.coordinates._unconstrained(states[:, :dimension])),
             np.log(states[:, dimension:]),
         ],
         axis=1,
@@ -578,7 +583,7 @@ def _completed_chains(
 ) -> tuple[InverseProblem, np.ndarray, dict[str, np.ndarray]]:
     """The run's problem and its chains without their first segment, cut to a common length."""
     settings = json.loads((run_directory / "settings.json").read_text())
-    problem = load(settings["problem_name"], scales=settings["scales"])
+    problem = load_inverse_problem(settings["problem_name"], scales=settings["scales"])
     chains = []
     for chain in range(settings["n_chains"]):
         segments = sorted((run_directory / f"chain_{chain:02d}").glob("segment_*.npz"))[1:]
@@ -590,8 +595,8 @@ def _completed_chains(
     states = np.stack([states[:length] for states in chains])
     dimension = problem.coordinates.dimension
     noise_scales = {
-        slot: states[..., dimension + k]
-        for k, slot in enumerate(problem.likelihood.random_scale_slots)
+        noise_class: states[..., dimension + k]
+        for k, noise_class in enumerate(problem.likelihood.inferred_scale_classes)
     }
     return problem, states[..., :dimension], noise_scales
 
@@ -624,7 +629,10 @@ def _reference_tree(reference: Reference) -> xr.DataTree:
     dims = ("chain", "draw")
     posterior = xr.Dataset(
         {"theta": ((*dims, "parameter"), reference.theta)}
-        | {slot: (dims, draws) for slot, draws in reference.noise_scales.items()},
+        | {
+            noise_scale_variable(noise_class): (dims, draws)
+            for noise_class, draws in reference.noise_scales.items()
+        },
         coords={"parameter": list(reference.parameter_names)},
     )
     information = xr.Dataset(

@@ -29,7 +29,7 @@ from lsmas.experiments.reference import (
     rwmh_reference,
     start_rwmh_reference,
 )
-from lsmas.problems import load
+from lsmas.problems import load_inverse_problem
 
 DEFAULT_RUN_ROOT = Path(__file__).resolve().parents[1] / "runs" / "reference"
 
@@ -38,7 +38,7 @@ def main() -> None:
     arguments = _parser().parse_args()
     if arguments.command == "nuts":
         reference = nuts_reference(
-            load(arguments.problem, scales=arguments.scales), seed=arguments.seed
+            load_inverse_problem(arguments.problem, scales=arguments.scales), seed=arguments.seed
         )
         print(f"saved {reference.save()}")
     elif arguments.command == "rwmh":
@@ -46,7 +46,7 @@ def main() -> None:
             arguments.run_directory or DEFAULT_RUN_ROOT / arguments.problem / arguments.scales
         )
         reference = rwmh_reference(
-            load(arguments.problem, scales=arguments.scales),
+            load_inverse_problem(arguments.problem, scales=arguments.scales),
             run_directory,
             n_chains=arguments.chains,
             segment_steps=arguments.steps,
@@ -57,7 +57,7 @@ def main() -> None:
         print(f"saved {reference.save()}")
     elif arguments.command == "pilot":
         start_rwmh_reference(
-            load(arguments.problem, scales=arguments.scales),
+            load_inverse_problem(arguments.problem, scales=arguments.scales),
             arguments.run_directory,
             n_chains=arguments.chains,
             seed=arguments.seed,

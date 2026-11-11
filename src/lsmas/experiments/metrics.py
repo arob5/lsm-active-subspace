@@ -1,13 +1,13 @@
 r"""Scores of an approximate posterior and an estimated subspace against a reference.
 
 The posterior metrics compare draws of an approximation $q$ with the reference $p$ coordinate by
-coordinate, in whitened coordinates $\xi_j$ (and $\log s^2_k$ for inferred noise scales), each
+coordinate, in whitened coordinates $z_j$ (and $\log s^2_k$ for inferred noise scales), each
 divided by the reference's standard deviation $\sigma_j$ of that coordinate:
 
 - the **marginal 1-Wasserstein distance** $W_1(q_j, p_j) / \sigma_j$, which is sensitive to both
   location and spread; its mean and maximum over coordinates are the headline scores;
-- the **mean error** $\lvert \mathbb E_q \xi_j - \mathbb E_p \xi_j \rvert / \sigma_j$;
-- the **sd error** $\lvert \log(\mathrm{sd}_q\, \xi_j / \sigma_j) \rvert$;
+- the **mean error** $\lvert \mathbb E_q z_j - \mathbb E_p z_j \rvert / \sigma_j$;
+- the **sd error** $\lvert \log(\mathrm{sd}_q\, z_j / \sigma_j) \rvert$;
 - the **Gaussian 2-Wasserstein distance** between Gaussian fits of $q$ and $p$, which is sensitive
   to correlations;
 - the **coverage** of $p$'s draws by $q$'s central 90% interval, a diagnostic only: it cannot
@@ -30,6 +30,7 @@ from __future__ import annotations
 import numpy as np
 from scipy import linalg, stats
 
+from lsmas._stopgaps.likelihood import noise_scale_variable
 from lsmas.algorithms.result import AlgorithmResult
 from lsmas.experiments.reference import Reference
 from lsmas.problems.inverse_problem import InverseProblem
@@ -61,7 +62,10 @@ def score_names(problem: InverseProblem) -> list[str]:
         )
         for summary in summaries
     ] + ["gaussian_w2", "coverage90_mean", "coverage90_min"]
-    scales = [f"marginal_w1_{slot}" for slot in problem.likelihood.random_scale_slots]
+    scales = [
+        f"marginal_w1_{noise_scale_variable(noise_class)}"
+        for noise_class in problem.likelihood.inferred_scale_classes
+    ]
     subspace = ["subspace_rank", "captured_information", "largest_principal_angle_degrees"]
     return posterior + scales + subspace + ["forward_runs"]
 
@@ -80,12 +84,14 @@ def score(
     problem : InverseProblem
         The problem, whose coordinates whiten the draws.
     """
-    theta = problem.coordinates.array_from_draws(result.posterior.atoms).reshape(
-        -1, problem.coordinates.dimension
-    )
+    coordinates = problem.coordinates
+    theta = np.asarray(result.posterior.atoms[coordinates.block].to_vector())
+    theta = theta.reshape(-1, coordinates.dimension)
     noise_scales = {
-        slot: np.asarray(result.posterior.atoms[slot].raw).reshape(-1)
-        for slot in problem.likelihood.random_scale_slots
+        noise_class: draws.reshape(-1)
+        for noise_class, draws in problem.likelihood.inferred_scale_draws(
+            result.posterior.atoms
+        ).items()
     }
     return (
         posterior_scores(theta, noise_scales, reference, problem)
@@ -107,7 +113,7 @@ def posterior_scores(
     theta : numpy.ndarray
         Draws of the calibration parameters, shape $(N, d)$.
     noise_scales : dict of str to numpy.ndarray
-        Draws of each inferred noise scale, shape $(N,)$; empty when the scales are fixed.
+        Draws of each inferred noise scale, shape $(N,)$, by class; empty when the scales are fixed.
     reference : Reference
         The reference.
     problem : InverseProblem
@@ -118,11 +124,11 @@ def posterior_scores(
     dict of str to float
         ``marginal_w1_mean``, ``marginal_w1_max``, ``mean_error_mean``, ``mean_error_max``,
         ``sd_error_mean``, ``sd_error_max``, ``gaussian_w2``, ``coverage90_mean`` and
-        ``coverage90_min`` over the whitened parameters, and ``marginal_w1_<scale>`` for each
+        ``coverage90_min`` over the whitened parameters, and ``marginal_w1_s2_<class>`` for each
         inferred noise scale, on the logarithm of the scale.
     """
-    approximation = problem.coordinates.whitened_from_parameters(theta)
-    target = problem.coordinates.whitened_from_parameters(reference.parameter_draws())
+    approximation = np.asarray(problem.coordinates._whitened(theta))
+    target = np.asarray(problem.coordinates._whitened(reference.parameter_draws()))
     distances = marginal_wasserstein(approximation, target)
     location, spread = mean_errors(approximation, target), sd_errors(approximation, target)
     coverage = interval_coverage(approximation, target)
@@ -138,10 +144,11 @@ def posterior_scores(
         "coverage90_min": coverage.min(),
     }
     reference_scales = reference.noise_scale_draws()
-    for slot, draws in noise_scales.items():
+    for noise_class, draws in noise_scales.items():
         log_draws = np.log(np.asarray(draws, dtype=float))[:, None]
-        log_reference = np.log(reference_scales[slot])[:, None]
-        scores[f"marginal_w1_{slot}"] = marginal_wasserstein(log_draws, log_reference)[0]
+        log_reference = np.log(reference_scales[noise_class])[:, None]
+        name = f"marginal_w1_{noise_scale_variable(noise_class)}"
+        scores[name] = marginal_wasserstein(log_draws, log_reference)[0]
     return {name: float(value) for name, value in scores.items()}
 
 
@@ -179,12 +186,12 @@ def marginal_wasserstein(approximation: np.ndarray, target: np.ndarray) -> np.nd
 
 
 def mean_errors(approximation: np.ndarray, target: np.ndarray) -> np.ndarray:
-    r"""$\lvert \mathbb E_q \xi_j - \mathbb E_p \xi_j \rvert / \sigma_j$ for each coordinate."""
+    r"""$\lvert \mathbb E_q z_j - \mathbb E_p z_j \rvert / \sigma_j$ for each coordinate."""
     return np.abs(approximation.mean(axis=0) - target.mean(axis=0)) / target.std(axis=0)
 
 
 def sd_errors(approximation: np.ndarray, target: np.ndarray) -> np.ndarray:
-    r"""$\lvert \log(\mathrm{sd}_q\, \xi_j / \sigma_j) \rvert$ for each coordinate."""
+    r"""$\lvert \log(\mathrm{sd}_q\, z_j / \sigma_j) \rvert$ for each coordinate."""
     return np.abs(np.log(approximation.std(axis=0) / target.std(axis=0)))
 
 

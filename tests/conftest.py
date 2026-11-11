@@ -6,8 +6,8 @@ import pytest
 from probpipe import Normal, NumericArraySpec, NumericRecordSpec, cov, function, mean
 
 import lsmas  # noqa: F401  (sets JAX's precision before any test builds an array)
-from lsmas._stopgaps.coordinates import Coordinates
 from lsmas._stopgaps.likelihood import GaussianSimulatorLikelihood
+from lsmas.coordinates import Coordinates
 from lsmas.problems.inverse_problem import InverseProblem
 
 #: The forward map G(θ) = F θ of the linear model, for θ = (a, b) and six observations.
@@ -21,7 +21,7 @@ PRIOR_SD = np.array([1.0, 2.0])
 THETA_SPEC = NumericRecordSpec(a=NumericArraySpec(()), b=NumericArraySpec(()))
 
 
-@function(label="linear_forward", traceable=True)
+@function(label="linear_forward", input_spec={"theta": THETA_SPEC}, traceable=True)
 def linear_forward(theta):
     return jnp.asarray(FORWARD_MATRIX @ jnp.stack([theta["a"], theta["b"]]))
 
@@ -30,7 +30,6 @@ def linear_likelihood(scales):
     return GaussianSimulatorLikelihood(
         linear_forward,
         output_name="y",
-        theta_spec=THETA_SPEC,
         reference_variance=REFERENCE_VARIANCE,
         classes=CLASSES,
         scales=scales,
@@ -68,7 +67,7 @@ def exact_linear_information(scales, learning_rate, whitening_factor):
 
 
 def exact_linear_posterior(observations, scales, learning_rate):
-    r"""Mean and covariance of π(θ) ∏ N(y_i | (Hθ)_i, s²_k(i) v_i)^{η_i}, for fixed scales s²."""
+    r"""Mean and covariance of π(θ) ∏ N(y_i | (Hθ)_i, s²_k(i) σ²_i)^{η_i}, for fixed scales s²."""
     variances = np.where(CLASSES == "day", scales["day"], scales["night"]) * REFERENCE_VARIANCE
     precision_weights = learning_rate / variances
     prior_precision = np.diag(1 / PRIOR_SD**2)

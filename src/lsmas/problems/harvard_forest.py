@@ -13,9 +13,11 @@ import functools
 from collections.abc import Mapping, Sequence
 from typing import Any, Literal
 
+from probpipe import quantile
+
 from lsmas.data import HarvardForestData, load_harvard_forest
 from lsmas.parameters import calibration_to_sipnet
-from lsmas.priors import laws_from_table, prior_medians
+from lsmas.priors import independent_prior, laws_from_table
 from lsmas.problems.inverse_problem import InverseProblem
 from lsmas.problems.nee_likelihood import nee_problem
 from lsmas.sipnet import SIPNETSimulator, feature_map
@@ -56,7 +58,7 @@ def harvard_forest(
     ----------
     scales : {"fixed", "inferred"}
         ``"fixed"`` sets $s^2_{\mathrm{day}} = s^2_{\mathrm{night}} = 1$. ``"inferred"`` makes them
-        parameters ``s2_day`` and ``s2_night`` with independent $\mathrm{IG}(2, 1.678)$ priors.
+        the parameters ``s2/day`` and ``s2/night`` with independent $\mathrm{IG}(2, 1.678)$ priors.
     data : HarvardForestData, optional
         The inputs, :func:`~lsmas.data.load_harvard_forest` by default.
     max_workers : int
@@ -126,10 +128,9 @@ def _harvard_forest_problem(
     laws = laws_from_table(data.prior_table)
     if unknown := sorted(set(calibrated) - laws.keys()):
         raise ValueError(f"not calibration parameters: {unknown}")
+    medians = quantile.using(exact_only=True)(independent_prior(laws), 0.5)["theta"]
     held = {
-        parameter: value
-        for parameter, value in prior_medians(data.prior_table).items()
-        if parameter not in calibrated
+        parameter: float(medians[parameter]) for parameter in laws if parameter not in calibrated
     }
     forward = feature_map(
         SIPNETSimulator(data.driver_path, {}),
@@ -140,6 +141,7 @@ def _harvard_forest_problem(
             held=held,
             fixed=data.fixed_sipnet_parameters,
         ),
+        parameter_names=calibrated,
         max_workers=max_workers,
     )
     return nee_problem(

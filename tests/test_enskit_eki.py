@@ -25,6 +25,7 @@ from conftest import (
 from lsmas._stopgaps.likelihood import GaussianSimulatorLikelihood
 from lsmas._stopgaps.tempering import tempered_condition_on
 from lsmas.inference import EnsKitEKI
+from lsmas.priors import independent_prior
 
 FIXED_SCALES = {"day": 1.5, "night": 0.7}
 LEARNING_RATE = np.where(CLASSES == "day", 0.5, 0.8)
@@ -82,8 +83,9 @@ def test_runs_are_reproducible_under_a_seed(observations):
 
 def mixed_scale_model():
     """The linear model with the day scale inferred, IG(3, 2), and the night scale fixed."""
-    return linear_likelihood({"day": "s2_day", "night": 0.7}) & (
-        linear_theta_prior() & InverseGamma("s2_day", 3.0, 2.0)
+    scale_prior = independent_prior({"day": InverseGamma("day", 3.0, 2.0)}, group="s2")
+    return linear_likelihood({"day": "inferred", "night": 0.7}) & (
+        linear_theta_prior() & scale_prior
     )
 
 
@@ -105,8 +107,8 @@ def test_inferred_noise_scales_match_nuts(observations):
     nuts_sd = np.sqrt(np.diag(nuts_covariance))
     np.testing.assert_allclose(eki_mean, nuts_mean, atol=0.1 * nuts_sd.max())
     np.testing.assert_allclose(np.sqrt(np.diag(eki_covariance)), nuts_sd, rtol=0.15)
-    eki_scale = np.asarray(eki_posterior.atoms["s2_day"].raw).ravel()
-    nuts_scale = np.asarray(nuts_posterior.atoms["s2_day"].raw).ravel()
+    eki_scale = np.asarray(eki_posterior.atoms["s2/day"].raw).ravel()
+    nuts_scale = np.asarray(nuts_posterior.atoms["s2/day"].raw).ravel()
     np.testing.assert_allclose(
         np.quantile(eki_scale, [0.1, 0.5, 0.9]), np.quantile(nuts_scale, [0.1, 0.5, 0.9]), rtol=0.15
     )
@@ -118,8 +120,8 @@ def test_records_carry_the_inferred_scales(observations):
         condition_on.using(
             method="enskit_eki", method_options={"n_particles": 40, "callbacks": [records.append]}
         )(mixed_scale_model(), {"y": observations})
-    assert set(records[0].noise_scales) == {"s2_day"}
-    assert records[0].noise_scales["s2_day"].shape == (40,)
+    assert set(records[0].noise_scales) == {"day"}
+    assert records[0].noise_scales["day"].shape == (40,)
     night = CLASSES == "night"
     assert all(
         np.allclose(record.noise_variance[night] / REFERENCE_VARIANCE[night], 0.7)
@@ -128,8 +130,9 @@ def test_records_carry_the_inferred_scales(observations):
 
 
 def test_a_scale_without_an_inverse_gamma_prior_is_refused(observations):
-    model = linear_likelihood({"day": "s2_day", "night": 1.0}) & (
-        linear_theta_prior() & LogNormal("s2_day", 0.0, 1.0)
+    scale_prior = independent_prior({"day": LogNormal("day", 0.0, 1.0)}, group="s2")
+    model = linear_likelihood({"day": "inferred", "night": 1.0}) & (
+        linear_theta_prior() & scale_prior
     )
     target = condition_on.using(method="unnormalized")(model, {"y": observations})
     feasibility = EnsKitEKI().check(target)
@@ -144,16 +147,16 @@ def test_method_runs_only_when_named(observations):
 
 @pytest.mark.smoke
 def test_eki_runs_on_the_small_harvard_forest_problem():
-    from lsmas.problems import load
+    from lsmas.problems import load_inverse_problem
 
-    problem = load("harvard_forest_small")
+    problem = load_inverse_problem("harvard_forest_small")
     records = []
     with workflow_run(seed=3):
         posterior = problem.condition(
             method="enskit_eki", method_options={"n_particles": 16, "callbacks": [records.append]}
         )
     # make_posterior lays out every posterior as chains of draws; EKI's ensemble is one chain.
-    theta = problem.coordinates.array_from_draws(posterior.atoms)
+    theta = np.asarray(posterior.atoms["theta"].to_vector())
     assert theta.shape == (1, 16, 10)
     assert records[0].predictions.shape == (16, 400)
     assert sum(record.n_failed for record in records) == 0
@@ -170,13 +173,13 @@ def test_failed_runs_are_counted_and_repaired(observations):
     forward = Function(
         failing_linear_forward,
         label="failing_linear",
+        input_spec={"theta": THETA_SPEC},
         output_spec=NumericArraySpec((6,), jnp.float64),
         traceable=False,
     )
     likelihood = GaussianSimulatorLikelihood(
         forward,
         output_name="y",
-        theta_spec=THETA_SPEC,
         reference_variance=REFERENCE_VARIANCE,
         classes=CLASSES,
         scales=FIXED_SCALES,

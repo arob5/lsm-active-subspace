@@ -10,8 +10,8 @@ from typing import Any
 import numpy as np
 from probpipe import Distribution, Function
 
-from lsmas._stopgaps.coordinates import Coordinates
 from lsmas._stopgaps.tempering import tempered_condition_on
+from lsmas.coordinates import Coordinates
 
 __all__ = ["InverseProblem"]
 
@@ -20,11 +20,13 @@ __all__ = ["InverseProblem"]
 class InverseProblem:
     r"""An inverse problem: the prior, the likelihood and the observed data.
 
-    The model is $p(y \mid \theta, s^2)\, \pi(\theta, s^2)$, a ProbPipe ``likelihood & prior``, and
-    conditioning it on the observed $y$ with learning rates $\eta$ gives the generalized posterior
+    The model is $p(y \mid \theta, s^2)\, \pi_0(\theta, s^2)$, a ProbPipe ``likelihood & prior``,
+    and conditioning it on the observed $y$ with learning rates $\eta$ gives the generalized
+    posterior
 
     $$
-    \pi_\eta(\theta, s^2 \mid y) \propto \pi(\theta, s^2) \prod_i p(y_i \mid \theta, s^2)^{\eta_i}.
+    \pi_\eta(\theta, s^2 \mid y) \propto
+    \pi_0(\theta, s^2) \prod_i p(y_i \mid \theta, s^2)^{\eta_i}.
     $$
 
     With every $\eta_i = 1$ this is the ordinary posterior.
@@ -38,14 +40,15 @@ class InverseProblem:
     likelihood : ConditionalDistribution
         $p(y \mid \theta, s^2)$, the law of the observations given the parameters.
     prior : Distribution
-        $\pi(\theta, s^2)$, the law of the parameters, with the calibration parameters grouped
+        $\pi_0(\theta, s^2)$, the law of the parameters, with the calibration parameters grouped
         under ``theta``.
     data : dict of str to numpy.ndarray
         The observed value of each observed output.
     learning_rate : dict of str to numpy.ndarray
         $\eta$ for each observed output, one rate per element.
     coordinates : Coordinates
-        Constrained, unconstrained and whitened coordinates of ``theta``.
+        The changes of coordinates of ``theta``: ``coordinates.unconstrain`` and
+        ``coordinates.whiten``.
     """
 
     name: str
@@ -73,7 +76,8 @@ class InverseProblem:
 
     # STOPGAP(PG-08): automatic method selection assumes gradients, so the method is required.
     def condition(self, *, method: str, **using: Any) -> Distribution:
-        """The generalized posterior, computed by the inference method *method*.
+        """The generalized posterior, computed by the inference method *method* and labelled
+        ``"posterior"``.
 
         Parameters
         ----------
@@ -84,34 +88,36 @@ class InverseProblem:
         **using
             Further controls of ``condition_on``, such as ``method_options``.
         """
-        return tempered_condition_on(
+        posterior = tempered_condition_on(
             self.model, self.data, learning_rate=self.learning_rate, method=method, **using
         )
+        return posterior.with_label("posterior")
 
-    def noise_variance(self, scale_values: Mapping[str, Any] | None = None) -> np.ndarray:
+    def noise_variance(self, noise_scales: Mapping[str, Any] | None = None) -> np.ndarray:
         r"""The diagonal of the tempered noise covariance,
-        $\Gamma = \operatorname{diag}\!\left(s^2_{k(i)} v_i / \eta_i\right)$, shape $(n,)$.
+        $\Gamma = \operatorname{diag}\!\left(s^2_{k(i)}\, \sigma^2_i / \eta_i\right)$, shape $(n,)$.
 
         $\Gamma^{-1}$ weights the observations in the generalized posterior and in the
         information matrices of :mod:`lsmas.tools`.
 
         Parameters
         ----------
-        scale_values : Mapping of str to float, optional
-            A value for each inferred noise scale, such as ``{"s2_day": 1.0, "s2_night": 1.0}``.
-            Not needed when every scale is fixed.
+        noise_scales : Mapping of str to float, optional
+            A value for each inferred noise scale, by class: a value of the record ``s2``, such as
+            ``{"day": 1.0, "night": 1.0}``. Not needed when every scale is fixed.
 
         Raises
         ------
         ValueError
             If an inferred scale has no value, or the problem has more than one observed output.
         """
-        if missing := sorted(set(self.likelihood.random_scale_slots) - set(scale_values or {})):
+        inferred = self.likelihood.inferred_scale_classes
+        if missing := sorted(set(inferred) - set(noise_scales.keys() if noise_scales else ())):
             raise ValueError(f"the noise scales are inferred; give values for {missing}")
         if len(self.data) != 1:
             raise ValueError(f"defined for one observed output; this problem has {list(self.data)}")
         (observed,) = self.data
-        variances = np.asarray(self.likelihood.noise_variances(scale_values))
+        variances = np.asarray(self.likelihood.noise_variances(noise_scales))
         return variances / self.learning_rate[observed]
 
     def describe(self) -> str:

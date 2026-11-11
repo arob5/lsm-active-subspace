@@ -22,10 +22,10 @@ from enskit.distribution import Ensemble
 from probpipe import Distribution, InverseGamma, NumericRecordBatch
 from probpipe.inference import Feasibility, InferenceMethod, InferenceTarget, make_posterior
 
-from lsmas._stopgaps.coordinates import ParameterBijection, block_values
-from lsmas._stopgaps.likelihood import GaussianSimulatorLikelihood
+from lsmas._stopgaps.likelihood import NOISE_SCALES, GaussianSimulatorLikelihood
 from lsmas._stopgaps.sampling import draw_with_key
 from lsmas._stopgaps.tempering import TemperedLikelihood
+from lsmas.coordinates import Coordinates, _parameter_vectors
 from lsmas.inference.noise_scales import NoiseScaleConditionals
 from lsmas.inference.step_record import StepCallback, StepRecord, history_dataset
 from lsmas.priors import factors_over
@@ -44,14 +44,14 @@ class EnsKitEKI(InferenceMethod):
     noise scales $s^2_k$, under a Gaussian likelihood:
 
     $$
-    \pi(\theta, s^2 \mid y) \propto \pi(\theta) \prod_{k \text{ inferred}} \mathrm{IG}(s^2_k;
+    \pi(\theta, s^2 \mid y) \propto \pi_0(\theta) \prod_{k \text{ inferred}} \mathrm{IG}(s^2_k;
     \alpha_k, b_k)\; \mathcal N\!\left(y \mid G(\theta), \Gamma(s^2)\right),
-    \qquad \Gamma(s^2) = \operatorname{diag}\!\left(\frac{s^2_{k(i)} v_i}{\eta_i}\right),
+    \qquad \Gamma(s^2) = \operatorname{diag}\!\left(\frac{s^2_{k(i)}\, \sigma^2_i}{\eta_i}\right),
     $$
 
-    with $\eta_i$ the learning rates (all 1 for the ordinary posterior). Particles $z_j$,
-    $j = 1, \dots, J$, live in unconstrained coordinates $z = b^{-1}(\theta)$; they and their scales
-    $s^2_j$ start as prior draws. The method moves through tempering levels
+    with $\eta_i$ the learning rates (all 1 for the ordinary posterior). Particles $\phi_j$,
+    $j = 1, \dots, J$, live in unconstrained coordinates $\phi = b^{-1}(\theta)$; they and their
+    scales $s^2_j$ start as prior draws. The method moves through tempering levels
     $0 = \beta_0 < \beta_1 < \dots < \beta_T = 1$, the level $\beta$ targeting the tempered
     posterior with likelihood $\mathcal N(y \mid G, \Gamma / \beta)$. Each step evaluates $G$ at
     every particle (EnsKit's ``eki.evaluate``, the step's one batch of forward runs) and then:
@@ -61,22 +61,23 @@ class EnsKitEKI(InferenceMethod):
        sample size of at least a fraction of $J$
        (:meth:`~lsmas.inference.noise_scales.NoiseScaleConditionals.largest_increment`). With
        every scale fixed the weights are $\exp(-\Delta\beta_t \Phi_j)$,
-       $\Phi_j = \tfrac12 \lVert \Gamma^{-1/2}(y - G(z_j)) \rVert^2$.
+       $\Phi_j = \tfrac12 \lVert \Gamma^{-1/2}(y - G(\phi_j)) \rVert^2$.
     2. **Kalman update** (EnsKit's ``eki.assimilate``): every particle moves by
 
        $$
-       z_j \leftarrow z_j + C_{zG} \left(C_{GG} + \bar\Gamma / \Delta\beta_t\right)^{-1}
-       \left(y + \varepsilon_j - G(z_j)\right),
+       \phi_j \leftarrow \phi_j + C_{\phi G} \left(C_{GG} + \bar\Gamma / \Delta\beta_t\right)^{-1}
+       \left(y + \varepsilon_j - G(\phi_j)\right),
        \qquad \varepsilon_j \sim \mathcal N(0, \bar\Gamma / \Delta\beta_t),
        $$
 
-       with $C_{zG}$ and $C_{GG}$ the ensemble covariances and $\bar\Gamma = \Gamma(\bar s^2)$ at
-       the ensemble's common scales $\bar s^2_k = (\frac1J \sum_j s^{-2}_{jk})^{-1}$.
+       with $C_{\phi G}$ and $C_{GG}$ the ensemble covariances and
+       $\bar\Gamma = \Gamma(\bar s^2)$ at the ensemble's common scales
+       $\bar s^2_k = (\frac1J \sum_j s^{-2}_{jk})^{-1}$.
     3. **Gibbs draw of the scales**, after the moved particles are evaluated: each particle's
        inferred scales are drawn from their exact conditional law at the new level
        (:class:`~lsmas.inference.noise_scales.NoiseScaleConditionals`).
 
-    For a linear $G$, a Gaussian prior on $z$ and fixed scales, the ensemble's law tends to the
+    For a linear $G$, a Gaussian prior on $\phi$ and fixed scales, the ensemble's law tends to the
     posterior as $J \to \infty$; otherwise the result is an approximation. A particle at which the
     forward map fails is moved to the centre of the valid particles before the update.
 
@@ -134,16 +135,17 @@ class EnsKitEKI(InferenceMethod):
             [_particles_as_target_vectors(target, problem, final_particles)],
             method=self.name,
             annotations=xr.DataTree.from_dict({"eki_history": history_dataset(step_records)}),
-            n_particles=final_particles.z.shape[0],
+            n_particles=final_particles.phi.shape[0],
             n_steps=len(step_records),
         )
 
 
 @dataclass(frozen=True)
 class _ParticlesWithScales:
-    """An ensemble: unconstrained parameters $z$, shape $(J, d)$, and class scales, $(J, K)$."""
+    r"""An ensemble: unconstrained parameters $\phi$, shape $(J, d)$, and class scales,
+    $(J, K)$."""
 
-    z: np.ndarray
+    phi: np.ndarray
     scales: np.ndarray
 
 
@@ -154,7 +156,7 @@ class _GaussianInverseProblem:
     likelihood: GaussianSimulatorLikelihood
     observations: np.ndarray
     prior: Any
-    bijection: ParameterBijection
+    coordinates: Coordinates
     scale_conditionals: NoiseScaleConditionals
 
     @classmethod
@@ -166,10 +168,10 @@ class _GaussianInverseProblem:
             likelihood=likelihood,
             observations=observations,
             prior=factors.prior,
-            bijection=ParameterBijection.from_prior(factors.prior, _PARAMETER_BLOCK),
+            coordinates=Coordinates.from_prior(factors.prior, _PARAMETER_BLOCK),
             scale_conditionals=NoiseScaleConditionals.from_problem(
                 likelihood,
-                _inverse_gamma_scale_priors(factors.prior, likelihood.random_scale_slots),
+                _inverse_gamma_scale_priors(factors.prior),
                 observations,
                 learning_rate,
             ),
@@ -178,21 +180,24 @@ class _GaussianInverseProblem:
     def draw_initial_particles(self, key: Any, n_particles: int) -> _ParticlesWithScales:
         """*n_particles* prior draws: parameters in unconstrained coordinates, and class scales."""
         draws = draw_with_key(self.prior, key, (n_particles,))
-        theta = block_values(draws, _PARAMETER_BLOCK, self.bijection.names)
+        theta = _parameter_vectors(draws, _PARAMETER_BLOCK, self.coordinates.names)
         conditionals = self.scale_conditionals
+        inferred = self.likelihood.inferred_scale_draws(draws)
         scales = np.stack(
             [
-                np.full(n_particles, fixed) if slot is None else np.asarray(draws[slot], float)
-                for slot, fixed in zip(conditionals.slots, conditionals.fixed_scales, strict=True)
+                inferred[k] if k in inferred else np.full(n_particles, fixed)
+                for k, fixed in zip(conditionals.classes, conditionals.fixed_scales, strict=True)
             ],
             axis=-1,
         )
-        return _ParticlesWithScales(z=self.bijection.to_unconstrained(theta), scales=scales)
+        phi = np.asarray(self.coordinates._unconstrained(theta))
+        return _ParticlesWithScales(phi=phi, scales=scales)
 
-    def forward_in_unconstrained_coordinates(self, z: Any) -> np.ndarray:
-        """$G$ at each row of unconstrained coordinates *z*, shape $(J, n)$; EnsKit's simulator."""
-        theta = self.bijection.to_constrained(np.asarray(z))
-        return np.asarray(self.likelihood.forward(self.bijection.record_batch(theta)).raw)
+    def forward_in_unconstrained_coordinates(self, phi: Any) -> np.ndarray:
+        """$G$ at each row of unconstrained coordinates *phi*, shape $(J, n)$: EnsKit's
+        simulator."""
+        theta = self.coordinates._constrained(np.asarray(phi))
+        return np.asarray(self.likelihood.forward(self.coordinates._records(theta)).raw)
 
 
 def _run_tempered_eki(
@@ -216,7 +221,7 @@ def _run_tempered_eki(
     ess_fraction = float(options.get("ess_fraction", 0.5))
     max_steps = int(options.get("max_steps", 1000))
     conditionals = problem.scale_conditionals
-    state = eki.EKIState(Ensemble(u=jnp.asarray(initial_particles.z)), key=key_kalman)
+    state = eki.EKIState(Ensemble(u=jnp.asarray(initial_particles.phi)), key=key_kalman)
     scales = initial_particles.scales
     evaluation = _evaluate_forward_map_at_particles(problem, state, scales)
     step_records: list[StepRecord] = []
@@ -247,7 +252,7 @@ def _run_tempered_eki(
             evaluation = _evaluate_forward_map_at_particles(problem, state, scales)
             scales = _gibbs_draw_noise_scales(problem, evaluation, state, scales, key_scales)
     return _ParticlesWithScales(
-        z=_final_particles_as_evaluated(state, evaluation), scales=scales
+        phi=_final_particles_as_evaluated(state, evaluation), scales=scales
     ), step_records
 
 
@@ -312,12 +317,14 @@ def _build_step_record(
         step=int(evaluation.step),
         beta=beta,
         increment=float(increment),
-        parameter_names=problem.bijection.names,
-        theta=problem.bijection.to_constrained(unconstrained),
+        parameter_names=problem.coordinates.names,
+        theta=np.asarray(problem.coordinates._constrained(unconstrained)),
         predictions=np.asarray(evaluation.ensemble[eki.PREDICTION]),
         noise_variance=noise_variance,
         noise_scales={
-            slot: scales[:, k] for k, slot in enumerate(conditionals.slots) if slot is not None
+            noise_class: scales[:, k]
+            for k, noise_class in enumerate(conditionals.classes)
+            if conditionals.is_inferred[k]
         },
         n_failed=unconstrained.shape[0] - int(evaluation.n_valid),
     )
@@ -330,11 +337,16 @@ def _likelihood_and_learning_rate(likelihood: Any) -> tuple[Any, np.ndarray]:
     return likelihood, np.asarray(1.0)
 
 
-def _inverse_gamma_scale_priors(prior: Any, slots: Sequence[str]) -> dict[str, InverseGamma]:
-    """The inverse-gamma priors of the inferred scales *slots*, by slot; others are left out."""
+def _inverse_gamma_scale_priors(prior: Any) -> dict[str, InverseGamma]:
+    """The inverse-gamma priors of the noise scales in the record ``s2`` of *prior*, by class;
+    scales with another prior are left out."""
+    scale_prior = factors_over(prior, [NOISE_SCALES]).get(NOISE_SCALES)
+    if scale_prior is None:
+        return {}
+    classes = scale_prior.event_spec.outputs[NOISE_SCALES].fields
     return {
-        slot: factor
-        for slot, factor in factors_over(prior, slots).items()
+        noise_class: factor
+        for noise_class, factor in factors_over(scale_prior, classes).items()
         if isinstance(factor, InverseGamma)
     }
 
@@ -343,15 +355,19 @@ def _particles_as_target_vectors(
     target: InferenceTarget, problem: _GaussianInverseProblem, particles: _ParticlesWithScales
 ) -> jnp.ndarray:
     """The final particles, with their inferred scales, as vectors of the target's event."""
-    theta = problem.bijection.to_constrained(particles.z)
+    theta = problem.coordinates._constrained(particles.phi)
     fields: dict[str, Any] = {
         _PARAMETER_BLOCK: {
-            name: jnp.asarray(theta[:, index]) for index, name in enumerate(problem.bijection.names)
+            name: theta[:, index] for index, name in enumerate(problem.coordinates.names)
         }
     }
-    for k, slot in enumerate(problem.scale_conditionals.slots):
-        if slot is not None:
-            fields[slot] = jnp.asarray(particles.scales[:, k])
+    conditionals = problem.scale_conditionals
+    if conditionals.is_inferred.any():
+        fields[NOISE_SCALES] = {
+            noise_class: jnp.asarray(particles.scales[:, k])
+            for k, noise_class in enumerate(conditionals.classes)
+            if conditionals.is_inferred[k]
+        }
     batch = NumericRecordBatch(fields, "draw", element=target.event_spec.term_spec)
     return batch.to_vector()
 
@@ -364,12 +380,13 @@ def _infeasibility_reason(target: InferenceTarget) -> str | None:
     likelihood, _ = _likelihood_and_learning_rate(factors.likelihood)
     if not isinstance(likelihood, GaussianSimulatorLikelihood):
         return "the likelihood must be a Gaussian simulator likelihood"
-    slots = set(likelihood.random_scale_slots)
-    if set(factors.prior.event_spec.outputs) != {_PARAMETER_BLOCK} | slots:
+    inferred = set(likelihood.inferred_scale_classes)
+    records = {_PARAMETER_BLOCK} | ({NOISE_SCALES} if inferred else set())
+    if set(factors.prior.event_spec.outputs) != records:
         return (
-            f"the prior must be over the parameter record {_PARAMETER_BLOCK!r} and the inferred "
-            f"noise scales {sorted(slots)}, and nothing else"
+            f"the prior must be over the parameter record {_PARAMETER_BLOCK!r} and, when scales "
+            f"are inferred, the noise-scale record {NOISE_SCALES!r}, and nothing else"
         )
-    if missing := sorted(slots - _inverse_gamma_scale_priors(factors.prior, sorted(slots)).keys()):
+    if missing := sorted(inferred - _inverse_gamma_scale_priors(factors.prior).keys()):
         return f"each inferred noise scale needs an inverse-gamma prior; these have none: {missing}"
     return None

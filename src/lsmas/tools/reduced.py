@@ -1,7 +1,7 @@
 r"""Reduced problems: the posterior of the active variables, with the inactive ones at their prior.
 
 Given a subspace with bases $W$ and $W_\perp$, whitened coordinates split as
-$\xi = W a + W_\perp b$. A reduced posterior keeps the inactive variables $b$ at their prior and
+$z = W a + W_\perp b$. A reduced posterior keeps the inactive variables $b$ at their prior and
 approximates the law of the active variables $a$. The **plug-in** reduced posterior evaluates the
 likelihood with $b$ at its prior mean $0$:
 
@@ -31,15 +31,14 @@ from probpipe import (
     EmpiricalDistribution,
     Function,
     Normal,
-    NumericArraySpec,
     NumericRecordBatch,
-    NumericRecordSpec,
 )
 
-from lsmas._stopgaps.coordinates import Coordinates, block_values
 from lsmas._stopgaps.functions import declares_traceable
-from lsmas._stopgaps.likelihood import GaussianSimulatorLikelihood
+from lsmas._stopgaps.likelihood import NOISE_SCALES, GaussianSimulatorLikelihood
 from lsmas._stopgaps.sampling import draw_with_key
+from lsmas.coordinates import Coordinates, _parameter_vectors
+from lsmas.parameters import parameter_record_spec
 from lsmas.priors import factors_over, independent_prior
 from lsmas.problems.inverse_problem import InverseProblem
 from lsmas.tools.subspace import Subspace
@@ -76,7 +75,7 @@ def reduced_problem(problem: InverseProblem, subspace: Subspace) -> ReducedProbl
     names = tuple(f"active_{i + 1}" for i in range(subspace.rank))
     likelihood = _reduced_likelihood(problem, subspace, names)
     prior = independent_prior({name: Normal(name, 0.0, 1.0) for name in names})
-    for scale_prior in factors_over(problem.prior, problem.likelihood.random_scale_slots).values():
+    for scale_prior in factors_over(problem.prior, [NOISE_SCALES]).values():
         prior = prior & scale_prior
     return ReducedProblem(
         name=f"{problem.name}_reduced",
@@ -113,7 +112,7 @@ class ReducedProblem(InverseProblem):
         r"""The approximation of the full posterior from draws of this problem's posterior.
 
         Each draw of the active variables $a$ is combined with the inactive part
-        $b = W_\perp^\top \xi$ of an independent prior draw $\xi$, and mapped to the calibration
+        $b = W_\perp^\top z$ of an independent prior draw $z$, and mapped to the calibration
         parameters $\theta(W a + W_\perp b)$. Drawn noise scales are carried over unchanged.
 
         Parameters
@@ -130,25 +129,27 @@ class ReducedProblem(InverseProblem):
             Draws of the full problem's parameter record ``theta`` and of any inferred noise scales.
         """
         atoms = posterior.atoms
-        active = block_values(atoms, _PARAMETER_BLOCK, self.coordinates.names).reshape(
+        active = _parameter_vectors(atoms, _PARAMETER_BLOCK, self.coordinates.names).reshape(
             -1, self.subspace.rank
         )
         full = self.full_problem.coordinates
         prior_draws = draw_with_key(self.full_problem.prior, key, (active.shape[0],))
-        prior_xi = full.whitened_from_parameters(
-            block_values(prior_draws, _PARAMETER_BLOCK, full.names)
+        prior_z = np.asarray(
+            full._whitened(_parameter_vectors(prior_draws, _PARAMETER_BLOCK, full.names))
         )
-        xi = self.subspace.whitened_from_active_and_inactive(
-            active, self.subspace.inactive_variables(prior_xi)
+        z = self.subspace.whitened_from_active_and_inactive(
+            active, self.subspace.inactive_variables(prior_z)
         )
-        theta = full.parameters_from_whitened(xi)
+        theta = np.asarray(full._from_whitened(z))
         fields: dict[str, Any] = {
             _PARAMETER_BLOCK: {
                 name: jnp.asarray(theta[:, index]) for index, name in enumerate(full.names)
             }
         }
-        for slot in self.likelihood.random_scale_slots:
-            fields[slot] = jnp.asarray(np.asarray(atoms[slot].raw).reshape(-1))
+        if scales := self.likelihood.inferred_scale_draws(atoms):
+            fields[NOISE_SCALES] = {
+                noise_class: jnp.asarray(draws.reshape(-1)) for noise_class, draws in scales.items()
+            }
         return EmpiricalDistribution(NumericRecordBatch(fields, "draw"))
 
 
@@ -160,9 +161,12 @@ class _ReducedForwardMap:
     basis: jax.Array
     names: tuple[str, ...]
 
-    def features(self, active: Any) -> Any:
-        xi = self.basis @ jnp.stack([jnp.asarray(active[name]) for name in self.names])
-        record = self.problem.coordinates.parameter_record(xi)
+    def features(self, theta: Any) -> Any:
+        """$G(W a)$ at the record *theta* of active variables $a$."""
+        coordinates = self.problem.coordinates
+        z = self.basis @ jnp.stack([jnp.asarray(theta[name]) for name in self.names])
+        parameters = coordinates._from_whitened(z)
+        record = {name: parameters[j] for j, name in enumerate(coordinates.names)}
         return self.problem.forward.using(raw=True)(record)
 
 
@@ -176,6 +180,7 @@ def _reduced_likelihood(
     forward = Function(
         evaluator.features,
         label=f"{problem.forward.label}_reduced",
+        input_spec={"theta": parameter_record_spec(names)},
         output_spec=problem.forward.output_spec,
         traceable=traceable,
         **({} if traceable else {"executor": "thread"}),
@@ -183,14 +188,8 @@ def _reduced_likelihood(
     return GaussianSimulatorLikelihood(
         forward,
         output_name=full_likelihood.output_name,
-        theta_spec=_scalar_record_spec(names),
         reference_variance=full_likelihood.reference_variance,
         classes=full_likelihood.classes,
         scales=full_likelihood.scales,
         label=f"{full_likelihood.label}_reduced",
     )
-
-
-def _scalar_record_spec(names: tuple[str, ...]) -> NumericRecordSpec:
-    """The spec of a record of scalar parameters *names*."""
-    return NumericRecordSpec(**{name: NumericArraySpec(()) for name in names})

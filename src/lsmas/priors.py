@@ -13,7 +13,6 @@ from collections.abc import Iterable, Mapping
 import numpy as np
 import pandas as pd
 from probpipe import (
-    BijectorTransformedDistribution,
     Distribution,
     LogNormal,
     Normal,
@@ -24,7 +23,7 @@ from probpipe import (
 from probpipe.distributions import FactoredDistribution
 from scipy import stats
 
-from lsmas._stopgaps.quantiles import median
+from lsmas._stopgaps.quantiles import MonotoneTransformedDistribution
 
 __all__ = [
     "factors_over",
@@ -32,7 +31,6 @@ __all__ = [
     "laws_from_table",
     "log_normal_from_interval",
     "logit_normal_from_interval",
-    "prior_medians",
 ]
 
 #: The numbers each family of a prior table is stated by.
@@ -68,22 +66,11 @@ def laws_from_table(table: pd.DataFrame) -> dict[str, Distribution]:
     return {str(name): _law_from_row(str(name), row) for name, row in table.iterrows()}
 
 
-def prior_medians(table: pd.DataFrame) -> dict[str, float]:
-    """Each parameter's prior median, exactly, by name.
-
-    Parameters
-    ----------
-    table : pandas.DataFrame
-        A prior table, as :func:`laws_from_table` reads it.
-    """
-    return {name: median(law) for name, law in laws_from_table(table).items()}
-
-
 def independent_prior(laws: Mapping[str, Distribution], group: str = "theta") -> Distribution:
     r"""The product of independent laws, with their outputs grouped under *group*.
 
-    For laws $\pi_j$ of parameters $\theta_j$, the prior is $\pi(\theta) = \prod_j \pi_j(\theta_j)$,
-    and its draws read $\theta_j$ at ``group/name``.
+    For laws $\pi_{0,j}$ of parameters $\theta_j$, the prior is
+    $\pi_0(\theta) = \prod_j \pi_{0,j}(\theta_j)$, and its draws read $\theta_j$ at ``group/name``.
 
     Parameters
     ----------
@@ -106,16 +93,16 @@ def independent_prior(laws: Mapping[str, Distribution], group: str = "theta") ->
 def factors_over(prior: Distribution, outputs: Iterable[str]) -> dict[str, Distribution]:
     """The factors of a product prior that are laws of exactly one of *outputs*, by that output.
 
-    A prior built with ``&``, such as ``theta_prior & InverseGamma("s2_day", 2.0, 1.678)``, is a
-    product of factors; this finds, for instance, the prior of each noise scale. An output with no
-    factor of its own is left out.
+    A prior built with ``&``, such as ``theta_prior & scale_prior``, is a product of factors; this
+    finds, for instance, the prior of the noise-scale record ``s2``. An output with no factor of
+    its own is left out.
 
     Parameters
     ----------
     prior : Distribution
         A product of factors, such as an inverse problem's prior.
     outputs : iterable of str
-        The outputs to look for, such as ``("s2_day", "s2_night")``.
+        The outputs to look for, such as ``["s2"]``.
     """
     outputs_sought = set(outputs)
     factors_by_output = {}
@@ -183,7 +170,7 @@ def logit_normal_from_interval(
         stats.logistic.ppf(lower), stats.logistic.ppf(upper), probability
     )
     base = Normal(f"logit_{output_name}", location, scale)
-    return BijectorTransformedDistribution(output_name, base, bijector_for(unit_interval))
+    return MonotoneTransformedDistribution(output_name, base, bijector_for(unit_interval))
 
 
 def _law_from_row(name: str, row: pd.Series) -> Distribution:

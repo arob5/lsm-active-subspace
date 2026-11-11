@@ -4,7 +4,8 @@ import pytest
 from probpipe import workflow_run
 
 from conftest import CLASSES, exact_linear_information, linear_problem, posterior_moments
-from lsmas.problems import load
+from lsmas.coordinates import inverse
+from lsmas.problems import load_inverse_problem
 from lsmas.tools import Subspace, reduced_problem
 
 SCALES = {"day": 1.5, "night": 0.7}
@@ -27,14 +28,15 @@ def linear_subspace(problem, rank):
 
 def exact_plug_in_posterior(problem, subspace):
     r"""Mean and covariance of a | y for the linear model: precision I + Wᵀ H W, where the
-    likelihood at ξ = W a is Gaussian in a."""
-    coordinates = problem.coordinates
-    forward_matrix = np.asarray(
-        jax.jacfwd(lambda x: problem.forward.using(raw=True)(coordinates.parameter_record(x)))(
-            np.zeros(2)
-        )
-    )
-    offset = np.asarray(problem.forward.using(raw=True)(coordinates.parameter_record(np.zeros(2))))
+    likelihood at z = W a is Gaussian in a."""
+    names = problem.coordinates.names
+    to_parameters = inverse(problem.coordinates.whiten).using(raw=True)
+
+    def features(x):
+        return problem.forward.using(raw=True)(to_parameters(dict(zip(names, x, strict=True))))
+
+    forward_matrix = np.asarray(jax.jacfwd(features)(np.zeros(2)))
+    offset = np.asarray(features(np.zeros(2)))
     reduced_matrix = forward_matrix @ subspace.basis
     precision_weights = 1.0 / problem.noise_variance()
     precision = np.eye(subspace.rank) + reduced_matrix.T @ (
@@ -67,13 +69,12 @@ def test_lifted_draws_keep_the_inactive_variables_at_their_prior(problem):
     with workflow_run(seed=1):
         posterior = reduced.condition(method="blackjax_nuts")
     lifted = reduced.lift(posterior, key=jax.random.key(0))
-    theta = problem.coordinates.array_from_draws(lifted.atoms)
-    xi = problem.coordinates.whitened_from_parameters(theta)
-    inactive = subspace.inactive_variables(xi)
-    assert inactive.shape == (theta.shape[0], 1)
+    z = np.asarray(problem.coordinates.whiten(lifted.atoms["theta"]).to_vector())
+    inactive = subspace.inactive_variables(z)
+    assert inactive.shape == (z.shape[0], 1)
     assert np.std(inactive) == pytest.approx(1.0, abs=0.1)
-    active_lifted = subspace.active_variables(xi)[:, 0]
-    active_drawn = reduced.coordinates.array_from_draws(posterior.atoms).ravel()
+    active_lifted = subspace.active_variables(z)[:, 0]
+    active_drawn = np.asarray(posterior.atoms["theta"].to_vector()).ravel()
     np.testing.assert_allclose(np.sort(active_lifted), np.sort(active_drawn), atol=1e-8)
 
 
@@ -87,7 +88,7 @@ def test_subspace_of_another_problem_is_refused(problem):
 
 @pytest.mark.smoke
 def test_reduced_sipnet_forward_at_zero_is_the_full_forward_at_the_prior_centre():
-    small = load("harvard_forest_small")
+    small = load_inverse_problem("harvard_forest_small")
     subspace = Subspace.from_information(
         np.diag(np.arange(10.0, 0.0, -1.0)),
         parameter_names=small.coordinates.names,
@@ -96,6 +97,6 @@ def test_reduced_sipnet_forward_at_zero_is_the_full_forward_at_the_prior_centre(
     )
     reduced = reduced_problem(small, subspace)
     at_zero = np.asarray(reduced.forward({"active_1": 0.0, "active_2": 0.0, "active_3": 0.0}).raw)
-    centre = small.coordinates.parameters_from_whitened(np.zeros((1, 10)))
-    full = np.asarray(small.forward(small.coordinates.bijection.record_batch(centre)).raw)[0]
+    centre = inverse(small.coordinates.whiten)({name: 0.0 for name in small.coordinates.names})
+    full = np.asarray(small.forward(centre).raw)
     np.testing.assert_allclose(at_zero, full, rtol=1e-12)

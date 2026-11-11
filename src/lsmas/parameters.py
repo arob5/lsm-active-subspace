@@ -11,9 +11,10 @@ arguments; :func:`calibration_to_sipnet` combines them into a complete set.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
+from probpipe import NumericArraySpec, NumericRecordSpec
 from pysipnet.parameters import SIPNET_PARAMS_BY_GROUP
 
 __all__ = [
@@ -21,6 +22,7 @@ __all__ = [
     "allocation_to_sipnet",
     "calibration_to_sipnet",
     "initial_pools_to_sipnet",
+    "parameter_record_spec",
     "photosynthesis_temperatures_to_sipnet",
     "photosynthesis_to_sipnet",
     "respiration_rates_to_sipnet",
@@ -30,8 +32,8 @@ __all__ = [
 #: Every SIPNET parameter, by pySIPNET's name.
 SIPNET_PARAMETERS = frozenset(name for names in SIPNET_PARAMS_BY_GROUP.values() for name in names)
 
-#: Calibration parameters that are SIPNET parameters under the same name.
-_SIPNET_PARAMETERS_CALIBRATED_AS_THEY_ARE = (
+#: Calibration parameters that are SIPNET parameters, under the same name and in the same units.
+_DIRECT_SIPNET_PARAMETERS = (
     "half_saturation_light",
     "vapor_pressure_deficit_slope",
     "vapor_pressure_deficit_exponent",
@@ -59,8 +61,8 @@ _SIPNET_PARAMETERS_CALIBRATED_AS_THEY_ARE = (
     "frozen_soil_water_fraction",
 )
 
-#: Initial conditions, by calibration name and SIPNET name.
-_INITIAL_CONDITIONS = {
+#: SIPNET's name for each initial condition that is calibrated directly, by calibration name.
+_IC_CALIBRATION_TO_SIPNET_NAME = {
     "initial_soil_carbon": "soil_carbon",
     "initial_soil_wetness": "soil_wetness_fraction",
     "initial_snow_water_equivalent": "snow_water_equivalent",
@@ -101,8 +103,8 @@ def calibration_to_sipnet(theta: Mapping[str, Any], fixed: Mapping[str, float]) 
         once.
     """
     calibrated = (
-        {name: float(theta[name]) for name in _SIPNET_PARAMETERS_CALIBRATED_AS_THEY_ARE}
-        | {sipnet: float(theta[name]) for name, sipnet in _INITIAL_CONDITIONS.items()}
+        {name: float(theta[name]) for name in _DIRECT_SIPNET_PARAMETERS}
+        | {sipnet: float(theta[name]) for name, sipnet in _IC_CALIBRATION_TO_SIPNET_NAME.items()}
         | photosynthesis_to_sipnet(
             theta["photosynthetic_capacity"],
             theta["respiration_share"],
@@ -138,6 +140,20 @@ def calibration_to_sipnet(theta: Mapping[str, Any], fixed: Mapping[str, float]) 
     )
     _check_each_set_once(calibrated, fixed)
     return dict(fixed) | calibrated
+
+
+def parameter_record_spec(names: Sequence[str]) -> NumericRecordSpec:
+    r"""The ProbPipe declaration of a record of scalar calibration parameters $\theta$.
+
+    A forward map declares its input with it, as ``input_spec={"theta": parameter_record_spec(
+    names)}``, and the likelihood reads the record's declaration from there.
+
+    Parameters
+    ----------
+    names : sequence of str
+        The parameters, in the record's order.
+    """
+    return NumericRecordSpec(**{name: NumericArraySpec(()) for name in names})
 
 
 def photosynthesis_to_sipnet(

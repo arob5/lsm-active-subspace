@@ -3,8 +3,9 @@ r"""The noise scales' conditional law along a tempering ladder, for EKI with inf
 At tempering level $\beta$ the target is joint in the parameters and the class noise scales,
 
 $$
-\pi_\beta(\theta, s^2) \propto \pi(\theta) \prod_k \mathrm{IG}\!\left(s^2_k;\, \alpha_k, b_k\right)
-\prod_i \mathcal N\!\left(y_i;\, G_i(\theta),\, s^2_{k(i)} v_i\right)^{\beta \eta_i}.
+\pi_\beta(\theta, s^2) \propto \pi_0(\theta)
+\prod_k \mathrm{IG}\!\left(s^2_k;\, \alpha_k, b_k\right)
+\prod_i \mathcal N\!\left(y_i;\, G_i(\theta),\, s^2_{k(i)}\, \sigma^2_i\right)^{\beta \eta_i}.
 $$
 
 Given $\theta$, each inferred scale is conjugate:
@@ -15,7 +16,7 @@ b_k + \tfrac{\beta}{2} q_k(\theta)\right),
 \qquad
 n_k = \sum_{i:\, k(i) = k} \eta_i,
 \qquad
-q_k(\theta) = \sum_{i:\, k(i) = k} \eta_i \frac{\left(y_i - G_i(\theta)\right)^2}{v_i}.
+q_k(\theta) = \sum_{i:\, k(i) = k} \eta_i \frac{\left(y_i - G_i(\theta)\right)^2}{\sigma^2_i}.
 $$
 
 :class:`NoiseScaleConditionals` evaluates these laws and the importance weights between two levels
@@ -50,9 +51,6 @@ class NoiseScaleConditionals:
     ----------
     classes : tuple of str
         The classes of observation, such as ``("day", "night")``.
-    slots : tuple of str or None
-        For each class, the name of its inferred scale, such as ``"s2_day"``, or ``None`` if the
-        class's scale is fixed.
     fixed_scales : numpy.ndarray
         For each class, its fixed scale; NaN where the scale is inferred. Shape $(K,)$.
     concentrations, prior_scales : numpy.ndarray
@@ -60,11 +58,10 @@ class NoiseScaleConditionals:
     membership : numpy.ndarray
         ``membership[k, i]`` is whether observation $i$ is in class $k$. Shape $(K, n)$.
     observations, reference_variance, learning_rate : numpy.ndarray
-        $y$, $v_{k(i)}$ and $\eta$, each of shape $(n,)$.
+        $y$, $\sigma^2_{k(i)}$ and $\eta$, each of shape $(n,)$.
     """
 
     classes: tuple[str, ...]
-    slots: tuple[str | None, ...]
     fixed_scales: np.ndarray
     concentrations: np.ndarray
     prior_scales: np.ndarray
@@ -89,23 +86,22 @@ class NoiseScaleConditionals:
         likelihood : GaussianSimulatorLikelihood
             Its classes, reference variances and scales.
         scale_priors : Mapping of str to InverseGamma
-            The prior of each inferred scale, by slot name.
+            The prior of each inferred scale, by class.
         observations, learning_rate : array_like
             $y$ and $\eta$, shape $(n,)$.
         """
         classes = tuple(likelihood.scales)
-        slots = tuple(s if isinstance(s, str) else None for s in likelihood.scales.values())
+        inferred = set(likelihood.inferred_scale_classes)
         return cls(
             classes=classes,
-            slots=slots,
             fixed_scales=np.array(
-                [np.nan if isinstance(s, str) else float(s) for s in likelihood.scales.values()]
+                [np.nan if k in inferred else float(likelihood.scales[k]) for k in classes]
             ),
             concentrations=np.array(
-                [np.nan if s is None else float(scale_priors[s].concentration) for s in slots]
+                [float(scale_priors[k].concentration) if k in inferred else np.nan for k in classes]
             ),
             prior_scales=np.array(
-                [np.nan if s is None else float(scale_priors[s].scale) for s in slots]
+                [float(scale_priors[k].scale) if k in inferred else np.nan for k in classes]
             ),
             membership=np.stack([np.asarray(likelihood.classes) == k for k in classes]),
             observations=np.asarray(observations, dtype=float),
@@ -118,7 +114,7 @@ class NoiseScaleConditionals:
     @property
     def is_inferred(self) -> np.ndarray:
         """Whether each class's scale is inferred, shape $(K,)$."""
-        return np.array([slot is not None for slot in self.slots])
+        return np.isnan(self.fixed_scales)
 
     @property
     def effective_counts(self) -> np.ndarray:
@@ -198,7 +194,8 @@ class NoiseScaleConditionals:
         return min(max(low, min_increment), 1.0 - beta)
 
     def noise_variance(self, class_scales: np.ndarray) -> np.ndarray:
-        r"""The diagonal of $\Gamma = \operatorname{diag}(s^2_{k(i)} v_i / \eta_i)$, shape $(n,)$.
+        r"""The diagonal of $\Gamma = \operatorname{diag}(s^2_{k(i)}\, \sigma^2_i / \eta_i)$,
+        shape $(n,)$.
 
         Parameters
         ----------

@@ -3,20 +3,23 @@ import json
 import numpy as np
 import pandas as pd
 import pytest
+from probpipe import NumericRecordBatch
 
 from conftest import CLASSES, exact_linear_information, linear_problem
 from lsmas._stopgaps.parallel_chains import run_in_processes
+from lsmas.coordinates import inverse
 from lsmas.experiments.reference import (
     Reference,
     _meets_criteria,
     convergence_diagnostics,
+    load_reference,
     noise_scale_setting,
     nuts_reference,
     rwmh_diagnostics,
     rwmh_reference,
     start_rwmh_reference,
 )
-from lsmas.problems import load
+from lsmas.problems import load_inverse_problem
 
 SCALES = {"day": 1.5, "night": 0.7}
 LEARNING_RATE = np.where(CLASSES == "day", 0.5, 0.8)
@@ -47,7 +50,7 @@ def test_reference_round_trips_through_netcdf(problem, tmp_path):
         scales="inferred",
         parameter_names=("a", "b"),
         theta=np.random.default_rng(0).normal(size=(2, 30, 2)),
-        noise_scales={"s2_day": np.random.default_rng(1).gamma(2.0, size=(2, 30))},
+        noise_scales={"day": np.random.default_rng(1).gamma(2.0, size=(2, 30))},
         information=np.array([[2.0, 0.5], [0.5, 1.0]]),
         diagnostics=pd.DataFrame(
             {"rhat": [1.0, 1.0], "ess_bulk": [50.0, 60.0], "ess_tail": [40.0, 45.0]},
@@ -57,7 +60,7 @@ def test_reference_round_trips_through_netcdf(problem, tmp_path):
     )
     loaded = Reference.load(reference.save(tmp_path / "reference.nc"))
     np.testing.assert_array_equal(loaded.theta, reference.theta)
-    np.testing.assert_array_equal(loaded.noise_scales["s2_day"], reference.noise_scales["s2_day"])
+    np.testing.assert_array_equal(loaded.noise_scales["day"], reference.noise_scales["day"])
     np.testing.assert_array_equal(loaded.information, reference.information)
     pd.testing.assert_frame_equal(loaded.diagnostics, reference.diagnostics)
     assert loaded.provenance == reference.provenance
@@ -68,10 +71,20 @@ def test_reference_round_trips_through_netcdf(problem, tmp_path):
     )
 
 
+def test_a_stored_reference_reads_its_noise_scales_by_class():
+    stored = load_reference(load_inverse_problem("toy", scales="inferred"))
+    assert set(stored.noise_scales) == {"day", "night"}
+    assert stored.noise_scales["day"].shape == stored.theta.shape[:2]
+
+
 def test_independent_chains_have_rhat_near_one_and_full_effective_size(problem):
-    theta = problem.coordinates.parameters_from_whitened(
-        np.random.default_rng(2).normal(size=(4, 2000, 2))
+    whiten = problem.coordinates.whiten
+    z = NumericRecordBatch.from_vector(
+        whiten.output_spec.term_spec,
+        np.random.default_rng(2).normal(size=(4, 2000, 2)),
+        level_names=["chain", "draw"],
     )
+    theta = np.asarray(inverse(whiten)(z).to_vector())
     diagnostics = convergence_diagnostics(problem, theta, {})
     assert diagnostics["rhat"].max() < 1.01
     assert diagnostics["ess_bulk"].min() > 6000
@@ -86,17 +99,17 @@ def test_criteria_need_every_coordinate_converged():
 
 
 def test_scale_setting_is_read_from_the_problem():
-    assert noise_scale_setting(load("toy")) == "fixed"
-    assert noise_scale_setting(load("toy", scales="inferred")) == "inferred"
+    assert noise_scale_setting(load_inverse_problem("toy")) == "fixed"
+    assert noise_scale_setting(load_inverse_problem("toy", scales="inferred")) == "inferred"
 
 
 @pytest.mark.smoke
 @pytest.mark.filterwarnings("ignore:the toy reference does not meet the convergence criteria")
 def test_rwmh_reference_runs_segments_in_processes_and_resumes(tmp_path):
-    toy = load("toy", scales="inferred")
+    toy = load_inverse_problem("toy", scales="inferred")
     reference = rwmh_reference(toy, tmp_path, n_chains=2, segment_steps=20, max_segments=2)
     assert reference.theta.shape == (2, 20, 14)
-    assert set(reference.noise_scales) == {"s2_day", "s2_night"}
+    assert set(reference.noise_scales) == {"day", "night"}
     assert set(rwmh_diagnostics(tmp_path).index) >= {"log_s2_day", "log_s2_night"}
     segments = sorted(tmp_path.glob("chain_*/segment_*.npz"))
     assert len(segments) == 4
@@ -109,7 +122,7 @@ def test_rwmh_reference_runs_segments_in_processes_and_resumes(tmp_path):
 
 @pytest.mark.smoke
 def test_an_unconverged_run_is_marked_and_warned_about(tmp_path):
-    toy = load("toy")
+    toy = load_inverse_problem("toy")
     with pytest.warns(UserWarning, match="does not meet the convergence criteria"):
         reference = rwmh_reference(toy, tmp_path, n_chains=2, segment_steps=10, max_segments=2)
     assert reference.provenance["converged"] is False
@@ -120,7 +133,7 @@ def test_an_unconverged_run_is_marked_and_warned_about(tmp_path):
 
 def test_a_reference_needs_two_chains(tmp_path):
     with pytest.raises(ValueError, match="at least two chains"):
-        start_rwmh_reference(load("toy"), tmp_path, n_chains=1)
+        start_rwmh_reference(load_inverse_problem("toy"), tmp_path, n_chains=1)
 
 
 def test_no_chains_run_nothing():

@@ -1,7 +1,7 @@
 """The inverse problems ``harvard_forest``, ``harvard_forest_small`` and ``toy``, loaded by name.
 
->>> problem = load("harvard_forest_small")        # doctest: +SKIP
->>> print(problem.describe())                      # doctest: +SKIP
+>>> problem = load_inverse_problem("harvard_forest_small")        # doctest: +SKIP
+>>> print(problem.describe())                                     # doctest: +SKIP
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ __all__ = [
     "InverseProblem",
     "harvard_forest",
     "harvard_forest_small",
-    "load",
+    "load_inverse_problem",
     "toy",
 ]
 
@@ -35,7 +35,7 @@ PROBLEMS: dict[str, Callable[..., InverseProblem]] = {
 }
 
 
-def load(name: str, **options: Any) -> InverseProblem:
+def load_inverse_problem(name: str, **options: Any) -> InverseProblem:
     """The problem called *name*, built with *options*.
 
     Parameters

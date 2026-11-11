@@ -77,11 +77,12 @@ from typing import Any, Literal
 import jax
 import jax.numpy as jnp
 import numpy as np
-from probpipe import Function, NumericArraySpec
+from probpipe import Function, NumericArraySpec, quantile
 from pysipnet import ClimateDrivers
 
 from lsmas.data import HarvardForestData, load_harvard_forest
-from lsmas.priors import laws_from_table, prior_medians
+from lsmas.parameters import parameter_record_spec
+from lsmas.priors import laws_from_table
 from lsmas.problems.inverse_problem import InverseProblem
 from lsmas.problems.nee_likelihood import nee_problem
 
@@ -128,7 +129,7 @@ def toy(
     ----------
     scales : {"fixed", "inferred"}
         ``"fixed"`` sets $s^2_{\mathrm{day}} = s^2_{\mathrm{night}} = 1$. ``"inferred"`` makes them
-        parameters ``s2_day`` and ``s2_night`` with independent $\mathrm{IG}(2, 1.678)$ priors.
+        the parameters ``s2/day`` and ``s2/night`` with independent $\mathrm{IG}(2, 1.678)$ priors.
     data : HarvardForestData, optional
         The inputs, :func:`~lsmas.data.load_harvard_forest` by default.
     """
@@ -137,6 +138,7 @@ def toy(
     forward = Function(
         model.features,
         label="toy_features",
+        input_spec={"theta": parameter_record_spec(TOY_PARAMETERS)},
         output_spec=NumericArraySpec((model.n_features,), jnp.float64),
         traceable=True,
     )
@@ -204,13 +206,14 @@ class ToyCanopyModel:
             prior table.
         """
         driver = ClimateDrivers.from_path(data.driver_path, time_zone="UTC").pandas
-        medians = prior_medians(data.prior_table)
+        laws = laws_from_table(data.prior_table)
+        exact_quantile = quantile.using(exact_only=True)
         operator = data.operator.tocoo()
         return cls(
             **_driver_series_in_model_units(driver),
             leaf_carbon_per_area=data.fixed_sipnet_parameters["leaf_carbon_per_area"],
-            wood_carbon=medians["initial_wood_carbon"],
-            respiration_q10=medians["wood_respiration_q10"],
+            wood_carbon=float(exact_quantile(laws["initial_wood_carbon"], 0.5)),
+            respiration_q10=float(exact_quantile(laws["wood_respiration_q10"], 0.5)),
             operator_rows=jnp.asarray(operator.row),
             operator_columns=jnp.asarray(operator.col),
             operator_weights=jnp.asarray(operator.data),

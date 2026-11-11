@@ -1,28 +1,27 @@
 import numpy as np
 import pytest
-from probpipe import log_prob, sample, unnormalized_log_prob, workflow_run
+from probpipe import log_prob, quantile, sample, unnormalized_log_prob, workflow_run
 from scipy import stats
 
 from lsmas.data import load_harvard_forest
-from lsmas.priors import prior_medians
-from lsmas.problems import SMALL_PROBLEM_PARAMETERS, load
+from lsmas.problems import SMALL_PROBLEM_PARAMETERS, load_inverse_problem
 
 pytestmark = pytest.mark.smoke
 
 
 @pytest.fixture(scope="module")
 def small():
-    return load("harvard_forest_small")
+    return load_inverse_problem("harvard_forest_small")
 
 
 @pytest.fixture(scope="module")
 def small_inferred():
-    return load("harvard_forest_small", scales="inferred")
+    return load_inverse_problem("harvard_forest_small", scales="inferred")
 
 
 @pytest.fixture(scope="module")
 def full():
-    return load("harvard_forest")
+    return load_inverse_problem("harvard_forest")
 
 
 THETA = {
@@ -49,7 +48,7 @@ def test_small_problem_calibrates_its_ten(small):
 
 
 def test_small_problem_is_the_full_one_with_the_rest_at_their_medians(small, full):
-    medians = prior_medians(load_harvard_forest().prior_table)
+    medians = quantile(full.prior, 0.5)["theta"].raw
     small_features = np.asarray(small.forward(THETA).raw)
     full_features = np.asarray(full.forward(medians | THETA).raw)
     np.testing.assert_array_equal(small_features, full_features)
@@ -57,7 +56,8 @@ def test_small_problem_is_the_full_one_with_the_rest_at_their_medians(small, ful
 
 def test_noise_scales_are_parameters_only_when_inferred(small, small_inferred):
     assert list(small.prior.event_spec.outputs) == ["theta"]
-    assert list(small_inferred.prior.event_spec.outputs) == ["theta", "s2_day", "s2_night"]
+    assert list(small_inferred.prior.event_spec.outputs) == ["theta", "s2"]
+    assert list(small_inferred.prior.event_spec.outputs["s2"].fields) == ["day", "night"]
     assert small.coordinates.names == small_inferred.coordinates.names
 
 
@@ -88,7 +88,7 @@ def test_conditioning_target_is_the_generalized_posterior(small):
 def test_model_draws_run_sipnet(small_inferred):
     with workflow_run(seed=3):
         draws = sample(small_inferred.model, 8)
-    assert set(draws.raw) == {"nee", "theta", "s2_day", "s2_night"}
+    assert set(draws.raw) == {"nee", "theta", "s2"}
     nee = np.asarray(draws["nee"].raw)
     assert nee.shape == (8, 400)
     assert np.all(np.isfinite(nee))
@@ -116,4 +116,4 @@ def test_conditioning_requires_a_method(small):
 
 def test_unknown_problem_is_refused():
     with pytest.raises(KeyError, match="no problem called"):
-        load("mars")
+        load_inverse_problem("mars")

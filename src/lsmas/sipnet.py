@@ -1,15 +1,16 @@
 r"""Running SIPNET at a site, and the forward map from calibration parameters to observed features.
 
-:class:`SIPNETSimulator` runs SIPNET with a fixed driver and fixed parameter values, returning NEE
-as a rate. :func:`feature_map` wraps a simulator, a map from calibration parameters to SIPNET
-parameters, and an observation operator into the forward map $G(\theta) = A\, x(\theta)$, a ProbPipe
-``Function`` that runs SIPNET in parallel threads when called on a batch.
+:class:`SIPNETSimulator` runs SIPNET with a fixed driver and fixed parameter values, returning
+every output or NEE as a rate. :func:`feature_map` wraps a simulator, a map from calibration
+parameters to SIPNET parameters, and an observation operator into the forward map
+$G(\theta) = A\, x(\theta)$, a ProbPipe ``Function`` that runs SIPNET in parallel threads when
+called on a batch.
 """
 
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -23,12 +24,13 @@ from pysipnet import (
     ClimateDrivers,
     ModelFlags,
     SIPNETModel,
+    SIPNETOutput,
     SIPNETRunError,
     SIPNETRunner,
     niwot_reference_parameters,
 )
 
-from lsmas.parameters import SIPNET_PARAMETERS
+from lsmas.parameters import SIPNET_PARAMETERS, parameter_record_spec
 
 __all__ = ["SIMULATION_FAILURES", "SIPNETSimulator", "feature_map"]
 
@@ -73,6 +75,26 @@ class SIPNETSimulator:
             base_climate=ClimateDrivers.from_path(self.driver_path, time_zone="UTC"),
         )
 
+    def run(self, parameters: Mapping[str, float]) -> xr.Dataset:
+        """Every SIPNET output, one value per output step.
+
+        The ``time`` coordinate is the end of each step (UTC). Each variable's ``attrs`` give its
+        units and its ``kind``: for example a total over the step (``timestep_total``, as for
+        fluxes), a value at its end (``timestep_end_state``, as for pools) or a mean over it
+        (``timestep_mean``).
+
+        Parameters
+        ----------
+        parameters : Mapping of str to float
+            SIPNET parameters, keyed by pySIPNET's names, overriding the fixed values.
+
+        Raises
+        ------
+        ValueError
+            If the fixed values and *parameters* leave a SIPNET parameter unset.
+        """
+        return self._outputs(parameters).xarray
+
     def run_nee(self, parameters: Mapping[str, float]) -> xr.DataArray:
         """SIPNET's NEE per output step, as pySIPNET returns it (g C m⁻² per step).
 
@@ -86,10 +108,7 @@ class SIPNETSimulator:
         ValueError
             If the fixed values and *parameters* leave a SIPNET parameter unset.
         """
-        complete = self.fixed_parameters | dict(parameters)
-        if missing := sorted(SIPNET_PARAMETERS - complete.keys()):
-            raise ValueError(f"these SIPNET parameters are not set: {missing}")
-        return self._model(**complete).outputs["nee"]
+        return self._outputs(parameters)["nee"]
 
     def nee_rate(self, parameters: Mapping[str, float]) -> np.ndarray:
         r"""SIPNET's NEE as a rate in µmol CO₂ m⁻² s⁻¹, one value per output step.
@@ -106,12 +125,21 @@ class SIPNETSimulator:
         seconds = totals.coords["timestep_length"].values / np.timedelta64(1, "s")
         return totals.values / seconds * _MICROMOLES_CO2_PER_GRAM_CARBON
 
+    def _outputs(self, parameters: Mapping[str, float]) -> SIPNETOutput:
+        """Run SIPNET with the fixed values overridden by *parameters*, after checking that every
+        SIPNET parameter is set."""
+        complete = self.fixed_parameters | dict(parameters)
+        if missing := sorted(SIPNET_PARAMETERS - complete.keys()):
+            raise ValueError(f"these SIPNET parameters are not set: {missing}")
+        return self._model(**complete).outputs
+
 
 def feature_map(
     simulator: SIPNETSimulator,
     operator: sp.csr_matrix,
     to_sipnet: Callable[[Mapping[str, Any]], Mapping[str, float]],
     *,
+    parameter_names: Sequence[str],
     max_workers: int = 8,
     label: str = "nee_features",
 ) -> Function:
@@ -134,6 +162,9 @@ def feature_map(
         $A$, shape $(n, S)$ for $S$ output steps.
     to_sipnet : callable
         Maps a parameter record ``theta`` to SIPNET parameters, keyed by pySIPNET's names.
+    parameter_names : sequence of str
+        The calibration parameters in the record ``theta``, which the function declares as its
+        input (:func:`~lsmas.parameters.parameter_record_spec`).
     max_workers : int
         The number of SIPNET runs at a time.
     label : str
@@ -148,6 +179,7 @@ def feature_map(
     return Function(
         evaluator.features,
         label=label,
+        input_spec={"theta": parameter_record_spec(parameter_names)},
         output_spec=NumericArraySpec((operator.shape[0],), jnp.float64),
         traceable=False,
         executor="thread",

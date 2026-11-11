@@ -3,7 +3,7 @@ import pytest
 
 from lsmas.algorithms import AlgorithmResult, active_subspace_mcmc
 from lsmas.algorithms.active_subspace_mcmc import _independent_stage_seeds
-from lsmas.problems import load
+from lsmas.problems import load_inverse_problem
 
 pytestmark = pytest.mark.smoke
 
@@ -13,17 +13,16 @@ SHORT_CHAINS = {"num_chains": 2, "num_warmup": 100, "num_results": 200}
 @pytest.fixture(scope="module")
 def toy_result():
     return active_subspace_mcmc(
-        load("toy", scales="inferred"), sampler_options=SHORT_CHAINS, seed=1
+        load_inverse_problem("toy", scales="inferred"), sampler_options=SHORT_CHAINS, seed=1
     )
 
 
 def test_result_holds_the_lifted_posterior_over_every_parameter(toy_result):
     assert isinstance(toy_result, AlgorithmResult)
-    toy = load("toy")
-    theta = toy.coordinates.array_from_draws(toy_result.posterior.atoms)
+    theta = np.asarray(toy_result.posterior.atoms["theta"].to_vector())
     assert theta.shape == (2 * 200, 14)
     assert np.all(np.isfinite(theta))
-    assert set(toy_result.posterior.atoms.raw) == {"theta", "s2_day", "s2_night"}
+    assert set(toy_result.posterior.atoms.raw) == {"theta", "s2"}
 
 
 def test_rank_follows_the_rule_and_counts_follow_the_stages(toy_result):
@@ -36,21 +35,22 @@ def test_rank_follows_the_rule_and_counts_follow_the_stages(toy_result):
 
 
 def test_a_given_rank_is_used():
-    result = active_subspace_mcmc(load("toy"), rank=2, sampler_options=SHORT_CHAINS, seed=2)
+    result = active_subspace_mcmc(
+        load_inverse_problem("toy"), rank=2, sampler_options=SHORT_CHAINS, seed=2
+    )
     assert result.subspace.rank == 2
     assert result.reduced_posterior.atoms.raw["theta"].keys() == {"active_1", "active_2"}
 
 
 def test_runs_on_sipnet():
     result = active_subspace_mcmc(
-        load("harvard_forest_small"),
+        load_inverse_problem("harvard_forest_small"),
         n_particles=16,
         rank=2,
         sampler_options={"num_chains": 1, "num_warmup": 5, "num_results": 5},
         seed=3,
     )
-    small = load("harvard_forest_small")
-    theta = small.coordinates.array_from_draws(result.posterior.atoms)
+    theta = np.asarray(result.posterior.atoms["theta"].to_vector())
     assert theta.shape == (5, 10)
     assert np.all(np.isfinite(theta))
 

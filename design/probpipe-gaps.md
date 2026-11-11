@@ -37,9 +37,11 @@ stopgap removed).
 | [PG-13](#pg-13) | A renamed factor taken from a joint loses its path names | Medium (bug) | to file | open |
 | [PG-14](#pg-14) | Fingerprinting a closure that captures a sparse matrix recurses without end | Low (bug) | to file | open |
 | [PG-15](#pg-15) | No public operation draws from a law with a given key | Low | to file | open |
-| [PG-16](#pg-16) | A transformed law's quantiles fall back to Monte Carlo | Low | to file | open |
+| [PG-16](#pg-16) | A transformed law's quantiles fall back to Monte Carlo, and with it a product's | Medium: `quantile(prior, 0.5)` | to file | open |
 | [PG-17](#pg-17) | One MCMC run's chains share one initial state | Low | to file | open |
 | [PG-18](#pg-18) | A `Function`'s declared traceability cannot be read back | Low | to file | open |
+| [PG-19](#pg-19) | A product's mean is Monte Carlo when one factor's is | Low | to file | open |
+| [PG-20](#pg-20) | A `Function` called on a record never binds its fields to parameters by name | Low (ergonomics) | to file | open |
 
 Not ProbPipe, but tracked the same way (below): **EK-01**, EnsKit switches JAX to 64-bit floats on
 import; **SP-01**, SIPNET writes NEE to three decimals.
@@ -133,22 +135,24 @@ import; **SP-01**, SIPNET writes NEE to three decimals.
 
 **No public map to unconstrained coordinates.**
 
-- **What happens.** Methods need a prior's parameter layout and the maps to unconstrained
-  coordinates. Since `9158a50e` the layout is public: `to_vector` on a record or a batch of records,
-  `NumericRecord.from_vector`, and `vector_size` on a spec, and the draws of a view such as
-  `prior["theta"]` lay out as vectors (verified). The maps are not: `bijector_for(support)` gives
-  the forward map b, but `inverse(bijector)` raises `NotImplementedError`, so b⁻¹ is reachable only
-  through the bijector's private `_inverse`. ProbPipe's own helper, `unconstrained_coordinates`
-  (`inference/_inference_utils.py:1007`), is private and refuses a view (`TypeError: cannot lay out
-  the draws of CoupledMarginal …`).
-- **Ideal ProbPipe.** A public map from a law's values to unconstrained vectors and back, with its
-  log-Jacobian, that accepts views. `plans/deferred/vector-interface.md` proposes it
-  (`vector_bijector`, `unconstrained_law`); the plan is not yet approved.
-- **Stopgap.** `lsmas._stopgaps.coordinates.ParameterBijection.from_prior(prior, block)` builds the
-  map from the block's *declared* supports, using the public `bijector_for`, its `raw` forward
-  map, and its `_inverse`. It works whatever internal form the prior takes. `Coordinates.from_prior`
-  adds whitening (see PG-15 for its draws).
-- **Removal.** Build `ParameterBijection` on the public map; the whitening stays ours.
+- **What happens.** The layout of a prior's parameters is public: `to_vector` on a record or a
+  batch of records, `from_vector` to rebuild them, and `vector_size` on a spec. ProbPipe also
+  defines the contract of an invertible map: a `Function` claiming `SupportsInverse` (`_inverse`)
+  and `SupportsLogDetJacobian` (`_log_det_jacobian`), which `bijector_for` and
+  `BijectorTransformedDistribution` follow. But the operations on it are not implemented:
+  `inverse(f)` and `log_det_jacobian(f, x)` raise `NotImplementedError: … is not implemented yet`
+  (verified at `9158a50e`), so a support bijector's inverse is reachable only through its private
+  `_inverse`. ProbPipe's own `unconstrained_coordinates` (`inference/_inference_utils.py:1007`) is
+  private and refuses a view.
+- **Ideal ProbPipe.** `inverse` and `log_det_jacobian` implemented through the capability, and a
+  public map from a law's values to unconstrained vectors that accepts views
+  (`plans/deferred/vector-interface.md`).
+- **Stopgap.** `lsmas.coordinates` builds the maps `unconstrain` and `whiten` as `Function`s that
+  follow ProbPipe's contract, from the block's declared supports, calling each support bijector's
+  `_inverse`. `lsmas.coordinates.inverse(f)` has the signature of ProbPipe's `inverse` and returns
+  our maps' inverses.
+- **Removal.** Import `inverse` from ProbPipe and delete ours; call the support bijectors through
+  `inverse` instead of `_inverse`. The maps and the whitening stay.
 
 ## PG-06
 
@@ -186,6 +190,9 @@ import; **SP-01**, SIPNET writes NEE to three decimals.
   every chain in turn. It also warns, for any forward map with a named executor, that the map "is
   staged by a user's JAX transformation while executor 'thread' is named"; the staging is the
   sampler's own (verified with `harvard_forest_small` and its reduced problem).
+- **Also (design 05).** `unnormalized_log_prob(posterior, batch)` gives the same warning, though
+  the staging is ProbPipe's own scoring of the model at a batch of points. It costs no time: on
+  `harvard_forest`, 24 points took 1.9 s, as long as the forward map on its threads.
 
 ## PG-08
 
@@ -284,7 +291,7 @@ import; **SP-01**, SIPNET writes NEE to three decimals.
 - **Ideal ProbPipe.** A factor taken from a joint keeps the renaming, so its declaration, its draws
   and its density agree.
 - **Stopgap.** `InverseProblem` stores the likelihood and the prior it was built from and derives
-  the model from them, rather than splitting the model. `lsmas._stopgaps.coordinates.block_values`
+  the model from them, rather than splitting the model. `lsmas.coordinates._parameter_vectors`
   reads a block's values from draws in either layout. (`tempered_condition_on` does rebuild a
   joint from `model.factors`; its tests confirm the resulting target density is correct.)
 - **Removal.** Read draws in the grouped layout only. Storing the parts is the simpler design
@@ -332,21 +339,29 @@ import; **SP-01**, SIPNET writes NEE to three decimals.
 
 ## PG-16
 
-**A transformed law's quantiles fall back to Monte Carlo.**
+**A transformed law's quantiles fall back to Monte Carlo, and with it a product's.**
 
 - **What happens.** `quantile(law, 0.5)` of a `BijectorTransformedDistribution`, such as the
   logit-normal that `lsmas.priors.logit_normal_from_interval` builds, takes the Monte Carlo route:
   for the logit-normal with 95% in [0.04, 0.20] it returned 0.0910 and 0.0897 in two runs against
   the exact 0.0926, and under `exact_only` it is refused, because the law does not implement
-  `SupportsQuantile` (verified). Yet a quantile passes exactly through a strictly monotone map: for $Y = g(X)$ with
-  $g$ increasing, $q_Y(p) = g(q_X(p))$, and with $g$ decreasing, $q_Y(p) = g(q_X(1 - p))$.
-- **Effect here.** The small Harvard Forest problem holds 36 calibration parameters at their prior
-  medians, which must be exact and the same in every run.
+  `SupportsQuantile` (verified). A `FactoredDistribution` has exact quantiles only when every
+  factor does, so one logit-normal factor makes `quantile(prior, 0.5)` of the whole Harvard Forest
+  prior Monte Carlo too: two calls gave medians of 248.7 and 251.3 for `photosynthetic_capacity`,
+  against the exact 251.0 (verified). Yet a quantile passes exactly through a strictly monotone
+  map: for $Y = g(X)$ with $g$ increasing, $q_Y(p) = g(q_X(p))$, and with $g$ decreasing,
+  $q_Y(p) = g(q_X(1 - p))$.
+- **Effect here.** `quantile(problem.prior, 0.5)` gives the prior medians that the walkthrough
+  notebook runs SIPNET at, and that the small Harvard Forest problem holds 36 calibration
+  parameters at; both must be exact and the same in every run.
 - **Ideal ProbPipe.** A scalar `BijectorTransformedDistribution` of a base with closed-form
   quantiles states its own, through the bijector, whenever the bijector is monotone.
-- **Stopgap.** `lsmas._stopgaps.quantiles.median(law)`: the base's exact median pushed through
-  the bijector, or `quantile(law, 0.5)` under `exact_only` for any other law.
-- **Removal.** Replace its calls with `quantile(law, 0.5)` under `exact_only`; delete the module.
+- **Stopgap.** `lsmas._stopgaps.quantiles.MonotoneTransformedDistribution`, which
+  `logit_normal_from_interval` returns: a `BijectorTransformedDistribution` that adds `_quantile`
+  (ProbPipe's `SupportsQuantile` hook) by the formula above. With it, `quantile` of each
+  logit-normal, and of every prior built from them, is exact (verified under `exact_only`).
+- **Removal.** Return `BijectorTransformedDistribution` from `logit_normal_from_interval`; delete
+  the module.
 
 ## PG-17
 
@@ -378,6 +393,41 @@ import; **SP-01**, SIPNET writes NEE to three decimals.
 - **Stopgap.** `lsmas._stopgaps.functions.declares_traceable(function)`, the one place that reads
   the private attribute.
 - **Removal.** Replace its calls with the public property; delete the module.
+
+## PG-19
+
+**A product's mean is Monte Carlo when one factor's is.**
+
+- **What happens.** `summarize(problem.prior)` reports "mean: Monte Carlo, 1,024 draws" for every
+  calibration parameter, so the mean of `photosynthetic_capacity` came out 264.7 against the exact
+  262.4 of its log-normal factor. A logit-normal has no closed-form mean, and a
+  `FactoredDistribution` then estimates the means of all its factors from draws, rather than
+  estimating only the factors that need it (verified at the pin). Its medians and quantiles are
+  exact, through PG-16's stopgap.
+- **Effect here.** The walkthrough notebook's `summarize(prior)` shows Monte Carlo means that
+  change with the seed. It does not affect any computation.
+- **Ideal ProbPipe.** The moments of a product are computed factor by factor, each by its own best
+  route, with only the factors that need it estimated.
+- **Stopgap.** None.
+- **Removal.** Nothing to remove; the notebook's summary becomes exact where it can be.
+
+## PG-20
+
+**A `Function` called on a record never binds its fields to parameters by name.**
+
+- **What happens.** A `Function` binds a record passed to it to its first parameter, whole. The
+  forward map $G$ declares one input, the record `theta` of calibration parameters; a draw of the
+  prior is a record with the field `theta` (and the noise scales, when inferred). So
+  `forward(quantile(prior, 0.5))` fails ("input/theta fields do not match the declared fields:
+  missing [...], unexpected ['theta']"), and `forward(draw["theta"])` is needed.
+  `forward(**draw)` fails too, since a record is not a mapping (verified at the pin). The model
+  `likelihood & prior` does bind by name, matching the prior's outputs to the kernel's inputs.
+- **Effect here.** The walkthrough notebook and the algorithms pass `draw["theta"]` to the forward
+  map. It reads naturally, since $G$ depends on $\theta$ alone, but it is one more thing to learn.
+- **Ideal ProbPipe.** A `Function` with declared inputs, called on a record whose fields include its
+  parameter names, binds those fields by name, as kernels do.
+- **Stopgap.** None.
+- **Removal.** Nothing to remove; `forward(draw)` would also work.
 
 ---
 

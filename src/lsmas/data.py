@@ -64,6 +64,14 @@ class HarvardForestData:
         """Each feature's class, ``"day"`` or ``"night"``, shape $(n,)$."""
         return self.features["class"].to_numpy()
 
+    @property
+    def feature_times(self) -> pd.DatetimeIndex:
+        """Each feature's time for plotting: midway between the ends of its first and last
+        windows (UTC), length $n$."""
+        first = self.features["first_step_end_utc"]
+        last = self.features["last_step_end_utc"]
+        return pd.DatetimeIndex(first + (last - first) / 2)
+
 
 def load_harvard_forest(directory: Path | None = None) -> HarvardForestData:
     """Read the Harvard Forest inputs and check that they are consistent.

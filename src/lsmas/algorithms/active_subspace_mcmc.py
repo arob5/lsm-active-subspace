@@ -7,13 +7,13 @@ The algorithm, for a problem with $d$ calibration parameters:
    $\hat H = \sum_t \Delta\beta_t\, \widehat{DG}_t^\top \Gamma_t^{-1} \widehat{DG}_t$.
 2. **Estimate.** The subspace is spanned by the leading $r$ eigenvectors of $\hat H$, with $r$ the
    smallest rank whose discarded eigenvalues sum to at most $\varepsilon$ unless $r$ is given.
-3. **Reduce.** The plug-in reduced problem in the active variables $a = W^\top \xi$
+3. **Reduce.** The plug-in reduced problem in the active variables $a = W^\top z$
    (:func:`~lsmas.tools.reduced_problem`).
 4. **Sample.** Random-walk Metropolis (ProbPipe's ``blackjax_rwmh``) on the reduced problem, its
-   chains started at the projection $W^\top \bar\xi$ of EKI's final ensemble mean (and at the
+   chains started at the projection $W^\top \barz$ of EKI's final ensemble mean (and at the
    ensemble's median noise scales), with ProbPipe's adaptive warmup.
 5. **Lift.** Each draw of $a$ is combined with the inactive part of an independent prior draw,
-   $\xi = W a + W_\perp b$ (:meth:`~lsmas.tools.ReducedProblem.lift`).
+   $z = W a + W_\perp b$ (:meth:`~lsmas.tools.ReducedProblem.lift`).
 """
 
 from __future__ import annotations
@@ -79,7 +79,7 @@ def active_subspace_mcmc(
 
     Examples
     --------
-    >>> result = active_subspace_mcmc(load("toy"), seed=1)        # doctest: +SKIP
+    >>> result = active_subspace_mcmc(load_inverse_problem("toy"), seed=1)        # doctest: +SKIP
     >>> result.subspace.rank, result.forward_runs                  # doctest: +SKIP
     (7, {'exploration': 600, 'sampling': 6004})
     """
@@ -138,23 +138,24 @@ def _run_eki_estimating_subspace(
 
 
 def _rwmh_start_at_eki_mean(reduced: ReducedProblem, eki_posterior: Distribution) -> np.ndarray:
-    r"""The chains' initial state: $W^\top \bar\xi$ for the mean $\bar\xi$ of EKI's final
+    r"""The chains' initial state: $W^\top \barz$ for the mean $\barz$ of EKI's final
     ensemble, then each inferred noise scale's median over the ensemble, in the order of the
     reduced prior's event."""
     coordinates = reduced.full_problem.coordinates
-    eki_theta = coordinates.array_from_draws(eki_posterior.atoms).reshape(-1, coordinates.dimension)
-    eki_mean_xi = coordinates.whitened_from_parameters(eki_theta).mean(axis=0)
+    eki_theta = np.asarray(eki_posterior.atoms[coordinates.block].to_vector())
+    eki_theta = eki_theta.reshape(-1, coordinates.dimension)
+    eki_mean_z = np.asarray(coordinates._whitened(eki_theta)).mean(axis=0)
     scale_medians = [
-        np.median(np.asarray(eki_posterior.atoms[slot].raw))
-        for slot in reduced.likelihood.random_scale_slots
+        np.median(draws)
+        for draws in reduced.likelihood.inferred_scale_draws(eki_posterior.atoms).values()
     ]
-    return np.concatenate([reduced.subspace.active_variables(eki_mean_xi), scale_medians])
+    return np.concatenate([reduced.subspace.active_variables(eki_mean_z), scale_medians])
 
 
 def _count_eki_forward_runs(problem: InverseProblem, eki_steps: list[StepRecord]) -> int:
     """Forward runs of EKI: one ensemble per step, and a final one when scales are inferred."""
     n_particles = eki_steps[0].theta.shape[0]
-    final_evaluation = 1 if problem.likelihood.random_scale_slots else 0
+    final_evaluation = 1 if problem.likelihood.inferred_scale_classes else 0
     return n_particles * (len(eki_steps) + final_evaluation)
 
 
