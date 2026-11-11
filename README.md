@@ -1,10 +1,9 @@
 # lsm-active-subspace
 
-Calibrating the SIPNET land-surface model to eddy-covariance data from Harvard Forest, with
-algorithms that find the directions in parameter space that the data inform.
-
-The inverse problem (the model, the data, the likelihood and the prior) is fixed and shipped with
-the repository. This repository is for building and comparing parameter-reduction algorithms.
+This repo is a toolbox for developing and testing parameter reduction methods for 
+solving Bayesian inverse problems. It includes:
+- Pre-built inverse problems: one main problem using the SIPNET land surface model, plus toy problems for fast testing and benchmarking.
+- A toolkit of methods that provide a high-level interface to construct algorithms in a modular fashion.
 
 > **Status:** under construction. The tutorial on the inverse problem is ready; tutorials on
 > the algorithms are next.
@@ -58,9 +57,7 @@ uv run pytest -m smoke
 ## The tutorial
 
 Start with [`notebooks/main_inverse_problem.ipynb`](notebooks/main_inverse_problem.ipynb). It
-introduces the Harvard Forest inverse problem: the data, the prior, the forward model and the
-likelihood, one at a time, and how to work with each in code. It is saved with its outputs, so you
-can read it on GitHub first.
+introduces the Harvard Forest inverse problem, the main pre-built problem in this repo.
 
 To run it, open it in JupyterLab:
 
@@ -77,8 +74,6 @@ code never conflicts with your changes:
 ```bash
 cp notebooks/main_inverse_problem.ipynb notebooks/my_main_inverse_problem.ipynb
 ```
-
-The notation is listed in [`docs/notation.md`](docs/notation.md).
 
 ## Staying up to date
 
