@@ -145,8 +145,8 @@ def _rwmh_start_at_eki_mean(reduced: ReducedProblem, eki_posterior: Distribution
     eki_theta = coordinates.array_from_draws(eki_posterior.atoms).reshape(-1, coordinates.dimension)
     eki_mean_xi = coordinates.whitened_from_parameters(eki_theta).mean(axis=0)
     scale_medians = [
-        np.median(np.asarray(eki_posterior.atoms[slot].raw))
-        for slot in reduced.likelihood.random_scale_slots
+        np.median(draws)
+        for draws in reduced.likelihood.inferred_scale_draws(eki_posterior.atoms).values()
     ]
     return np.concatenate([reduced.subspace.active_variables(eki_mean_xi), scale_medians])
 
@@ -154,7 +154,7 @@ def _rwmh_start_at_eki_mean(reduced: ReducedProblem, eki_posterior: Distribution
 def _count_eki_forward_runs(problem: InverseProblem, eki_steps: list[StepRecord]) -> int:
     """Forward runs of EKI: one ensemble per step, and a final one when scales are inferred."""
     n_particles = eki_steps[0].theta.shape[0]
-    final_evaluation = 1 if problem.likelihood.random_scale_slots else 0
+    final_evaluation = 1 if problem.likelihood.inferred_scale_classes else 0
     return n_particles * (len(eki_steps) + final_evaluation)
 
 

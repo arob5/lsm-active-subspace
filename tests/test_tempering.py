@@ -17,29 +17,28 @@ from conftest import (
     posterior_moments,
 )
 from lsmas._stopgaps.tempering import TemperedLikelihood, tempered_condition_on
+from lsmas.priors import independent_prior
 
 LEARNING_RATE = np.where(CLASSES == "day", 0.2, 0.4)
 
 
 @pytest.fixture
 def model():
-    likelihood = linear_likelihood({"day": "s2_day", "night": "s2_night"})
-    prior = (
-        linear_theta_prior()
-        & InverseGamma("s2_day", 2.0, 1.678)
-        & InverseGamma("s2_night", 2.0, 1.678)
-    )
+    likelihood = linear_likelihood({"day": "inferred", "night": "inferred"})
+    scale_laws = {name: InverseGamma(name, 2.0, 1.678) for name in ("day", "night")}
+    prior = linear_theta_prior() & independent_prior(scale_laws, group="s2")
     return likelihood & prior, prior
 
 
 def point(a, b, day, night):
-    return {"theta": {"a": a, "b": b}, "s2_day": day, "s2_night": night}
+    return {"theta": {"a": a, "b": b}, "s2": {"day": day, "night": night}}
 
 
 def expected_log_density(prior, value, observations, learning_rate):
     """log π(value) + Σ_i η_i log N(y_i | G_i, s²_k(i) σ²_i), computed independently."""
     mean = FORWARD_MATRIX @ np.array([value["theta"]["a"], value["theta"]["b"]])
-    variances = np.where(CLASSES == "day", value["s2_day"], value["s2_night"]) * REFERENCE_VARIANCE
+    scales = value["s2"]
+    variances = np.where(CLASSES == "day", scales["day"], scales["night"]) * REFERENCE_VARIANCE
     pointwise = stats.norm(mean, np.sqrt(variances)).logpdf(observations)
     return float(np.sum(learning_rate * pointwise) + log_prob(prior, value).raw)
 

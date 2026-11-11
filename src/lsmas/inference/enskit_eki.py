@@ -23,7 +23,7 @@ from probpipe import Distribution, InverseGamma, NumericRecordBatch
 from probpipe.inference import Feasibility, InferenceMethod, InferenceTarget, make_posterior
 
 from lsmas._stopgaps.coordinates import ParameterBijection, block_values
-from lsmas._stopgaps.likelihood import GaussianSimulatorLikelihood
+from lsmas._stopgaps.likelihood import NOISE_SCALES, GaussianSimulatorLikelihood
 from lsmas._stopgaps.sampling import draw_with_key
 from lsmas._stopgaps.tempering import TemperedLikelihood
 from lsmas.inference.noise_scales import NoiseScaleConditionals
@@ -169,7 +169,7 @@ class _GaussianInverseProblem:
             bijection=ParameterBijection.from_prior(factors.prior, _PARAMETER_BLOCK),
             scale_conditionals=NoiseScaleConditionals.from_problem(
                 likelihood,
-                _inverse_gamma_scale_priors(factors.prior, likelihood.random_scale_slots),
+                _inverse_gamma_scale_priors(factors.prior),
                 observations,
                 learning_rate,
             ),
@@ -180,10 +180,11 @@ class _GaussianInverseProblem:
         draws = draw_with_key(self.prior, key, (n_particles,))
         theta = block_values(draws, _PARAMETER_BLOCK, self.bijection.names)
         conditionals = self.scale_conditionals
+        inferred = self.likelihood.inferred_scale_draws(draws)
         scales = np.stack(
             [
-                np.full(n_particles, fixed) if slot is None else np.asarray(draws[slot], float)
-                for slot, fixed in zip(conditionals.slots, conditionals.fixed_scales, strict=True)
+                inferred[k] if k in inferred else np.full(n_particles, fixed)
+                for k, fixed in zip(conditionals.classes, conditionals.fixed_scales, strict=True)
             ],
             axis=-1,
         )
@@ -317,7 +318,9 @@ def _build_step_record(
         predictions=np.asarray(evaluation.ensemble[eki.PREDICTION]),
         noise_variance=noise_variance,
         noise_scales={
-            slot: scales[:, k] for k, slot in enumerate(conditionals.slots) if slot is not None
+            noise_class: scales[:, k]
+            for k, noise_class in enumerate(conditionals.classes)
+            if conditionals.is_inferred[k]
         },
         n_failed=unconstrained.shape[0] - int(evaluation.n_valid),
     )
@@ -330,11 +333,16 @@ def _likelihood_and_learning_rate(likelihood: Any) -> tuple[Any, np.ndarray]:
     return likelihood, np.asarray(1.0)
 
 
-def _inverse_gamma_scale_priors(prior: Any, slots: Sequence[str]) -> dict[str, InverseGamma]:
-    """The inverse-gamma priors of the inferred scales *slots*, by slot; others are left out."""
+def _inverse_gamma_scale_priors(prior: Any) -> dict[str, InverseGamma]:
+    """The inverse-gamma priors of the noise scales in the record ``s2`` of *prior*, by class;
+    scales with another prior are left out."""
+    scale_prior = factors_over(prior, [NOISE_SCALES]).get(NOISE_SCALES)
+    if scale_prior is None:
+        return {}
+    classes = scale_prior.event_spec.outputs[NOISE_SCALES].fields
     return {
-        slot: factor
-        for slot, factor in factors_over(prior, slots).items()
+        noise_class: factor
+        for noise_class, factor in factors_over(scale_prior, classes).items()
         if isinstance(factor, InverseGamma)
     }
 
@@ -349,9 +357,13 @@ def _particles_as_target_vectors(
             name: jnp.asarray(theta[:, index]) for index, name in enumerate(problem.bijection.names)
         }
     }
-    for k, slot in enumerate(problem.scale_conditionals.slots):
-        if slot is not None:
-            fields[slot] = jnp.asarray(particles.scales[:, k])
+    conditionals = problem.scale_conditionals
+    if conditionals.is_inferred.any():
+        fields[NOISE_SCALES] = {
+            noise_class: jnp.asarray(particles.scales[:, k])
+            for k, noise_class in enumerate(conditionals.classes)
+            if conditionals.is_inferred[k]
+        }
     batch = NumericRecordBatch(fields, "draw", element=target.event_spec.term_spec)
     return batch.to_vector()
 
@@ -364,12 +376,13 @@ def _infeasibility_reason(target: InferenceTarget) -> str | None:
     likelihood, _ = _likelihood_and_learning_rate(factors.likelihood)
     if not isinstance(likelihood, GaussianSimulatorLikelihood):
         return "the likelihood must be a Gaussian simulator likelihood"
-    slots = set(likelihood.random_scale_slots)
-    if set(factors.prior.event_spec.outputs) != {_PARAMETER_BLOCK} | slots:
+    inferred = set(likelihood.inferred_scale_classes)
+    records = {_PARAMETER_BLOCK} | ({NOISE_SCALES} if inferred else set())
+    if set(factors.prior.event_spec.outputs) != records:
         return (
-            f"the prior must be over the parameter record {_PARAMETER_BLOCK!r} and the inferred "
-            f"noise scales {sorted(slots)}, and nothing else"
+            f"the prior must be over the parameter record {_PARAMETER_BLOCK!r} and, when scales "
+            f"are inferred, the noise-scale record {NOISE_SCALES!r}, and nothing else"
         )
-    if missing := sorted(slots - _inverse_gamma_scale_priors(factors.prior, sorted(slots)).keys()):
+    if missing := sorted(inferred - _inverse_gamma_scale_priors(factors.prior).keys()):
         return f"each inferred noise scale needs an inverse-gamma prior; these have none: {missing}"
     return None

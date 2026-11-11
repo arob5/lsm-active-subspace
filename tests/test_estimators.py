@@ -109,6 +109,6 @@ def test_exact_jacobians_need_a_differentiable_forward_map():
 
 def test_inferred_scales_need_values_for_the_noise_covariance():
     toy = load_inverse_problem("toy", scales="inferred")
-    with pytest.raises(ValueError, match="give values for \\['s2_day', 's2_night'\\]"):
+    with pytest.raises(ValueError, match="give values for \\['day', 'night'\\]"):
         toy.noise_variance()
-    assert toy.noise_variance({"s2_day": 1.0, "s2_night": 1.0}).shape == (400,)
+    assert toy.noise_variance({"day": 1.0, "night": 1.0}).shape == (400,)

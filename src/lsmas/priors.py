@@ -93,16 +93,16 @@ def independent_prior(laws: Mapping[str, Distribution], group: str = "theta") ->
 def factors_over(prior: Distribution, outputs: Iterable[str]) -> dict[str, Distribution]:
     """The factors of a product prior that are laws of exactly one of *outputs*, by that output.
 
-    A prior built with ``&``, such as ``theta_prior & InverseGamma("s2_day", 2.0, 1.678)``, is a
-    product of factors; this finds, for instance, the prior of each noise scale. An output with no
-    factor of its own is left out.
+    A prior built with ``&``, such as ``theta_prior & scale_prior``, is a product of factors; this
+    finds, for instance, the prior of the noise-scale record ``s2``. An output with no factor of
+    its own is left out.
 
     Parameters
     ----------
     prior : Distribution
         A product of factors, such as an inverse problem's prior.
     outputs : iterable of str
-        The outputs to look for, such as ``("s2_day", "s2_night")``.
+        The outputs to look for, such as ``["s2"]``.
     """
     outputs_sought = set(outputs)
     factors_by_output = {}

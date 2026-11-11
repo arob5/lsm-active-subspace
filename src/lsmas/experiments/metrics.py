@@ -30,6 +30,7 @@ from __future__ import annotations
 import numpy as np
 from scipy import linalg, stats
 
+from lsmas._stopgaps.likelihood import noise_scale_variable
 from lsmas.algorithms.result import AlgorithmResult
 from lsmas.experiments.reference import Reference
 from lsmas.problems.inverse_problem import InverseProblem
@@ -61,7 +62,10 @@ def score_names(problem: InverseProblem) -> list[str]:
         )
         for summary in summaries
     ] + ["gaussian_w2", "coverage90_mean", "coverage90_min"]
-    scales = [f"marginal_w1_{slot}" for slot in problem.likelihood.random_scale_slots]
+    scales = [
+        f"marginal_w1_{noise_scale_variable(noise_class)}"
+        for noise_class in problem.likelihood.inferred_scale_classes
+    ]
     subspace = ["subspace_rank", "captured_information", "largest_principal_angle_degrees"]
     return posterior + scales + subspace + ["forward_runs"]
 
@@ -84,8 +88,10 @@ def score(
         -1, problem.coordinates.dimension
     )
     noise_scales = {
-        slot: np.asarray(result.posterior.atoms[slot].raw).reshape(-1)
-        for slot in problem.likelihood.random_scale_slots
+        noise_class: draws.reshape(-1)
+        for noise_class, draws in problem.likelihood.inferred_scale_draws(
+            result.posterior.atoms
+        ).items()
     }
     return (
         posterior_scores(theta, noise_scales, reference, problem)
@@ -107,7 +113,7 @@ def posterior_scores(
     theta : numpy.ndarray
         Draws of the calibration parameters, shape $(N, d)$.
     noise_scales : dict of str to numpy.ndarray
-        Draws of each inferred noise scale, shape $(N,)$; empty when the scales are fixed.
+        Draws of each inferred noise scale, shape $(N,)$, by class; empty when the scales are fixed.
     reference : Reference
         The reference.
     problem : InverseProblem
@@ -118,7 +124,7 @@ def posterior_scores(
     dict of str to float
         ``marginal_w1_mean``, ``marginal_w1_max``, ``mean_error_mean``, ``mean_error_max``,
         ``sd_error_mean``, ``sd_error_max``, ``gaussian_w2``, ``coverage90_mean`` and
-        ``coverage90_min`` over the whitened parameters, and ``marginal_w1_<scale>`` for each
+        ``coverage90_min`` over the whitened parameters, and ``marginal_w1_s2_<class>`` for each
         inferred noise scale, on the logarithm of the scale.
     """
     approximation = problem.coordinates.whitened_from_parameters(theta)
@@ -138,10 +144,11 @@ def posterior_scores(
         "coverage90_min": coverage.min(),
     }
     reference_scales = reference.noise_scale_draws()
-    for slot, draws in noise_scales.items():
+    for noise_class, draws in noise_scales.items():
         log_draws = np.log(np.asarray(draws, dtype=float))[:, None]
-        log_reference = np.log(reference_scales[slot])[:, None]
-        scores[f"marginal_w1_{slot}"] = marginal_wasserstein(log_draws, log_reference)[0]
+        log_reference = np.log(reference_scales[noise_class])[:, None]
+        name = f"marginal_w1_{noise_scale_variable(noise_class)}"
+        scores[name] = marginal_wasserstein(log_draws, log_reference)[0]
     return {name: float(value) for name, value in scores.items()}
 
 

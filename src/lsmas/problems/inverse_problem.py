@@ -124,7 +124,7 @@ class InverseProblem:
         )
         return posterior.with_label("posterior")
 
-    def noise_variance(self, scale_values: Mapping[str, Any] | None = None) -> np.ndarray:
+    def noise_variance(self, noise_scales: Mapping[str, Any] | None = None) -> np.ndarray:
         r"""The diagonal of the tempered noise covariance,
         $\Gamma = \operatorname{diag}\!\left(s^2_{k(i)}\, \sigma^2_i / \eta_i\right)$, shape $(n,)$.
 
@@ -133,21 +133,22 @@ class InverseProblem:
 
         Parameters
         ----------
-        scale_values : Mapping of str to float, optional
-            A value for each inferred noise scale, such as ``{"s2_day": 1.0, "s2_night": 1.0}``.
-            Not needed when every scale is fixed.
+        noise_scales : Mapping of str to float, optional
+            A value for each inferred noise scale, by class: a value of the record ``s2``, such as
+            ``{"day": 1.0, "night": 1.0}``. Not needed when every scale is fixed.
 
         Raises
         ------
         ValueError
             If an inferred scale has no value, or the problem has more than one observed output.
         """
-        if missing := sorted(set(self.likelihood.random_scale_slots) - set(scale_values or {})):
+        inferred = self.likelihood.inferred_scale_classes
+        if missing := sorted(set(inferred) - set(noise_scales.keys() if noise_scales else ())):
             raise ValueError(f"the noise scales are inferred; give values for {missing}")
         if len(self.data) != 1:
             raise ValueError(f"defined for one observed output; this problem has {list(self.data)}")
         (observed,) = self.data
-        variances = np.asarray(self.likelihood.noise_variances(scale_values))
+        variances = np.asarray(self.likelihood.noise_variances(noise_scales))
         return variances / self.learning_rate[observed]
 
     def describe(self) -> str:

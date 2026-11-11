@@ -56,7 +56,8 @@ def test_small_problem_is_the_full_one_with_the_rest_at_their_medians(small, ful
 
 def test_noise_scales_are_parameters_only_when_inferred(small, small_inferred):
     assert list(small.prior.event_spec.outputs) == ["theta"]
-    assert list(small_inferred.prior.event_spec.outputs) == ["theta", "s2_day", "s2_night"]
+    assert list(small_inferred.prior.event_spec.outputs) == ["theta", "s2"]
+    assert list(small_inferred.prior.event_spec.outputs["s2"].fields) == ["day", "night"]
     assert small.coordinates.names == small_inferred.coordinates.names
 
 
@@ -87,7 +88,7 @@ def test_conditioning_target_is_the_generalized_posterior(small):
 def test_model_draws_run_sipnet(small_inferred):
     with workflow_run(seed=3):
         draws = sample(small_inferred.model, 8)
-    assert set(draws.raw) == {"nee", "theta", "s2_day", "s2_night"}
+    assert set(draws.raw) == {"nee", "theta", "s2"}
     nee = np.asarray(draws["nee"].raw)
     assert nee.shape == (8, 400)
     assert np.all(np.isfinite(nee))

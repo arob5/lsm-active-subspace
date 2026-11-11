@@ -129,7 +129,7 @@ def toy(
     ----------
     scales : {"fixed", "inferred"}
         ``"fixed"`` sets $s^2_{\mathrm{day}} = s^2_{\mathrm{night}} = 1$. ``"inferred"`` makes them
-        parameters ``s2_day`` and ``s2_night`` with independent $\mathrm{IG}(2, 1.678)$ priors.
+        the parameters ``s2/day`` and ``s2/night`` with independent $\mathrm{IG}(2, 1.678)$ priors.
     data : HarvardForestData, optional
         The inputs, :func:`~lsmas.data.load_harvard_forest` by default.
     """

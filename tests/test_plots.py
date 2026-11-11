@@ -99,7 +99,9 @@ def test_marginal_plot_shows_fields_that_only_some_distributions_have():
         draws = sample(load_inverse_problem("toy").prior, 50)
     figure = plots.plot_marginals(inferred.prior, draws, labels=["inferred", "fixed"])
     titles = [axis.get_title() for axis in figure.axes if axis.get_visible()]
-    assert titles[-2:] == ["s2_day", "s2_night"]
+    assert titles[-2:] == ["s2/day", "s2/night"]
+    record_view = plots.plot_marginals(inferred.prior["s2"], columns=2)
+    assert [axis.get_title() for axis in record_view.axes] == ["day", "night"]
     with pytest.raises(ValueError, match="2 labels for 1"):
         plots.plot_marginals(inferred.prior, labels=["a", "b"])
 

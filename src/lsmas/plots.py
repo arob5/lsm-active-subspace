@@ -116,8 +116,9 @@ def plot_marginals(
     order the fields first appear, and arguments that share a field are drawn on the same panel. A
     marginal with an exact density is drawn as that density; any other, such as a posterior held as
     draws, as a histogram of its (weighted) draws, normalized to a density. Each panel spans the
-    central 99% of every marginal drawn on it. A panel is titled by the field's name, or by its
-    whole path when two fields share a name.
+    central 99% of every marginal drawn on it. A panel is titled by the field's name, such as
+    ``photosynthetic_capacity``, or by its whole path, such as ``s2/day``, when the field is not in
+    the first panel's group or another field shares its name.
 
     A law with neither a density nor draws of its own is sampled, and a marginal without exact
     quantiles has its span estimated from draws; both use a fixed random key, so plotting never
@@ -343,8 +344,12 @@ def _default_label(argument: Distribution | RecordBatch) -> str:
 
 
 def _scalar_paths(law: Distribution) -> list[str]:
-    """The paths of the scalar fields of *law*, such as ``theta/photosynthetic_capacity``."""
-    return _scalar_paths_below(law.event_spec.term_spec)
+    """The paths of the scalar fields of *law*, such as ``theta/photosynthetic_capacity``, each
+    starting with the name of its output, as ``marginal`` reads them."""
+    paths = []
+    for output, spec in law.event_spec.outputs.items():
+        paths += _scalar_paths_below(spec, output)
+    return paths
 
 
 def _scalar_paths_below(spec: Any, prefix: str = "") -> list[str]:
@@ -359,11 +364,13 @@ def _scalar_paths_below(spec: Any, prefix: str = "") -> list[str]:
 
 
 def _panel_titles(paths: Sequence[str]) -> dict[str, str]:
-    """Each path's last segment, or the whole path when another path ends the same way."""
-    names = [path.rsplit("/", 1)[-1] for path in paths]
+    """Each path's last segment, or the whole path when it is outside the first path's group or
+    another path ends the same way."""
+    groups = [path.rpartition("/")[0] for path in paths]
+    names = [path.rpartition("/")[2] for path in paths]
     return {
-        path: path if names.count(name) > 1 else name
-        for path, name in zip(paths, names, strict=True)
+        path: path if group != groups[0] or names.count(name) > 1 else name
+        for path, group, name in zip(paths, groups, names, strict=True)
     }
 
 

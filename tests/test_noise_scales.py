@@ -15,13 +15,10 @@ PREDICTIONS = np.array([[1.0, -1.5, 2.5, 0.0, -1.0, -2.0], [0.0, 0.0, 0.0, 0.0, 
 def conditionals(night_scale):
     """Day scale inferred with an IG(3, 2) prior; night scale fixed at *night_scale*, or inferred
     with an IG(2, 1) prior when it is None."""
-    night = "s2_night" if night_scale is None else night_scale
-    priors = {
-        "s2_day": InverseGamma("s2_day", 3.0, 2.0),
-        "s2_night": InverseGamma("s2_night", 2.0, 1.0),
-    }
+    night = "inferred" if night_scale is None else night_scale
+    priors = {"day": InverseGamma("day", 3.0, 2.0), "night": InverseGamma("night", 2.0, 1.0)}
     return NoiseScaleConditionals.from_problem(
-        linear_likelihood({"day": "s2_day", "night": night}), priors, OBSERVATIONS, LEARNING_RATE
+        linear_likelihood({"day": "inferred", "night": night}), priors, OBSERVATIONS, LEARNING_RATE
     )
 
 

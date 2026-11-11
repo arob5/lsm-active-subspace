@@ -8,6 +8,8 @@ from dataclasses import dataclass
 import numpy as np
 import xarray as xr
 
+from lsmas._stopgaps.likelihood import noise_scale_variable
+
 __all__ = ["StepCallback", "StepRecord", "history_dataset"]
 
 
@@ -42,8 +44,8 @@ class StepRecord:
         The diagonal of $\Gamma$, the noise covariance at $\beta = 1$ that this step's update
         used, shape $(n,)$.
     noise_scales : dict of str to numpy.ndarray
-        Each inferred scale's value at each particle, shape $(J,)$, by the scale's name, such as
-        ``"s2_day"``; empty when every scale is fixed.
+        Each inferred scale's value at each particle, shape $(J,)$, by class, such as ``"day"``;
+        empty when every scale is fixed.
     n_failed : int
         How many particles the forward map failed at.
     """
@@ -65,7 +67,7 @@ StepCallback = Callable[[StepRecord], None]
 
 def history_dataset(records: Sequence[StepRecord]) -> xr.Dataset:
     """A run's step records as one dataset, with dimensions ``step``, ``member``, ``parameter``
-    and ``observation``, and one variable per inferred noise scale.
+    and ``observation``, and one variable per inferred noise scale, such as ``s2_day``.
 
     Parameters
     ----------
@@ -91,11 +93,11 @@ def history_dataset(records: Sequence[StepRecord]) -> xr.Dataset:
             ),
             "n_failed": ("step", [record.n_failed for record in records]),
             **{
-                slot: (
+                noise_scale_variable(noise_class): (
                     ("step", "member"),
-                    np.stack([record.noise_scales[slot] for record in records]),
+                    np.stack([record.noise_scales[noise_class] for record in records]),
                 )
-                for slot in records[0].noise_scales
+                for noise_class in records[0].noise_scales
             },
         },
         coords={"step": [record.step for record in records], "parameter": names},

@@ -23,7 +23,7 @@ def test_result_holds_the_lifted_posterior_over_every_parameter(toy_result):
     theta = toy.coordinates.array_from_draws(toy_result.posterior.atoms)
     assert theta.shape == (2 * 200, 14)
     assert np.all(np.isfinite(theta))
-    assert set(toy_result.posterior.atoms.raw) == {"theta", "s2_day", "s2_night"}
+    assert set(toy_result.posterior.atoms.raw) == {"theta", "s2"}
 
 
 def test_rank_follows_the_rule_and_counts_follow_the_stages(toy_result):

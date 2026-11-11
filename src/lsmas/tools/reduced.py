@@ -26,7 +26,6 @@ from typing import Any
 
 import jax
 import jax.numpy as jnp
-import numpy as np
 from probpipe import (
     EmpiricalDistribution,
     Function,
@@ -36,7 +35,7 @@ from probpipe import (
 
 from lsmas._stopgaps.coordinates import Coordinates, block_values
 from lsmas._stopgaps.functions import declares_traceable
-from lsmas._stopgaps.likelihood import GaussianSimulatorLikelihood
+from lsmas._stopgaps.likelihood import NOISE_SCALES, GaussianSimulatorLikelihood
 from lsmas._stopgaps.sampling import draw_with_key
 from lsmas.parameters import parameter_record_spec
 from lsmas.priors import factors_over, independent_prior
@@ -75,7 +74,7 @@ def reduced_problem(problem: InverseProblem, subspace: Subspace) -> ReducedProbl
     names = tuple(f"active_{i + 1}" for i in range(subspace.rank))
     likelihood = _reduced_likelihood(problem, subspace, names)
     prior = independent_prior({name: Normal(name, 0.0, 1.0) for name in names})
-    for scale_prior in factors_over(problem.prior, problem.likelihood.random_scale_slots).values():
+    for scale_prior in factors_over(problem.prior, [NOISE_SCALES]).values():
         prior = prior & scale_prior
     return ReducedProblem(
         name=f"{problem.name}_reduced",
@@ -146,8 +145,10 @@ class ReducedProblem(InverseProblem):
                 name: jnp.asarray(theta[:, index]) for index, name in enumerate(full.names)
             }
         }
-        for slot in self.likelihood.random_scale_slots:
-            fields[slot] = jnp.asarray(np.asarray(atoms[slot].raw).reshape(-1))
+        if scales := self.likelihood.inferred_scale_draws(atoms):
+            fields[NOISE_SCALES] = {
+                noise_class: jnp.asarray(draws.reshape(-1)) for noise_class, draws in scales.items()
+            }
         return EmpiricalDistribution(NumericRecordBatch(fields, "draw"))
 
 

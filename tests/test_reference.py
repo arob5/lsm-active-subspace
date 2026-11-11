@@ -10,6 +10,7 @@ from lsmas.experiments.reference import (
     Reference,
     _meets_criteria,
     convergence_diagnostics,
+    load_reference,
     noise_scale_setting,
     nuts_reference,
     rwmh_diagnostics,
@@ -47,7 +48,7 @@ def test_reference_round_trips_through_netcdf(problem, tmp_path):
         scales="inferred",
         parameter_names=("a", "b"),
         theta=np.random.default_rng(0).normal(size=(2, 30, 2)),
-        noise_scales={"s2_day": np.random.default_rng(1).gamma(2.0, size=(2, 30))},
+        noise_scales={"day": np.random.default_rng(1).gamma(2.0, size=(2, 30))},
         information=np.array([[2.0, 0.5], [0.5, 1.0]]),
         diagnostics=pd.DataFrame(
             {"rhat": [1.0, 1.0], "ess_bulk": [50.0, 60.0], "ess_tail": [40.0, 45.0]},
@@ -57,7 +58,7 @@ def test_reference_round_trips_through_netcdf(problem, tmp_path):
     )
     loaded = Reference.load(reference.save(tmp_path / "reference.nc"))
     np.testing.assert_array_equal(loaded.theta, reference.theta)
-    np.testing.assert_array_equal(loaded.noise_scales["s2_day"], reference.noise_scales["s2_day"])
+    np.testing.assert_array_equal(loaded.noise_scales["day"], reference.noise_scales["day"])
     np.testing.assert_array_equal(loaded.information, reference.information)
     pd.testing.assert_frame_equal(loaded.diagnostics, reference.diagnostics)
     assert loaded.provenance == reference.provenance
@@ -66,6 +67,12 @@ def test_reference_round_trips_through_netcdf(problem, tmp_path):
         "inferred",
         ("a", "b"),
     )
+
+
+def test_a_stored_reference_reads_its_noise_scales_by_class():
+    stored = load_reference(load_inverse_problem("toy", scales="inferred"))
+    assert set(stored.noise_scales) == {"day", "night"}
+    assert stored.noise_scales["day"].shape == stored.theta.shape[:2]
 
 
 def test_independent_chains_have_rhat_near_one_and_full_effective_size(problem):
@@ -96,7 +103,7 @@ def test_rwmh_reference_runs_segments_in_processes_and_resumes(tmp_path):
     toy = load_inverse_problem("toy", scales="inferred")
     reference = rwmh_reference(toy, tmp_path, n_chains=2, segment_steps=20, max_segments=2)
     assert reference.theta.shape == (2, 20, 14)
-    assert set(reference.noise_scales) == {"s2_day", "s2_night"}
+    assert set(reference.noise_scales) == {"day", "night"}
     assert set(rwmh_diagnostics(tmp_path).index) >= {"log_s2_day", "log_s2_night"}
     segments = sorted(tmp_path.glob("chain_*/segment_*.npz"))
     assert len(segments) == 4

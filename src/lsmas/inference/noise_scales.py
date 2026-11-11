@@ -51,9 +51,6 @@ class NoiseScaleConditionals:
     ----------
     classes : tuple of str
         The classes of observation, such as ``("day", "night")``.
-    slots : tuple of str or None
-        For each class, the name of its inferred scale, such as ``"s2_day"``, or ``None`` if the
-        class's scale is fixed.
     fixed_scales : numpy.ndarray
         For each class, its fixed scale; NaN where the scale is inferred. Shape $(K,)$.
     concentrations, prior_scales : numpy.ndarray
@@ -65,7 +62,6 @@ class NoiseScaleConditionals:
     """
 
     classes: tuple[str, ...]
-    slots: tuple[str | None, ...]
     fixed_scales: np.ndarray
     concentrations: np.ndarray
     prior_scales: np.ndarray
@@ -90,23 +86,22 @@ class NoiseScaleConditionals:
         likelihood : GaussianSimulatorLikelihood
             Its classes, reference variances and scales.
         scale_priors : Mapping of str to InverseGamma
-            The prior of each inferred scale, by slot name.
+            The prior of each inferred scale, by class.
         observations, learning_rate : array_like
             $y$ and $\eta$, shape $(n,)$.
         """
         classes = tuple(likelihood.scales)
-        slots = tuple(s if isinstance(s, str) else None for s in likelihood.scales.values())
+        inferred = set(likelihood.inferred_scale_classes)
         return cls(
             classes=classes,
-            slots=slots,
             fixed_scales=np.array(
-                [np.nan if isinstance(s, str) else float(s) for s in likelihood.scales.values()]
+                [np.nan if k in inferred else float(likelihood.scales[k]) for k in classes]
             ),
             concentrations=np.array(
-                [np.nan if s is None else float(scale_priors[s].concentration) for s in slots]
+                [float(scale_priors[k].concentration) if k in inferred else np.nan for k in classes]
             ),
             prior_scales=np.array(
-                [np.nan if s is None else float(scale_priors[s].scale) for s in slots]
+                [float(scale_priors[k].scale) if k in inferred else np.nan for k in classes]
             ),
             membership=np.stack([np.asarray(likelihood.classes) == k for k in classes]),
             observations=np.asarray(observations, dtype=float),
@@ -119,7 +114,7 @@ class NoiseScaleConditionals:
     @property
     def is_inferred(self) -> np.ndarray:
         """Whether each class's scale is inferred, shape $(K,)$."""
-        return np.array([slot is not None for slot in self.slots])
+        return np.isnan(self.fixed_scales)
 
     @property
     def effective_counts(self) -> np.ndarray:

@@ -23,7 +23,7 @@ import numpy as np
 from probpipe import Distribution, Function, InverseGamma
 
 from lsmas._stopgaps.coordinates import Coordinates
-from lsmas._stopgaps.likelihood import GaussianSimulatorLikelihood
+from lsmas._stopgaps.likelihood import INFERRED, NOISE_SCALES, GaussianSimulatorLikelihood
 from lsmas.data import HarvardForestData
 from lsmas.learning_rate import effective_sample_size_learning_rate
 from lsmas.priors import independent_prior
@@ -71,7 +71,8 @@ def nee_problem(
         The prior of each calibration parameter, by name, in the order of the parameter record.
     scales : {"fixed", "inferred"}
         ``"fixed"`` sets $s^2_{\mathrm{day}} = s^2_{\mathrm{night}} = 1$. ``"inferred"`` makes them
-        parameters ``s2_day`` and ``s2_night`` with independent $\mathrm{IG}(2, 1.678)$ priors.
+        the parameters ``s2/day`` and ``s2/night``, grouped as ``theta`` is, with independent
+        $\mathrm{IG}(2, 1.678)$ priors.
     data : HarvardForestData
         The observations, their classes and dates.
 
@@ -92,7 +93,7 @@ def nee_problem(
         raise ValueError(
             f"the forward map declares the parameters {declared}; the prior {list(laws)}"
         )
-    prior = _prior_with_noise_scales(laws, likelihood.random_scale_slots)
+    prior = _prior_with_noise_scales(laws, likelihood.inferred_scale_classes)
     return InverseProblem(
         name=name,
         description=description,
@@ -105,21 +106,26 @@ def nee_problem(
 
 
 def _prior_with_noise_scales(
-    laws: Mapping[str, Distribution], random_scale_slots: Sequence[str]
+    laws: Mapping[str, Distribution], inferred_classes: Sequence[str]
 ) -> Any:
-    """The prior of the calibration parameters and of any noise scales that are inferred."""
+    """The prior of the calibration parameters, grouped under ``theta``, and of any inferred noise
+    scales, grouped under ``s2``."""
     prior = independent_prior(laws)
-    for slot in random_scale_slots:
-        prior = prior & InverseGamma(slot, **NOISE_SCALE_PRIOR)
+    if inferred_classes:
+        scale_laws = {
+            noise_class: InverseGamma(noise_class, **NOISE_SCALE_PRIOR)
+            for noise_class in inferred_classes
+        }
+        prior = prior & independent_prior(scale_laws, group=NOISE_SCALES)
     return prior.with_label("prior")
 
 
 def _likelihood_scales(scales: str) -> dict[str, str | float]:
-    """The likelihood's scale for each class: a slot name when inferred, 1 when fixed."""
+    """The likelihood's scale for each class: ``"inferred"``, or 1 when fixed."""
     if scales == "fixed":
         return {"day": 1.0, "night": 1.0}
     if scales == "inferred":
-        return {"day": "s2_day", "night": "s2_night"}
+        return {"day": INFERRED, "night": INFERRED}
     raise ValueError(f"scales must be 'fixed' or 'inferred', got {scales!r}")
 
 

@@ -22,7 +22,7 @@ function (such as the leaf carbon fraction $c$ in a parameter map) is defined th
 | $G(\theta) = A\, x(\theta)$ | the forward map; written $G(\xi)$ when evaluated at $\theta(\xi)$ |
 | $k(i)$ | the class of observation $i$ (day or night) |
 | $\sigma^2_k$, $\sigma^2_i = \sigma^2_{k(i)}$ | the reference noise variance of a class; $\sigma_k$ is its standard deviation |
-| $s^2_k$ | the noise scale of class $k$ |
+| $s^2_k$ | the noise scale of class $k$; in code, the field `s2/<class>` of the parameters, as `theta` holds $\theta$ |
 | $\eta_i \in (0, 1]$ | the learning rate of observation $i$ |
 | $\Gamma = \operatorname{diag}\!\left(s^2_{k(i)}\, \sigma^2_i / \eta_i\right)$ | the tempered noise covariance: for fixed noise scales, the generalized posterior of $\theta$ is $\pi_0(\theta)\, \mathcal N(y \mid G(\theta), \Gamma)$ up to a constant |
 
