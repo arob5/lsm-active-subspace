@@ -32,8 +32,8 @@ __all__ = [
 #: Every SIPNET parameter, by pySIPNET's name.
 SIPNET_PARAMETERS = frozenset(name for names in SIPNET_PARAMS_BY_GROUP.values() for name in names)
 
-#: Calibration parameters that are SIPNET parameters under the same name.
-_SIPNET_PARAMETERS_CALIBRATED_AS_THEY_ARE = (
+#: Calibration parameters that are SIPNET parameters, under the same name and in the same units.
+_DIRECT_SIPNET_PARAMETERS = (
     "half_saturation_light",
     "vapor_pressure_deficit_slope",
     "vapor_pressure_deficit_exponent",
@@ -61,8 +61,8 @@ _SIPNET_PARAMETERS_CALIBRATED_AS_THEY_ARE = (
     "frozen_soil_water_fraction",
 )
 
-#: Initial conditions, by calibration name and SIPNET name.
-_INITIAL_CONDITIONS = {
+#: SIPNET's name for each initial condition that is calibrated directly, by calibration name.
+_IC_CALIBRATION_TO_SIPNET_NAME = {
     "initial_soil_carbon": "soil_carbon",
     "initial_soil_wetness": "soil_wetness_fraction",
     "initial_snow_water_equivalent": "snow_water_equivalent",
@@ -103,8 +103,8 @@ def calibration_to_sipnet(theta: Mapping[str, Any], fixed: Mapping[str, float]) 
         once.
     """
     calibrated = (
-        {name: float(theta[name]) for name in _SIPNET_PARAMETERS_CALIBRATED_AS_THEY_ARE}
-        | {sipnet: float(theta[name]) for name, sipnet in _INITIAL_CONDITIONS.items()}
+        {name: float(theta[name]) for name in _DIRECT_SIPNET_PARAMETERS}
+        | {sipnet: float(theta[name]) for name, sipnet in _IC_CALIBRATION_TO_SIPNET_NAME.items()}
         | photosynthesis_to_sipnet(
             theta["photosynthetic_capacity"],
             theta["respiration_share"],
