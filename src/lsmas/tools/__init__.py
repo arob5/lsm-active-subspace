@@ -7,10 +7,11 @@ from lsmas.tools.estimators import (
     covariance_subspace,
     exact_subspace,
     finite_difference_subspace,
+    jacobians,
     statistical_linearization,
 )
 from lsmas.tools.reduced import ReducedProblem, reduced_problem
-from lsmas.tools.subspace import Subspace, suggest_rank
+from lsmas.tools.subspace import Subspace, principal_angles, suggest_rank
 
 __all__ = [
     "LadderLinearization",
@@ -20,6 +21,8 @@ __all__ = [
     "covariance_subspace",
     "exact_subspace",
     "finite_difference_subspace",
+    "jacobians",
+    "principal_angles",
     "reduced_problem",
     "statistical_linearization",
     "suggest_rank",

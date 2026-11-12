@@ -12,8 +12,8 @@ they need and in which average they estimate:
 - :class:`LadderLinearization`, a callback of an ensemble run, accumulates
   $\sum_t \Delta\beta_t\, \widehat{DG}_t^\top \Gamma^{-1} \widehat{DG}_t$ over the tempering
   ladder, with no forward runs beyond the ensemble run's own;
-- :func:`exact_subspace` averages exact Jacobians at given points, for a forward map JAX can
-  differentiate;
+- :func:`exact_subspace` averages exact Jacobians (:func:`jacobians`) at given points, for a
+  forward map JAX can differentiate;
 - :func:`finite_difference_subspace` averages central-difference Jacobians, at $2d$ forward runs
   per point;
 - :func:`covariance_subspace` uses $\Sigma^{-1} - I$, with $\Sigma$ a posterior sample's whitened
@@ -30,8 +30,9 @@ forward map and a Gaussian prior, $\Sigma^{-1} - I$ is exactly $DG^\top \Gamma^{
 
 from __future__ import annotations
 
+import functools
 import logging
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -53,6 +54,7 @@ __all__ = [
     "covariance_subspace",
     "exact_subspace",
     "finite_difference_subspace",
+    "jacobians",
     "statistical_linearization",
 ]
 
@@ -187,6 +189,62 @@ def statistical_linearization(z: np.ndarray, predictions: np.ndarray) -> np.ndar
     return np.asarray(fit.map.op.to_dense())
 
 
+def jacobians(problem: InverseProblem, z: np.ndarray, *, chunk_size: int = 25) -> np.ndarray:
+    r"""The Jacobian $DG(z)$ of the forward map in whitened coordinates, at each point *z*.
+
+    $DG(z)_{ij} = \partial G_i / \partial z_j$ for $G(z) = G(\theta(z))$, computed exactly by JAX,
+    so the forward map must be one JAX can differentiate (``traceable=True``), as the toy
+    problem's is.
+
+    Parameters
+    ----------
+    problem : InverseProblem
+        The problem whose forward map to differentiate.
+    z : numpy.ndarray
+        The points, shape $(N, d)$, or one point, shape $(d,)$.
+    chunk_size : int
+        How many Jacobians to compute at once; larger is faster and uses more memory.
+
+    Returns
+    -------
+    numpy.ndarray
+        Shape $(N, n, d)$, or $(n, d)$ for one point.
+
+    Raises
+    ------
+    ValueError
+        If JAX cannot differentiate the forward map.
+    """
+    z = np.asarray(z, dtype=float)
+    points = np.atleast_2d(z)
+    jacobian = _whitened_jacobian_function(problem)
+    result = np.concatenate(
+        [
+            np.asarray(jacobian(jnp.asarray(points[start : start + chunk_size])))
+            for start in range(0, len(points), chunk_size)
+        ]
+    )
+    return result[0] if z.ndim == 1 else result
+
+
+@functools.lru_cache(maxsize=8)
+def _whitened_jacobian_function(problem: InverseProblem) -> Callable[[jax.Array], jax.Array]:
+    r"""$z \mapsto DG(z)$ for a batch of points, compiled once per problem."""
+    if not declares_traceable(problem.forward):
+        raise ValueError(
+            f"{problem.name}'s forward map cannot be differentiated by JAX; "
+            "use finite_difference_subspace"
+        )
+    forward = problem.forward.using(raw=True)
+    coordinates = problem.coordinates
+
+    def features_at_whitened(x: jax.Array) -> jax.Array:
+        parameters = coordinates._from_whitened(x)
+        return forward({name: parameters[j] for j, name in enumerate(coordinates.names)})
+
+    return jax.jit(jax.vmap(jax.jacfwd(features_at_whitened)))
+
+
 def exact_subspace(
     problem: InverseProblem,
     z: np.ndarray,
@@ -200,8 +258,8 @@ def exact_subspace(
     exact Jacobians.
 
     The points $z_m$ are draws of the law to average over, such as prior or posterior draws in
-    whitened coordinates. The forward map must be one JAX can differentiate (``traceable=True``),
-    as the toy problem's is.
+    whitened coordinates. The Jacobians are :func:`jacobians`, so the forward map must be one JAX
+    can differentiate.
 
     Parameters
     ----------
@@ -218,29 +276,16 @@ def exact_subspace(
     chunk_size : int
         How many Jacobians to compute at once; larger is faster and uses more memory.
     """
-    if not declares_traceable(problem.forward):
-        raise ValueError(
-            f"{problem.name}'s forward map cannot be differentiated by JAX; "
-            "use finite_difference_subspace"
-        )
-    forward = problem.forward.using(raw=True)
-    coordinates = problem.coordinates
-
-    def features_at_whitened(x: jax.Array) -> jax.Array:
-        parameters = coordinates._from_whitened(x)
-        return forward({name: parameters[j] for j, name in enumerate(coordinates.names)})
-
-    jacobian = jax.jit(jax.vmap(jax.jacfwd(features_at_whitened)))
     z = np.asarray(z, dtype=float)
     precisions = _point_precisions(problem, noise_scales, len(z))
     total = np.zeros((z.shape[1], z.shape[1]))
     for start in range(0, len(z), chunk_size):
-        jacobians = np.asarray(jacobian(jnp.asarray(z[start : start + chunk_size])))
+        chunk_jacobians = jacobians(problem, z[start : start + chunk_size], chunk_size=chunk_size)
         chunk_precisions = precisions[start : start + chunk_size]
-        total += np.einsum("mni,mn,mnj->ij", jacobians, chunk_precisions, jacobians)
+        total += np.einsum("mni,mn,mnj->ij", chunk_jacobians, chunk_precisions, chunk_jacobians)
     return Subspace.from_information(
         total / len(z),
-        parameter_names=coordinates.names,
+        parameter_names=problem.coordinates.names,
         estimator="exact",
         rank=rank,
         discarded_information=discarded_information,

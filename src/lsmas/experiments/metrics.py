@@ -34,7 +34,7 @@ from lsmas._stopgaps.likelihood import noise_scale_variable
 from lsmas.algorithms.result import AlgorithmResult
 from lsmas.experiments.reference import Reference
 from lsmas.problems.inverse_problem import InverseProblem
-from lsmas.tools.subspace import Subspace
+from lsmas.tools.subspace import Subspace, principal_angles
 
 __all__ = [
     "captured_information",
@@ -238,5 +238,4 @@ def largest_principal_angle(basis: np.ndarray, information: np.ndarray) -> float
     eigenvectors of *information*, as many as *basis* has columns."""
     rank = basis.shape[1]
     top = np.linalg.eigh(information)[1][:, ::-1][:, :rank]
-    cosines = np.linalg.svd(basis.T @ top, compute_uv=False)
-    return float(np.degrees(np.arccos(np.clip(cosines.min(), -1.0, 1.0))))
+    return float(principal_angles(basis, top).max())

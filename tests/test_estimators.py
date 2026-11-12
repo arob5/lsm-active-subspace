@@ -15,6 +15,7 @@ from lsmas.tools import (
     covariance_subspace,
     exact_subspace,
     finite_difference_subspace,
+    jacobians,
     statistical_linearization,
 )
 
@@ -38,6 +39,16 @@ def exact_information(problem):
 def test_statistical_linearization_of_a_linear_map_is_its_matrix():
     z = np.random.default_rng(0).normal(size=(20, 2))
     np.testing.assert_allclose(statistical_linearization(z, z @ FORWARD_MATRIX.T), FORWARD_MATRIX)
+
+
+def test_jacobians_of_a_linear_map_in_whitened_coordinates(problem):
+    # theta is unconstrained here, so G(z) = F (m + L z) and DG(z) = F L at every point.
+    expected = FORWARD_MATRIX @ problem.coordinates.whitening_factor
+    z = np.random.default_rng(2).normal(size=(5, 2))
+    batch = jacobians(problem, z)
+    assert batch.shape == (5, 6, 2)
+    np.testing.assert_allclose(batch, np.broadcast_to(expected, batch.shape), rtol=EXACT)
+    np.testing.assert_allclose(jacobians(problem, z[0]), expected, rtol=EXACT)
 
 
 def test_exact_subspace_matches_the_linear_information(problem, exact_information):
