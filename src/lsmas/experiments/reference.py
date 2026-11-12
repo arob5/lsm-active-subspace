@@ -39,10 +39,10 @@ import arviz as az
 import numpy as np
 import pandas as pd
 import xarray as xr
-from probpipe import workflow_run
+from probpipe import EmpiricalDistribution, NumericRecordBatch, workflow_run
 
 from lsmas._stopgaps.functions import declares_traceable
-from lsmas._stopgaps.likelihood import noise_scale_variable
+from lsmas._stopgaps.likelihood import NOISE_SCALES, noise_scale_variable
 from lsmas._stopgaps.parallel_chains import run_in_processes
 from lsmas.problems import load_inverse_problem
 from lsmas.problems.inverse_problem import InverseProblem
@@ -115,6 +115,21 @@ class Reference:
     information: np.ndarray
     diagnostics: pd.DataFrame
     provenance: dict[str, Any]
+
+    @property
+    def posterior(self) -> EmpiricalDistribution:
+        """The reference posterior as a ProbPipe distribution, labelled ``"reference"``.
+
+        Its draws are records like an inverse problem's prior draws: the parameters under
+        ``theta`` and any inferred noise scales under ``s2``, on the levels ``chain`` and ``draw``.
+        """
+        fields: dict[str, Any] = {
+            "theta": {name: self.theta[..., j] for j, name in enumerate(self.parameter_names)}
+        }
+        if self.noise_scales:
+            fields[NOISE_SCALES] = dict(self.noise_scales)
+        draws = NumericRecordBatch(fields, ["chain", "draw"])
+        return EmpiricalDistribution(draws).with_label("reference")
 
     def parameter_draws(self) -> np.ndarray:
         r"""Every draw of $\theta$ with the chains pooled, shape $(N, d)$."""

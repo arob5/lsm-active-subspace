@@ -57,7 +57,7 @@ _CLASS_COLOURS = {"day": "tab:orange", "night": "tab:blue"}
 
 def plot_features(
     data: HarvardForestData,
-    predictions: np.ndarray | None = None,
+    predictions: np.ndarray | EmpiricalDistribution | None = None,
     *,
     levels: Sequence[float] = (0.5, 0.9),
 ) -> Figure:
@@ -73,8 +73,9 @@ def plot_features(
     ----------
     data : HarvardForestData
         The features and their observed values.
-    predictions : numpy.ndarray, optional
-        Predicted or replicated features, shape $(N, n)$, such as prior predictive draws.
+    predictions : numpy.ndarray or EmpiricalDistribution, optional
+        Predicted or replicated features, shape $(N, n)$, such as prior predictive draws, or a
+        distribution of them held as draws, such as the forward model applied to a posterior.
     levels : sequence of float
         The probabilities of the central intervals, each in $(0, 1)$.
 
@@ -85,6 +86,8 @@ def plot_features(
     """
     times = data.feature_times
     classes = data.feature_classes
+    if isinstance(predictions, EmpiricalDistribution):
+        predictions = np.asarray(predictions.atoms).reshape(-1, len(classes))
     if predictions is not None:
         predictions = _finite_rows(predictions, len(classes))
     figure, axes = plt.subplots(2, 1, figsize=(10, 5.5), sharex=True)
@@ -170,21 +173,45 @@ def plot_marginals(
 
 
 def plot_spectra(
-    subspaces: Sequence[Subspace], reference: Reference | None = None, ax: Axes | None = None
+    subspaces: Sequence[Subspace],
+    reference: Reference | None = None,
+    ax: Axes | None = None,
+    *,
+    labels: Sequence[str] | None = None,
 ) -> Axes:
     r"""The eigenvalues $\lambda_i$ of each subspace's information matrix, on a log scale.
 
-    Each estimate is a thin grey line; the reference information matrix, if given, is a thick black
-    line. The dotted line $\lambda = 1$ separates directions the data inform more than the prior
-    does from the rest.
+    Without *labels*, each estimate is a thin grey line, as for many runs of one estimator; with
+    them, each is a coloured line with its label in the legend, as for a few estimators side by
+    side. The reference information matrix, if given, is a thick black line. The dotted line
+    $\lambda = 1$ separates directions the data inform more than the prior does from the rest.
+    Eigenvalues below $10^{-6}$ of the largest, such as that of a direction the data do not inform
+    at all, are drawn at that floor.
+
+    Raises
+    ------
+    ValueError
+        If *labels* has the wrong length.
     """
+    if labels is not None and len(labels) != len(subspaces):
+        raise ValueError(f"{len(labels)} labels for {len(subspaces)} subspaces")
     ax = plt.subplots(figsize=(5, 3.5))[1] if ax is None else ax
-    for subspace in subspaces:
-        ax.semilogy(np.arange(1, subspace.dimension + 1), subspace.eigenvalues, color="0.6", lw=0.8)
+    spectra = [subspace.eigenvalues for subspace in subspaces]
     if reference is not None:
-        eigenvalues = np.sort(np.linalg.eigvalsh(reference.information))[::-1]
-        ax.semilogy(np.arange(1, len(eigenvalues) + 1), eigenvalues, "k", lw=2, label="reference")
-        ax.legend()
+        spectra.append(np.sort(np.linalg.eigvalsh(reference.information))[::-1])
+    floor = 1e-6 * max(spectrum.max() for spectrum in spectra)
+    for index, spectrum in enumerate(spectra[: len(subspaces)]):
+        indices = np.arange(1, len(spectrum) + 1)
+        shown = np.maximum(spectrum, floor)
+        if labels is None:
+            ax.semilogy(indices, shown, color="0.6", lw=0.8)
+        else:
+            ax.semilogy(indices, shown, ".-", color=f"C{index}", label=labels[index])
+    if reference is not None:
+        shown = np.maximum(spectra[-1], floor)
+        ax.semilogy(np.arange(1, len(shown) + 1), shown, "k", lw=2, label="reference")
+    if labels is not None or reference is not None:
+        ax.legend(fontsize=8)
     ax.axhline(1.0, ls=":", color="0.3")
     ax.set(xlabel="index $i$", ylabel=r"eigenvalue $\lambda_i$")
     return ax

@@ -47,6 +47,25 @@ def test_single_panel_plots_return_their_axes(toy_run):
     assert isinstance(plots.plot_metric_against_setting(table, "rank"), Axes)
 
 
+def test_labelled_spectra_have_a_legend_and_a_floor(toy_run):
+    _, _, subspace, _, _ = toy_run
+    singular = Subspace.from_information(
+        np.diag([10.0, 1.0, 0.0]), parameter_names=("a", "b", "c"), estimator="x"
+    )
+    ax = plots.plot_spectra([subspace, singular], labels=["ladder", "singular"])
+    assert [text.get_text() for text in ax.get_legend().get_texts()] == ["ladder", "singular"]
+    assert min(line.get_ydata().min() for line in ax.get_lines()[:2]) >= 1e-6 * 10.0 * 0.999
+    with pytest.raises(ValueError, match="1 labels for 2"):
+        plots.plot_spectra([subspace, singular], labels=["one"])
+
+
+def test_feature_plot_takes_predictions_held_as_a_distribution(toy_run):
+    toy, posterior, _, _, _ = toy_run
+    predictions = toy.forward(posterior["theta"])
+    figure = plots.plot_features(load_harvard_forest(), predictions)
+    assert len(figure.axes) == 2
+
+
 def test_multi_panel_plots_return_a_figure(toy_run):
     toy, posterior, subspace, reference, theta = toy_run
     qq = plots.plot_qq(theta, reference, toy)

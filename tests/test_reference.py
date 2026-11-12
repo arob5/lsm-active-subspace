@@ -77,6 +77,16 @@ def test_a_stored_reference_reads_its_noise_scales_by_class():
     assert stored.noise_scales["day"].shape == stored.theta.shape[:2]
 
 
+def test_the_reference_posterior_is_a_distribution_of_its_draws():
+    stored = load_reference(load_inverse_problem("toy", scales="inferred"))
+    posterior = stored.posterior
+    assert posterior.label == "reference"
+    draws = posterior.atoms
+    assert set(draws.raw) == {"theta", "s2"}
+    np.testing.assert_array_equal(draws["theta"].to_vector(), stored.theta)
+    np.testing.assert_array_equal(draws["s2/day"].raw, stored.noise_scales["day"])
+
+
 def test_independent_chains_have_rhat_near_one_and_full_effective_size(problem):
     whiten = problem.coordinates.whiten
     z = NumericRecordBatch.from_vector(

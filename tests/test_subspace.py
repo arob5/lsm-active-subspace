@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from lsmas.tools import Subspace, suggest_rank
+from lsmas.tools import Subspace, principal_angles, suggest_rank
 
 NAMES = ("a", "b", "c", "d")
 
@@ -70,3 +70,27 @@ def test_rank_must_lie_between_one_and_the_dimension():
     with pytest.raises(ValueError, match="between 1 and 4"):
         subspace.with_rank(0)
     assert subspace.with_rank(3).basis.shape == (4, 3)
+
+
+def test_principal_angles_between_spans():
+    identity = np.eye(4)
+    np.testing.assert_allclose(principal_angles(identity[:, :2], identity[:, [1, 0]]), [0.0, 0.0])
+    np.testing.assert_allclose(principal_angles(identity[:, :2], identity[:, 2:]), [90.0, 90.0])
+    tilted = np.array([[np.cos(0.3)], [np.sin(0.3)], [0.0], [0.0]])
+    np.testing.assert_allclose(principal_angles(identity[:, :2], tilted), [0.0], atol=1e-6)
+    np.testing.assert_allclose(principal_angles(identity[:, :1], tilted), [np.degrees(0.3)])
+
+
+def test_subspaces_compare_only_over_the_same_parameters():
+    information, _ = information_with([5.0, 2.0, 0.3, 0.1])
+    first = Subspace.from_information(information, parameter_names=NAMES, estimator="exact")
+    np.testing.assert_allclose(first.principal_angles(first.with_rank(1)), [0.0], atol=1e-6)
+    other = Subspace.from_information(information, parameter_names=tuple("wxyz"), estimator="x")
+    with pytest.raises(ValueError, match="different parameters"):
+        first.principal_angles(other)
+
+
+def test_repr_names_the_estimator_rank_and_leading_eigenvalues():
+    information, _ = information_with([5.0, 2.0, 0.3, 0.1])
+    subspace = Subspace.from_information(information, parameter_names=NAMES, estimator="exact")
+    assert repr(subspace) == "Subspace(estimator='exact', rank=2 of 4, leading eigenvalues [5, 2])"
