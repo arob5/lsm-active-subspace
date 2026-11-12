@@ -310,9 +310,16 @@ class Coordinates:
 
     @functools.cached_property
     def _moments(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """$m$, $L$ and $L^{-1}$, from prior draws made with a fixed key."""
-        draws = draw_with_key(self._prior, jax.random.key(self._seed), (self._n_moment_draws,))
-        phi = np.asarray(self._unconstrained(_parameter_vectors(draws, self.block, self.names)))
+        """$m$, $L$ and $L^{-1}$, from prior draws made with a fixed key.
+
+        Computed eagerly even when first needed inside a JAX trace, such as a Jacobian of the
+        forward map in whitened coordinates.
+        """
+        with jax.ensure_compile_time_eval():
+            key = jax.random.key(self._seed)
+            draws = draw_with_key(self._prior, key, (self._n_moment_draws,))
+            vectors = _parameter_vectors(draws, self.block, self.names)
+            phi = np.asarray(self._unconstrained(vectors))
         factor = np.linalg.cholesky(np.atleast_2d(np.cov(phi, rowvar=False)))
         return phi.mean(axis=0), factor, np.linalg.inv(factor)
 

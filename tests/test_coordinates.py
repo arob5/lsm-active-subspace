@@ -112,3 +112,9 @@ def test_coordinates_do_not_depend_on_where_they_are_built(prior):
 def test_unknown_block_is_refused(prior):
     with pytest.raises(ValueError, match="no block"):
         Coordinates.from_prior(prior, "psi")
+
+
+def test_the_whitening_can_first_be_needed_inside_a_trace(prior):
+    fresh = Coordinates.from_prior(prior, "theta", n_moment_draws=1000)
+    traced = jax.jit(fresh._from_whitened)(np.zeros(3))
+    np.testing.assert_allclose(traced, fresh._from_whitened(np.zeros(3)), rtol=1e-12)
