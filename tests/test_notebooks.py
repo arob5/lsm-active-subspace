@@ -1,4 +1,7 @@
-"""Every notebook executes from start to finish without an error."""
+"""Every tutorial notebook executes from start to finish without an error.
+
+Personal copies (``notebooks/my_*.ipynb``, see the README) are left out.
+"""
 
 from pathlib import Path
 
@@ -11,9 +14,12 @@ pytestmark = pytest.mark.smoke
 NOTEBOOK_DIRECTORY = Path(__file__).resolve().parents[1] / "notebooks"
 
 
-@pytest.mark.parametrize(
-    "path", sorted(NOTEBOOK_DIRECTORY.glob("*.ipynb")), ids=lambda path: path.stem
+TUTORIALS = sorted(
+    path for path in NOTEBOOK_DIRECTORY.glob("*.ipynb") if not path.name.startswith("my_")
 )
+
+
+@pytest.mark.parametrize("path", TUTORIALS, ids=lambda path: path.stem)
 def test_notebook_executes(path):
     notebook = nbformat.read(path, as_version=4)
     client = NotebookClient(
