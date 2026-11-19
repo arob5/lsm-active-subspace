@@ -19,7 +19,7 @@ from lsmas.tools import LadderLinearization, Subspace
 @pytest.fixture(scope="module")
 def toy_run():
     toy = load_inverse_problem("toy")
-    ladder = LadderLinearization(toy.coordinates)
+    ladder = LadderLinearization(toy)
     with workflow_run(seed=1):
         posterior = toy.condition(
             method="enskit_eki", method_options={"n_particles": 40, "callbacks": [ladder]}

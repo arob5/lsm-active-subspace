@@ -61,7 +61,7 @@ with their compilation take most of it.
 
 Each one replaces code that would otherwise sit in the notebook.
 
-- **`lsmas.tools.jacobians(problem, z)`**: $DG(z)$ at one point or a batch, exactly, for a forward
+- **`lsmas.tools.jacobians(problem, z)`** (since design 08, `jacobians(problem, theta)`): $DG(z)$ at one point or a batch, exactly, for a forward
   map JAX can differentiate. `exact_subspace` now computes its Jacobians with it, so the notebook
   can show the Jacobian, the information at a point and the average before handing all three to
   `exact_subspace`. The compiled function is cached per problem.

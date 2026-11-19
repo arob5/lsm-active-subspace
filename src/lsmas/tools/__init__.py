@@ -8,6 +8,7 @@ from lsmas.tools.estimators import (
     exact_subspace,
     finite_difference_subspace,
     jacobians,
+    linearization_subspace,
     statistical_linearization,
 )
 from lsmas.tools.reduced import ReducedProblem, reduced_problem
@@ -22,6 +23,7 @@ __all__ = [
     "exact_subspace",
     "finite_difference_subspace",
     "jacobians",
+    "linearization_subspace",
     "principal_angles",
     "reduced_problem",
     "statistical_linearization",

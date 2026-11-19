@@ -508,14 +508,17 @@ def _reference_information(
     differentiated, central differences otherwise."""
     pooled = theta.reshape(-1, theta.shape[-1])
     keep = _evenly_spaced(len(pooled), INFORMATION_DRAWS)
-    z = np.asarray(problem.coordinates._whitened(pooled[keep]))
-    scale_draws = {
-        noise_class: draws.reshape(-1)[keep] for noise_class, draws in noise_scales.items()
+    fields: dict[str, Any] = {
+        "theta": {name: pooled[keep, j] for j, name in enumerate(problem.coordinates.names)}
     }
+    if noise_scales:
+        fields[NOISE_SCALES] = {
+            noise_class: draws.reshape(-1)[keep] for noise_class, draws in noise_scales.items()
+        }
     estimator = (
         exact_subspace if declares_traceable(problem.forward) else finite_difference_subspace
     )
-    return estimator(problem, z, noise_scales=scale_draws or None).information
+    return estimator(problem, NumericRecordBatch(fields, "draw")).information
 
 
 def _provenance(

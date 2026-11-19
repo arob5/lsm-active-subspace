@@ -124,7 +124,7 @@ def _run_eki_estimating_subspace(
     Returns EKI's posterior, the record of every step, and the ladder linearization, which holds
     the estimated information matrix.
     """
-    ladder_linearization = LadderLinearization(problem.coordinates, weighting=weighting)
+    ladder_linearization = LadderLinearization(problem, weighting=weighting)
     eki_steps: list[StepRecord] = []
     with workflow_run(seed=seed):
         eki_posterior = problem.condition(
