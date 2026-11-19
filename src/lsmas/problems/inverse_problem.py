@@ -120,6 +120,27 @@ class InverseProblem:
         variances = np.asarray(self.likelihood.noise_variances(noise_scales))
         return variances / self.learning_rate[observed]
 
+    def misfit(self, predictions: Any, noise_scales: Mapping[str, Any] | None = None) -> np.ndarray:
+        r"""The data misfit $\Phi = \tfrac12 (y - G)^\top \Gamma^{-1} (y - G)$ of each set of
+        predictions $G$, with $\Gamma$ the tempered noise covariance (:meth:`noise_variance`).
+
+        Parameters
+        ----------
+        predictions : array_like
+            Predicted observations, shape $(N, n)$, or one set, shape $(n,)$, such as the forward
+            model applied to a batch of parameter draws.
+        noise_scales : Mapping of str to float, optional
+            As for :meth:`noise_variance`; not needed when every scale is fixed.
+
+        Returns
+        -------
+        numpy.ndarray
+            Shape $(N,)$, or a scalar for one set.
+        """
+        (observed,) = self.data
+        residuals = self.data[observed] - np.asarray(predictions, dtype=float)
+        return 0.5 * np.sum(residuals**2 / self.noise_variance(noise_scales), axis=-1)
+
     def describe(self) -> str:
         """A short readable summary: the description, the parameters and the data."""
         observed = ", ".join(f"{name} ({len(value)} values)" for name, value in self.data.items())

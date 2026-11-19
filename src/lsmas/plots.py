@@ -57,53 +57,73 @@ _CLASS_COLOURS = {"day": "tab:orange", "night": "tab:blue"}
 
 def plot_features(
     data: HarvardForestData,
-    predictions: np.ndarray | EmpiricalDistribution | None = None,
-    *,
+    *predictions: np.ndarray | EmpiricalDistribution,
+    labels: Sequence[str] | None = None,
     levels: Sequence[float] = (0.5, 0.9),
 ) -> Figure:
     r"""The observed features $y$ over time, one panel per class, with optional bands of
     predicted or replicated features.
 
-    Each feature is plotted at the middle of its half-month. With *predictions*, each panel also
-    shows, for every feature, the median of the predictions and their central intervals at each
-    of *levels*: for level $\ell$, the band between the quantiles $(1 - \ell)/2$ and
-    $(1 + \ell)/2$. Rows with a NaN, from failed forward runs, are left out of the bands.
+    Each feature is plotted at the middle of its half-month. Each set of *predictions* adds, for
+    every feature, the median of the predictions and their central intervals at each of *levels*:
+    for level $\ell$, the band between the quantiles $(1 - \ell)/2$ and $(1 + \ell)/2$. Rows with a
+    NaN, from failed forward runs, are left out of the bands. One set is drawn in the colour of
+    each panel's class, with its levels in the legend; several sets, such as prior and posterior
+    predictions, are drawn in turn in their own colours, with their labels in the legend.
 
     Parameters
     ----------
     data : HarvardForestData
         The features and their observed values.
-    predictions : numpy.ndarray or EmpiricalDistribution, optional
-        Predicted or replicated features, shape $(N, n)$, such as prior predictive draws, or a
-        distribution of them held as draws, such as the forward model applied to a posterior.
+    *predictions : numpy.ndarray or EmpiricalDistribution
+        Sets of predicted or replicated features, each of shape $(N, n)$, such as prior
+        predictive draws, or a distribution of them held as draws, such as the forward model
+        applied to a posterior.
+    labels : sequence of str, optional
+        A legend label for each set; by default ``"predictions 1"``, ``"predictions 2"``, and so
+        on. Only used for several sets, or when given.
     levels : sequence of float
         The probabilities of the central intervals, each in $(0, 1)$.
 
     Raises
     ------
     ValueError
-        If *predictions* does not have $n$ columns or has no row without a NaN.
+        If a set does not have $n$ columns or has no row without a NaN, or *labels* has the wrong
+        length.
     """
+    if labels is not None and len(labels) != len(predictions):
+        raise ValueError(f"{len(labels)} labels for {len(predictions)} sets of predictions")
     times = data.feature_times
     classes = data.feature_classes
-    if isinstance(predictions, EmpiricalDistribution):
-        predictions = np.asarray(predictions.atoms).reshape(-1, len(classes))
-    if predictions is not None:
-        predictions = _finite_rows(predictions, len(classes))
+    sets = [_prediction_rows(prediction, len(classes)) for prediction in predictions]
+    labelled = labels is not None or len(sets) > 1
+    if labelled and labels is None:
+        labels = [f"predictions {index + 1}" for index in range(len(sets))]
     figure, axes = plt.subplots(2, 1, figsize=(10, 5.5), sharex=True)
     for axis, feature_class in zip(axes, _CLASS_COLOURS, strict=True):
         columns = np.flatnonzero(classes == feature_class)
         columns = columns[np.argsort(times[columns])]
-        colour = _CLASS_COLOURS[feature_class]
-        if predictions is not None:
-            _draw_bands(axis, times[columns], predictions[:, columns], levels, colour)
+        for index, rows in enumerate(sets):
+            colour = f"C{index}" if labelled else _CLASS_COLOURS[feature_class]
+            label = labels[index] if labelled else None
+            _draw_bands(axis, times[columns], rows[:, columns], levels, colour, label)
         observed = data.observations[columns]
         axis.plot(times[columns], observed, ".", color="k", ms=3, label="observed")
         axis.axhline(0.0, color="0.3", lw=0.5)
         axis.set_ylabel(f"{feature_class} NEE (µmol m⁻² s⁻¹)")
-        axis.legend(fontsize=7, ncol=len(levels) + 2, loc="upper right")
+        columns_in_legend = len(sets) + 1 if labelled else len(levels) + 2
+        axis.legend(fontsize=7, ncol=columns_in_legend, loc="upper right")
     figure.tight_layout()
     return figure
+
+
+def _prediction_rows(
+    predictions: np.ndarray | EmpiricalDistribution, n_features: int
+) -> np.ndarray:
+    """A set of predictions as the rows of an array, without the rows that have a NaN."""
+    if isinstance(predictions, EmpiricalDistribution):
+        predictions = np.asarray(predictions.atoms).reshape(-1, n_features)
+    return _finite_rows(predictions, n_features)
 
 
 def plot_marginals(
@@ -185,6 +205,7 @@ def plot_spectra(
     them, each is a coloured line with its label in the legend, as for a few estimators side by
     side. The reference information matrix, if given, is a thick black line. The dotted line
     $\lambda = 1$ separates directions the data inform more than the prior does from the rest.
+    With *labels*, each subspace's rank $r$ is in its label and marked by a ring on its line.
     Eigenvalues below $10^{-6}$ of the largest, such as that of a direction the data do not inform
     at all, are drawn at that floor.
 
@@ -206,7 +227,11 @@ def plot_spectra(
         if labels is None:
             ax.semilogy(indices, shown, color="0.6", lw=0.8)
         else:
-            ax.semilogy(indices, shown, ".-", color=f"C{index}", label=labels[index])
+            rank = subspaces[index].rank
+            colour = f"C{index}"
+            label = f"{labels[index]} ($r = {rank}$)"
+            ax.semilogy(indices, shown, ".-", color=colour, label=label)
+            ax.semilogy(rank, shown[rank - 1], "o", ms=10, mfc="none", color=colour)
     if reference is not None:
         shown = np.maximum(spectra[-1], floor)
         ax.semilogy(np.arange(1, len(shown) + 1), shown, "k", lw=2, label="reference")
@@ -346,18 +371,21 @@ def _draw_bands(
     predictions: np.ndarray,
     levels: Sequence[float],
     colour: str,
+    label: str | None = None,
 ) -> None:
     """The median of *predictions* over its rows, and its central intervals at each level.
 
-    The intervals are shaded from light (the widest) to dark (the narrowest).
+    The intervals are shaded from light (the widest) to dark (the narrowest). Without *label*,
+    each interval and the median get their own legend entry; with it, the median carries the
+    label and the intervals none.
     """
     for index, level in enumerate(sorted(levels, reverse=True)):
         lower, upper = np.quantile(predictions, [(1 - level) / 2, (1 + level) / 2], axis=0)
         shade = 0.15 + 0.15 * index / max(len(levels) - 1, 1)
-        axis.fill_between(
-            times, lower, upper, color=colour, alpha=shade, lw=0, label=f"{level:.0%}"
-        )
-    axis.plot(times, np.median(predictions, axis=0), color=colour, lw=0.8, label="median")
+        band_label = f"{level:.0%}" if label is None else None
+        axis.fill_between(times, lower, upper, color=colour, alpha=shade, lw=0, label=band_label)
+    median_label = "median" if label is None else label
+    axis.plot(times, np.median(predictions, axis=0), color=colour, lw=0.8, label=median_label)
 
 
 def _as_distribution(argument: Distribution | RecordBatch) -> Distribution:

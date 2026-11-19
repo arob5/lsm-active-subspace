@@ -53,10 +53,27 @@ def test_labelled_spectra_have_a_legend_and_a_floor(toy_run):
         np.diag([10.0, 1.0, 0.0]), parameter_names=("a", "b", "c"), estimator="x"
     )
     ax = plots.plot_spectra([subspace, singular], labels=["ladder", "singular"])
-    assert [text.get_text() for text in ax.get_legend().get_texts()] == ["ladder", "singular"]
-    assert min(line.get_ydata().min() for line in ax.get_lines()[:2]) >= 1e-6 * 10.0 * 0.999
+    legend = [text.get_text() for text in ax.get_legend().get_texts()]
+    assert legend == [f"ladder ($r = {subspace.rank}$)", f"singular ($r = {singular.rank}$)"]
+    assert min(np.min(line.get_ydata()) for line in ax.get_lines()) >= 1e-6 * 10.0 * 0.999
+    ring = ax.get_lines()[3]  # the ring marking the second subspace's rank
+    assert list(ring.get_xdata()) == [singular.rank]
     with pytest.raises(ValueError, match="1 labels for 2"):
         plots.plot_spectra([subspace, singular], labels=["one"])
+
+
+def test_feature_plot_overlays_several_labelled_sets():
+    data = load_harvard_forest()
+    noise = np.random.default_rng(1).normal(size=(2, 20, 400))
+    prior, posterior = data.observations + 3 * noise[0], data.observations + noise[1]
+    figure = plots.plot_features(data, prior, posterior, labels=["prior", "posterior"])
+    labels = [text.get_text() for text in figure.axes[0].get_legend().get_texts()]
+    assert labels == ["prior", "posterior", "observed"]
+    unlabelled = plots.plot_features(data, prior, posterior)
+    labels = [text.get_text() for text in unlabelled.axes[1].get_legend().get_texts()]
+    assert labels == ["predictions 1", "predictions 2", "observed"]
+    with pytest.raises(ValueError, match="1 labels for 2 sets"):
+        plots.plot_features(data, prior, posterior, labels=["prior"])
 
 
 def test_feature_plot_takes_predictions_held_as_a_distribution(toy_run):
