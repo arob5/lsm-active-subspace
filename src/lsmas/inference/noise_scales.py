@@ -180,18 +180,22 @@ class NoiseScaleConditionals:
         """
         n_particles = quadratic_forms.shape[0]
 
-        def keeps_enough(increment: float) -> bool:
+        def keeps_enough_effective_samples(increment: float) -> bool:
             return _effective_sample_size(
                 self.log_importance_weights(quadratic_forms, beta, increment)
             ) >= (ess_fraction * n_particles)
 
-        if keeps_enough(1.0 - beta):
+        if keeps_enough_effective_samples(1.0 - beta):
             return 1.0 - beta
-        low, high = 0.0, 1.0 - beta
+        lower_increment, upper_increment = 0.0, 1.0 - beta
         for _ in range(60):
-            middle = (low + high) / 2
-            low, high = (middle, high) if keeps_enough(middle) else (low, middle)
-        return min(max(low, min_increment), 1.0 - beta)
+            middle_increment = (lower_increment + upper_increment) / 2
+            lower_increment, upper_increment = (
+                (middle_increment, upper_increment)
+                if keeps_enough_effective_samples(middle_increment)
+                else (lower_increment, middle_increment)
+            )
+        return min(max(lower_increment, min_increment), 1.0 - beta)
 
     def noise_variance(self, class_scales: np.ndarray) -> np.ndarray:
         r"""The diagonal of $\Gamma = \operatorname{diag}(s^2_{k(i)}\, \sigma^2_i / \eta_i)$,

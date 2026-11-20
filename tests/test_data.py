@@ -23,8 +23,10 @@ def test_feature_classes_match_the_likelihood_description():
 
 def test_each_feature_lies_inside_its_recorded_windows():
     data = load_harvard_forest()
-    for row, feature in enumerate(data.features.itertuples()):
-        columns = data.operator.indices[data.operator.indptr[row] : data.operator.indptr[row + 1]]
+    for feature_index, feature in enumerate(data.features.itertuples()):
+        columns = data.operator.indices[
+            data.operator.indptr[feature_index] : data.operator.indptr[feature_index + 1]
+        ]
         window_ends = data.step_ends[columns]
         assert window_ends.min() == feature.first_step_end_utc
         assert window_ends.max() == feature.last_step_end_utc
@@ -55,11 +57,11 @@ def test_prior_table_gives_every_parameter_its_units_and_source():
 def test_a_parameter_named_twice_in_the_prior_table_is_refused(tmp_path):
     for path in DEFAULT_DATA_DIRECTORY.rglob("*"):
         if path.is_file():
-            target = tmp_path / path.relative_to(DEFAULT_DATA_DIRECTORY)
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(path.read_bytes())
+            copied_path = tmp_path / path.relative_to(DEFAULT_DATA_DIRECTORY)
+            copied_path.parent.mkdir(parents=True, exist_ok=True)
+            copied_path.write_bytes(path.read_bytes())
     prior = tmp_path / "prior.csv"
-    lines = prior.read_text().splitlines()
-    prior.write_text("\n".join([*lines, lines[1]]) + "\n")
+    prior_table_lines = prior.read_text().splitlines()
+    prior.write_text("\n".join([*prior_table_lines, prior_table_lines[1]]) + "\n")
     with pytest.raises(ValueError, match="photosynthetic_capacity"):
         load_harvard_forest(tmp_path)

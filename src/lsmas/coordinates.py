@@ -87,16 +87,16 @@ class CoordinateMap(Function, SupportsInverse, SupportsLogDetJacobian):
     ) -> None:
         names = tuple(input_spec.fields)
 
-        def apply(record: Any) -> dict[str, Any]:
+        def forward_on_record(record: Any) -> dict[str, Any]:
             return _as_record(names, forward(_as_vector(names, record)))
 
         # ProbPipe binds a Function's input by its parameter's name.
-        apply.__signature__ = inspect.Signature(
+        forward_on_record.__signature__ = inspect.Signature(
             [inspect.Parameter(input_name, inspect.Parameter.POSITIONAL_OR_KEYWORD)]
         )
 
         super().__init__(
-            apply,
+            forward_on_record,
             label=label,
             input_spec={input_name: input_spec},
             output_spec=output_spec,
@@ -311,8 +311,8 @@ class Coordinates:
         with jax.ensure_compile_time_eval():
             key = jax.random.key(self._seed)
             draws = draw_with_key(self._prior, key, (self._n_moment_draws,))
-            vectors = _parameter_vectors(draws, self.block, self.names)
-            phi = np.asarray(self._unconstrained(vectors))
+            prior_parameters = _parameter_vectors(draws, self.block, self.names)
+            phi = np.asarray(self._unconstrained(prior_parameters))
         factor = np.linalg.cholesky(np.atleast_2d(np.cov(phi, rowvar=False)))
         return phi.mean(axis=0), factor, np.linalg.inv(factor)
 
@@ -343,7 +343,7 @@ def _real_record_spec(names: tuple[str, ...]) -> NumericRecordSpec:
 
 def _block_spec(prior: Distribution, block: str) -> NumericRecordSpec:
     """The record spec of *block* in *prior*'s event declaration."""
-    outputs = prior.event_spec.outputs
-    if block not in outputs or not hasattr(outputs[block], "fields"):
+    prior_outputs = prior.event_spec.outputs
+    if block not in prior_outputs or not hasattr(prior_outputs[block], "fields"):
         raise ValueError(f"the prior has no block of named parameters called {block!r}")
-    return outputs[block]
+    return prior_outputs[block]

@@ -148,9 +148,9 @@ class Reference:
     @classmethod
     def load(cls, path: Path) -> Reference:
         """Read a reference written by :meth:`save`."""
-        tree = xr.open_datatree(path, engine="h5netcdf")
-        posterior = tree["posterior"].to_dataset()
-        attributes = tree.attrs
+        stored_tree = xr.open_datatree(path, engine="h5netcdf")
+        posterior = stored_tree["posterior"].to_dataset()
+        attributes = stored_tree.attrs
         return cls(
             problem_name=str(attributes["problem_name"]),
             scales=str(attributes["scales"]),
@@ -161,8 +161,8 @@ class Reference:
                 for name in posterior.data_vars
                 if name != "theta"
             },
-            information=tree["information"]["information"].values,
-            diagnostics=tree["diagnostics"].to_dataset().to_dataframe(),
+            information=stored_tree["information"]["information"].values,
+            diagnostics=stored_tree["diagnostics"].to_dataset().to_dataframe(),
             provenance=json.loads(attributes["provenance"]),
         )
 
@@ -216,12 +216,12 @@ def convergence_diagnostics(
         f"log_{noise_scale_variable(noise_class)}": np.log(draws)
         for noise_class, draws in noise_scales.items()
     }
-    tree = az.from_dict({"posterior": variables})
+    inference_data = az.from_dict({"posterior": variables})
     return pd.DataFrame(
         {
-            "rhat": _per_variable(az.rhat(tree), variables),
-            "ess_bulk": _per_variable(az.ess(tree, method="bulk"), variables),
-            "ess_tail": _per_variable(az.ess(tree, method="tail"), variables),
+            "rhat": _per_variable(az.rhat(inference_data), variables),
+            "ess_bulk": _per_variable(az.ess(inference_data, method="bulk"), variables),
+            "ess_tail": _per_variable(az.ess(inference_data, method="tail"), variables),
         },
         index=pd.Index(list(variables), name="coordinate"),
     )
@@ -401,8 +401,8 @@ def _slowest_chain_seconds(segment_files: list[Path]) -> float:
     """The sum over segments of the slowest chain's time; segments without a time count as 0."""
     by_segment: dict[str, float] = {}
     for path in segment_files:
-        stored = np.load(path)
-        seconds = float(stored["seconds"]) if "seconds" in stored.files else 0.0
+        segment = np.load(path)
+        seconds = float(segment["seconds"]) if "seconds" in segment.files else 0.0
         by_segment[path.name] = max(by_segment.get(path.name, 0.0), seconds)
     return sum(by_segment.values())
 
@@ -480,10 +480,10 @@ def _build_reference(
             f"most {MAX_RHAT}, {MIN_EFFECTIVE_DRAWS} effective draws); see its diagnostics",
             stacklevel=3,
         )
-    keep = _evenly_spaced(theta.shape[1], max(1, MAX_STORED_DRAWS // theta.shape[0]))
+    kept_draws = _evenly_spaced(theta.shape[1], max(1, MAX_STORED_DRAWS // theta.shape[0]))
     theta, noise_scales = (
-        theta[:, keep],
-        {noise_class: draws[:, keep] for noise_class, draws in noise_scales.items()},
+        theta[:, kept_draws],
+        {noise_class: draws[:, kept_draws] for noise_class, draws in noise_scales.items()},
     )
     return Reference(
         problem_name=problem.name,
@@ -503,13 +503,14 @@ def _reference_information(
     r"""$H_{\mathrm{ref}}$ at evenly thinned draws: exact Jacobians if the forward map can be
     differentiated, central differences otherwise."""
     pooled = theta.reshape(-1, theta.shape[-1])
-    keep = _evenly_spaced(len(pooled), INFORMATION_DRAWS)
+    kept_draws = _evenly_spaced(len(pooled), INFORMATION_DRAWS)
     fields: dict[str, Any] = {
-        "theta": {name: pooled[keep, j] for j, name in enumerate(problem.coordinates.names)}
+        "theta": {name: pooled[kept_draws, j] for j, name in enumerate(problem.coordinates.names)}
     }
     if noise_scales:
         fields[NOISE_SCALES] = {
-            noise_class: draws.reshape(-1)[keep] for noise_class, draws in noise_scales.items()
+            noise_class: draws.reshape(-1)[kept_draws]
+            for noise_class, draws in noise_scales.items()
         }
     estimator = (
         exact_subspace if declares_traceable(problem.forward) else finite_difference_subspace
@@ -552,22 +553,22 @@ def _repository_commit() -> str | None:
     """The commit of the checkout this package runs from, marked if tracked files had changed."""
     try:
         commit = _git("rev-parse", "HEAD")
-        changed = _git("status", "--porcelain", "--untracked-files=no")
+        uncommitted_changes = _git("status", "--porcelain", "--untracked-files=no")
     except (OSError, subprocess.CalledProcessError):
         return None
-    return commit + (" with uncommitted changes" if changed else "")
+    return commit + (" with uncommitted changes" if uncommitted_changes else "")
 
 
 def _git(*arguments: str) -> str:
     """The output of a git command run in the repository."""
-    completed = subprocess.run(
+    git_process = subprocess.run(
         ["git", *arguments],
         cwd=BASELINE_DIRECTORY.parent,
         capture_output=True,
         text=True,
         check=True,
     )
-    return completed.stdout.strip()
+    return git_process.stdout.strip()
 
 
 def _flat_states(problem: InverseProblem, atoms: Any) -> np.ndarray:
@@ -636,9 +637,9 @@ def _evenly_spaced(length: int, count: int) -> np.ndarray:
     return np.unique(np.linspace(0, length - 1, min(count, length)).round().astype(int))
 
 
-def _per_variable(result: Any, variables: dict[str, Any]) -> list[float]:
+def _per_variable(diagnostic: Any, variables: dict[str, Any]) -> list[float]:
     """One diagnostic's value for each variable, in order."""
-    return [float(np.asarray(result[name])) for name in variables]
+    return [float(np.asarray(diagnostic[name])) for name in variables]
 
 
 def _reference_tree(reference: Reference) -> xr.DataTree:
@@ -660,12 +661,12 @@ def _reference_tree(reference: Reference) -> xr.DataTree:
         },
     )
     diagnostics = xr.Dataset.from_dataframe(reference.diagnostics)
-    tree = xr.DataTree.from_dict(
+    reference_tree = xr.DataTree.from_dict(
         {"posterior": posterior, "information": information, "diagnostics": diagnostics}
     )
-    tree.attrs = {
+    reference_tree.attrs = {
         "problem_name": reference.problem_name,
         "scales": reference.scales,
         "provenance": json.dumps(reference.provenance),
     }
-    return tree
+    return reference_tree

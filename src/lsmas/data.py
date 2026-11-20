@@ -68,9 +68,9 @@ class HarvardForestData:
     def feature_times(self) -> pd.DatetimeIndex:
         """Each feature's time for plotting: midway between the ends of its first and last
         windows (UTC), length $n$."""
-        first = self.features["first_step_end_utc"]
-        last = self.features["last_step_end_utc"]
-        return pd.DatetimeIndex(first + (last - first) / 2)
+        first_window_ends = self.features["first_step_end_utc"]
+        last_window_ends = self.features["last_step_end_utc"]
+        return pd.DatetimeIndex(first_window_ends + (last_window_ends - first_window_ends) / 2)
 
 
 def load_harvard_forest(directory: Path | None = None) -> HarvardForestData:
@@ -130,8 +130,8 @@ def _read_fixed_values(path: Path) -> dict[str, float]:
 def _read_prior_table(path: Path) -> pd.DataFrame:
     """The prior table in ``prior.csv``, indexed by parameter."""
     table = pd.read_csv(path, index_col="parameter")
-    if repeated := sorted(table.index[table.index.duplicated()]):
-        raise ValueError(f"{path.name} names these parameters more than once: {repeated}")
+    if duplicated_names := sorted(table.index[table.index.duplicated()]):
+        raise ValueError(f"{path.name} names these parameters more than once: {duplicated_names}")
     return table
 
 

@@ -30,7 +30,7 @@ def model():
     return likelihood & prior, prior
 
 
-def point(a, b, day, night):
+def parameter_point(a, b, day, night):
     return {"theta": {"a": a, "b": b}, "s2": {"day": day, "night": night}}
 
 
@@ -49,12 +49,12 @@ def test_target_density_is_prior_plus_tempered_log_likelihood(model, observation
     target = tempered_condition_on(
         joint, {"y": observations}, learning_rate={"y": learning_rate}, method="unnormalized"
     )
-    first, second = point(0.8, -0.6, 1.5, 0.7), point(-0.2, 0.4, 0.6, 2.0)
-    difference = float(unnormalized_log_prob(target, first).raw) - float(
-        unnormalized_log_prob(target, second).raw
+    point_a, point_b = parameter_point(0.8, -0.6, 1.5, 0.7), parameter_point(-0.2, 0.4, 0.6, 2.0)
+    difference = float(unnormalized_log_prob(target, point_a).raw) - float(
+        unnormalized_log_prob(target, point_b).raw
     )
-    expected = expected_log_density(prior, first, observations, learning_rate) - (
-        expected_log_density(prior, second, observations, learning_rate)
+    expected = expected_log_density(prior, point_a, observations, learning_rate) - (
+        expected_log_density(prior, point_b, observations, learning_rate)
     )
     assert difference == pytest.approx(expected, rel=1e-10)
 
@@ -63,15 +63,15 @@ def test_rate_one_gives_the_ordinary_posterior_target(model, observations):
     joint, _ = model
     data = {"y": observations}
     tempered = tempered_condition_on(joint, data, learning_rate={"y": 1.0}, method="unnormalized")
-    plain = condition_on.using(method="unnormalized")(joint, data)
-    first, second = point(0.8, -0.6, 1.5, 0.7), point(-0.2, 0.4, 0.6, 2.0)
+    untempered_target = condition_on.using(method="unnormalized")(joint, data)
+    point_a, point_b = parameter_point(0.8, -0.6, 1.5, 0.7), parameter_point(-0.2, 0.4, 0.6, 2.0)
 
     def difference(target):
-        return float(unnormalized_log_prob(target, first).raw) - float(
-            unnormalized_log_prob(target, second).raw
+        return float(unnormalized_log_prob(target, point_a).raw) - float(
+            unnormalized_log_prob(target, point_b).raw
         )
 
-    assert difference(tempered) == pytest.approx(difference(plain), rel=1e-10)
+    assert difference(tempered) == pytest.approx(difference(untempered_target), rel=1e-10)
 
 
 def test_nuts_recovers_the_tempered_posterior(observations):

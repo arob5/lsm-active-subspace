@@ -70,9 +70,9 @@ def test_describe_names_the_parameters_and_data(small):
 
 def test_conditioning_target_is_the_generalized_posterior(small):
     target = small.condition(method="unnormalized")
-    other = THETA | {"soil_respiration_flux_at_10c": 300.0}
+    other_theta = THETA | {"soil_respiration_flux_at_10c": 300.0}
     difference = float(unnormalized_log_prob(target, {"theta": THETA}).raw) - float(
-        unnormalized_log_prob(target, {"theta": other}).raw
+        unnormalized_log_prob(target, {"theta": other_theta}).raw
     )
 
     def expected(theta):
@@ -82,7 +82,7 @@ def test_conditioning_target_is_the_generalized_posterior(small):
         prior = float(log_prob(small.prior, {"theta": theta}).raw)
         return np.sum(small.learning_rate["nee"] * pointwise) + prior
 
-    assert difference == pytest.approx(expected(THETA) - expected(other), rel=1e-8)
+    assert difference == pytest.approx(expected(THETA) - expected(other_theta), rel=1e-8)
 
 
 def test_model_draws_run_sipnet(small_inferred):

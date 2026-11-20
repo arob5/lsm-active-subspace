@@ -25,10 +25,10 @@ def conditionals(night_scale):
 def test_draws_follow_the_conjugate_inverse_gamma_law():
     model = conditionals(None)
     beta = 0.6
-    forms = np.repeat(model.quadratic_forms(PREDICTIONS[:1]), 200_000, axis=0)
-    draws = model.draw_scales(forms, beta, jax.random.key(0))
+    quadratic_forms = np.repeat(model.quadratic_forms(PREDICTIONS[:1]), 200_000, axis=0)
+    draws = model.draw_scales(quadratic_forms, beta, jax.random.key(0))
     shape = model.concentrations + beta * model.effective_counts / 2
-    rate = model.prior_scales + beta * forms[0] / 2
+    rate = model.prior_scales + beta * quadratic_forms[0] / 2
     for k in range(2):
         expected = stats.invgamma(shape[k], scale=rate[k])
         np.testing.assert_allclose(
@@ -57,7 +57,7 @@ def test_only_scales_given_as_slots_are_inferred():
 
 def test_weights_are_the_ratio_of_the_scale_marginal_likelihoods():
     model = conditionals(0.7)
-    forms = model.quadratic_forms(PREDICTIONS)
+    quadratic_forms = model.quadratic_forms(PREDICTIONS)
     beta, increment = 0.2, 0.3
     day = CLASSES == "day"
 
@@ -74,19 +74,21 @@ def test_weights_are_the_ratio_of_the_scale_marginal_likelihoods():
             )
             return prior * tempered
 
-        night = -level / 2 * forms[particle, 1] / 0.7
+        night = -level / 2 * quadratic_forms[particle, 1] / 0.7
         return np.log(integrate.quad(integrand, 0, np.inf)[0]) + night
 
     expected = [log_marginal(j, beta + increment) - log_marginal(j, beta) for j in range(2)]
-    computed = model.log_importance_weights(forms, beta, increment)
-    assert computed[0] - computed[1] == pytest.approx(expected[0] - expected[1], rel=1e-6)
+    computed_weights = model.log_importance_weights(quadratic_forms, beta, increment)
+    assert computed_weights[0] - computed_weights[1] == pytest.approx(
+        expected[0] - expected[1], rel=1e-6
+    )
 
 
 def test_largest_increment_keeps_the_effective_sample_size():
     model = conditionals(None)
-    forms = model.quadratic_forms(np.random.default_rng(0).normal(size=(50, 6)) * 2)
-    increment = model.largest_increment(forms, 0.0, 0.5)
-    weights = np.exp(model.log_importance_weights(forms, 0.0, increment))
+    quadratic_forms = model.quadratic_forms(np.random.default_rng(0).normal(size=(50, 6)) * 2)
+    increment = model.largest_increment(quadratic_forms, 0.0, 0.5)
+    weights = np.exp(model.log_importance_weights(quadratic_forms, 0.0, increment))
     ess = weights.sum() ** 2 / (weights**2).sum()
     assert 0 < increment < 1
     assert ess == pytest.approx(25, rel=1e-3)
@@ -105,6 +107,6 @@ def test_noise_variance_is_the_tempered_covariance():
 
 def test_increment_never_falls_below_the_floor():
     model = conditionals(None)
-    forms = model.quadratic_forms(np.random.default_rng(1).normal(size=(50, 6)) * 1e4)
-    assert model.largest_increment(forms, 0.0, 0.5) == pytest.approx(1e-3)
-    assert model.largest_increment(forms, 0.9995, 0.5) == pytest.approx(0.0005)
+    quadratic_forms = model.quadratic_forms(np.random.default_rng(1).normal(size=(50, 6)) * 1e4)
+    assert model.largest_increment(quadratic_forms, 0.0, 0.5) == pytest.approx(1e-3)
+    assert model.largest_increment(quadratic_forms, 0.9995, 0.5) == pytest.approx(0.0005)

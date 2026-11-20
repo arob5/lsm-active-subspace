@@ -192,9 +192,9 @@ def interval_coverage(
 ) -> np.ndarray:
     """The share of the target's draws inside the approximation's central interval, per
     coordinate; *probability* is ideal."""
-    tail = (1 - probability) / 2
-    low, high = np.quantile(approximation, [tail, 1 - tail], axis=0)
-    return np.mean((target >= low) & (target <= high), axis=0)
+    tail_probability = (1 - probability) / 2
+    lower, upper = np.quantile(approximation, [tail_probability, 1 - tail_probability], axis=0)
+    return np.mean((target >= lower) & (target <= upper), axis=0)
 
 
 def gaussian_wasserstein(approximation: np.ndarray, target: np.ndarray) -> float:
@@ -210,9 +210,9 @@ def gaussian_wasserstein(approximation: np.ndarray, target: np.ndarray) -> float
     approximation_covariance = np.atleast_2d(np.cov(approximation, rowvar=False))
     target_covariance = np.atleast_2d(np.cov(target, rowvar=False))
     target_root = linalg.sqrtm(target_covariance)
-    cross = linalg.sqrtm(target_root @ approximation_covariance @ target_root).real
+    cross_term = linalg.sqrtm(target_root @ approximation_covariance @ target_root).real
     squared = mean_gap @ mean_gap + np.trace(
-        approximation_covariance + target_covariance - 2 * cross
+        approximation_covariance + target_covariance - 2 * cross_term
     )
     return float(np.sqrt(max(squared, 0.0)))
 
@@ -221,13 +221,13 @@ def captured_information(basis: np.ndarray, information: np.ndarray) -> float:
     r"""The captured information $\operatorname{tr}(W^\top H W) / \sum_{i \le r} \lambda_i(H)$ of a
     basis $W$ of rank $r$."""
     rank = basis.shape[1]
-    best = np.sort(np.linalg.eigvalsh(information))[::-1][:rank].sum()
-    return float(np.trace(basis.T @ information @ basis) / best)
+    largest_possible = np.sort(np.linalg.eigvalsh(information))[::-1][:rank].sum()
+    return float(np.trace(basis.T @ information @ basis) / largest_possible)
 
 
 def largest_principal_angle(basis: np.ndarray, information: np.ndarray) -> float:
     """The largest principal angle, in degrees, between the span of *basis* and that of the top
     eigenvectors of *information*, as many as *basis* has columns."""
     rank = basis.shape[1]
-    top = np.linalg.eigh(information)[1][:, ::-1][:, :rank]
-    return float(principal_angles(basis, top).max())
+    leading_eigenvectors = np.linalg.eigh(information)[1][:, ::-1][:, :rank]
+    return float(principal_angles(basis, leading_eigenvectors).max())

@@ -28,7 +28,7 @@ def test_describe_names_the_parameters_and_observations(problem):
 
 def test_misfit_is_half_the_weighted_squared_residual(problem, observations):
     assert problem.misfit(observations) == pytest.approx(0.0)
-    shifted = np.stack([observations + 1.0, observations - 2.0])
+    shifted_predictions = np.stack([observations + 1.0, observations - 2.0])
     gamma = problem.noise_variance()
     expected = [0.5 * np.sum(1.0 / gamma), 0.5 * np.sum(4.0 / gamma)]
-    np.testing.assert_allclose(problem.misfit(shifted), expected)
+    np.testing.assert_allclose(problem.misfit(shifted_predictions), expected)

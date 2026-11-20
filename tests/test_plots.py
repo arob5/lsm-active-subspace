@@ -41,8 +41,8 @@ def test_single_panel_plots_return_their_axes(toy_run):
     assert isinstance(plots.plot_spectra([subspace, subspace], reference), Axes)
     assert isinstance(plots.plot_activity_scores(subspace), Axes)
     assert isinstance(plots.plot_loadings(subspace, direction=2), Axes)
-    table = pd.DataFrame({"rank": [2, 2, 4, 4], "marginal_w1_mean": [0.5, 0.6, 0.3, 0.2]})
-    assert isinstance(plots.plot_metric_against_setting(table, "rank"), Axes)
+    study_table = pd.DataFrame({"rank": [2, 2, 4, 4], "marginal_w1_mean": [0.5, 0.6, 0.3, 0.2]})
+    assert isinstance(plots.plot_metric_against_setting(study_table, "rank"), Axes)
 
 
 def test_labelled_spectra_have_a_legend_and_a_floor(toy_run):
@@ -54,8 +54,8 @@ def test_labelled_spectra_have_a_legend_and_a_floor(toy_run):
     legend = [text.get_text() for text in ax.get_legend().get_texts()]
     assert legend == [f"ladder ($r = {subspace.rank}$)", f"singular ($r = {singular.rank}$)"]
     assert min(np.min(line.get_ydata()) for line in ax.get_lines()) >= 1e-6 * 10.0 * 0.999
-    ring = ax.get_lines()[3]  # the ring marking the second subspace's rank
-    assert list(ring.get_xdata()) == [singular.rank]
+    rank_ring = ax.get_lines()[3]  # the ring marking the second subspace's rank
+    assert list(rank_ring.get_xdata()) == [singular.rank]
     with pytest.raises(ValueError, match="1 labels for 2"):
         plots.plot_spectra([subspace, singular], labels=["one"])
 
@@ -149,5 +149,5 @@ def test_marginal_plot_of_a_constant_field_and_of_fields_sharing_a_name():
         "theta/scale",
         "noise/scale",
     ]
-    low, high = figure.axes[0].get_xlim()
-    assert low < 2.0 < high
+    lower, upper = figure.axes[0].get_xlim()
+    assert lower < 2.0 < upper

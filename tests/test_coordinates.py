@@ -77,8 +77,8 @@ def test_whitening_is_invertible_on_batches_of_several_levels(prior, coordinates
     back = inverse(coordinates.whiten)(z)
     np.testing.assert_allclose(back.to_vector(), theta.to_vector(), rtol=1e-10)
     assert is_invertible(coordinates.whiten)
-    twice = inverse(inverse(coordinates.whiten))(theta)
-    np.testing.assert_allclose(twice.to_vector(), z.to_vector(), rtol=1e-12)
+    z_through_inverse_of_inverse = inverse(inverse(coordinates.whiten))(theta)
+    np.testing.assert_allclose(z_through_inverse_of_inverse.to_vector(), z.to_vector(), rtol=1e-12)
 
 
 def test_a_distribution_maps_to_a_distribution_of_its_draws_mapped(prior, coordinates):
@@ -94,19 +94,21 @@ def test_a_distribution_maps_to_a_distribution_of_its_draws_mapped(prior, coordi
 
 
 def test_log_det_jacobians_match_the_jacobians(coordinates):
-    point = {name: value for name, value in zip(coordinates.names, THETA[0], strict=True)}
-    for change, kernel in [
+    theta_record = {name: value for name, value in zip(coordinates.names, THETA[0], strict=True)}
+    for coordinate_map, array_function in [
         (coordinates.unconstrain, coordinates._unconstrained),
         (coordinates.whiten, coordinates._whitened),
     ]:
-        expected = np.linalg.slogdet(np.asarray(jax.jacfwd(kernel)(THETA[0])))[1]
-        assert float(change._log_det_jacobian(point)) == pytest.approx(expected, rel=1e-10)
+        expected = np.linalg.slogdet(np.asarray(jax.jacfwd(array_function)(THETA[0])))[1]
+        assert float(coordinate_map._log_det_jacobian(theta_record)) == pytest.approx(
+            expected, rel=1e-10
+        )
 
 
 def test_coordinates_do_not_depend_on_where_they_are_built(prior):
-    first = Coordinates.from_prior(prior, "theta", n_moment_draws=1000)
-    second = Coordinates.from_prior(prior, "theta", n_moment_draws=1000)
-    np.testing.assert_array_equal(first.whitening_factor, second.whitening_factor)
+    first_build = Coordinates.from_prior(prior, "theta", n_moment_draws=1000)
+    second_build = Coordinates.from_prior(prior, "theta", n_moment_draws=1000)
+    np.testing.assert_array_equal(first_build.whitening_factor, second_build.whitening_factor)
 
 
 def test_unknown_block_is_refused(prior):
@@ -115,6 +117,8 @@ def test_unknown_block_is_refused(prior):
 
 
 def test_the_whitening_can_first_be_needed_inside_a_trace(prior):
-    fresh = Coordinates.from_prior(prior, "theta", n_moment_draws=1000)
-    traced = jax.jit(fresh._from_whitened)(np.zeros(3))
-    np.testing.assert_allclose(traced, fresh._from_whitened(np.zeros(3)), rtol=1e-12)
+    new_coordinates = Coordinates.from_prior(prior, "theta", n_moment_draws=1000)
+    traced_parameters = jax.jit(new_coordinates._from_whitened)(np.zeros(3))
+    np.testing.assert_allclose(
+        traced_parameters, new_coordinates._from_whitened(np.zeros(3)), rtol=1e-12
+    )

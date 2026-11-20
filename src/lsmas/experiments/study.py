@@ -130,26 +130,28 @@ def run_study(study: Study, directory: Path, *, reference: Reference | None = No
             f"the reference is for {reference.problem_name} ({reference.scales}), "
             f"the study for {study.problem} ({study.scales})"
         )
-    reserved = {*score_names(problem), "seed", "wall_seconds", "run"}
-    if clashing := sorted({name for setting in study.settings for name in setting} & reserved):
+    reserved_names = {*score_names(problem), "seed", "wall_seconds", "run"}
+    if clashing := sorted(
+        {name for setting in study.settings for name in setting} & reserved_names
+    ):
         raise ValueError(f"settings may not be named like the table's other columns: {clashing}")
-    rows = []
+    score_rows = []
     for setting in study.settings:
         for seed in study.seeds:
             run_directory = directory / _run_key(study, setting, seed)
             if not (run_directory / _SCORES_FILE).exists():
                 _run_and_save(study, problem, reference, dict(setting), seed, run_directory)
-            rows.append(json.loads((run_directory / _SCORES_FILE).read_text()))
-    return pd.DataFrame(rows)
+            score_rows.append(json.loads((run_directory / _SCORES_FILE).read_text()))
+    return pd.DataFrame(score_rows)
 
 
 def load_run(run_directory: Path) -> StoredRun:
     """Read one saved run of a study, for plotting or further scoring."""
     run_directory = Path(run_directory)
-    tree = xr.open_datatree(run_directory / _RUN_FILE, engine="h5netcdf")
-    posterior = tree["posterior"].to_dataset()
-    subspace = tree["subspace"].to_dataset()
-    attributes = tree.attrs
+    run_tree = xr.open_datatree(run_directory / _RUN_FILE, engine="h5netcdf")
+    posterior = run_tree["posterior"].to_dataset()
+    subspace = run_tree["subspace"].to_dataset()
+    attributes = run_tree.attrs
     return StoredRun(
         setting=json.loads(attributes["setting"]),
         seed=int(attributes["seed"]),
@@ -199,13 +201,13 @@ def _run_and_save(
     _result_tree(result, problem, setting, seed, wall_seconds).to_netcdf(
         run_directory / _RUN_FILE, engine="h5netcdf"
     )
-    row = (
+    score_row = (
         setting
         | {"seed": seed}
         | score(result, reference, problem)
         | {"wall_seconds": round(wall_seconds, 1), "run": run_directory.name}
     )
-    (run_directory / _SCORES_FILE).write_text(json.dumps(row))
+    (run_directory / _SCORES_FILE).write_text(json.dumps(score_row))
 
 
 def _result_tree(
@@ -237,11 +239,11 @@ def _result_tree(
         coords={"parameter": list(problem.coordinates.names)},
         attrs={"rank": result.subspace.rank, "estimator": result.subspace.estimator},
     )
-    tree = xr.DataTree.from_dict({"posterior": posterior, "subspace": subspace})
-    tree.attrs = {
+    run_tree = xr.DataTree.from_dict({"posterior": posterior, "subspace": subspace})
+    run_tree.attrs = {
         "setting": json.dumps(setting),
         "seed": seed,
         "forward_runs": json.dumps(result.forward_runs),
         "wall_seconds": wall_seconds,
     }
-    return tree
+    return run_tree

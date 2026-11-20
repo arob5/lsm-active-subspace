@@ -402,22 +402,22 @@ def initial_pools_to_sipnet(
         ($f$).
     """
     coarse_roots, fine_roots = float(coarse_root_carbon), float(fine_root_carbon)
-    total = float(wood_carbon) + coarse_roots + fine_roots
+    total_wood_carbon = float(wood_carbon) + coarse_roots + fine_roots
     return {
-        "total_wood_carbon": total,
-        "coarse_root_fraction": coarse_roots / total,
-        "fine_root_fraction": fine_roots / total,
+        "total_wood_carbon": total_wood_carbon,
+        "coarse_root_fraction": coarse_roots / total_wood_carbon,
+        "fine_root_fraction": fine_roots / total_wood_carbon,
     }
 
 
 def _check_each_set_once(calibrated: Mapping[str, float], fixed: Mapping[str, float]) -> None:
     """Raise ``ValueError`` unless *calibrated* and *fixed* share out SIPNET's parameters."""
     problems = []
-    if both := sorted(calibrated.keys() & fixed.keys()):
-        problems.append(f"both calibrated and fixed: {both}")
-    if missing := sorted(SIPNET_PARAMETERS - calibrated.keys() - fixed.keys()):
-        problems.append(f"neither calibrated nor fixed: {missing}")
-    if unknown := sorted(fixed.keys() - SIPNET_PARAMETERS):
-        problems.append(f"fixed but not SIPNET parameters: {unknown}")
+    if calibrated_and_fixed := sorted(calibrated.keys() & fixed.keys()):
+        problems.append(f"both calibrated and fixed: {calibrated_and_fixed}")
+    if unset_parameters := sorted(SIPNET_PARAMETERS - calibrated.keys() - fixed.keys()):
+        problems.append(f"neither calibrated nor fixed: {unset_parameters}")
+    if unknown_parameters := sorted(fixed.keys() - SIPNET_PARAMETERS):
+        problems.append(f"fixed but not SIPNET parameters: {unknown_parameters}")
     if problems:
         raise ValueError("each SIPNET parameter must be set exactly once; " + "; ".join(problems))

@@ -141,8 +141,8 @@ def test_a_scale_without_an_inverse_gamma_prior_is_refused(observations):
 
 
 def test_method_runs_only_when_named(observations):
-    report = condition_on.check(linear_model(), {"y": observations})
-    assert report.method != "enskit_eki"
+    feasibility_report = condition_on.check(linear_model(), {"y": observations})
+    assert feasibility_report.method != "enskit_eki"
 
 
 @pytest.mark.smoke
@@ -165,8 +165,8 @@ def test_eki_runs_on_the_small_harvard_forest_problem():
 def failing_linear_forward(theta):
     """The linear forward map, failing (NaN) wherever a > 1.5."""
     a, b = float(np.asarray(theta["a"])), float(np.asarray(theta["b"]))
-    values = FORWARD_MATRIX @ np.array([a, b])
-    return np.full(6, np.nan) if a > 1.5 else values
+    predictions = FORWARD_MATRIX @ np.array([a, b])
+    return np.full(6, np.nan) if a > 1.5 else predictions
 
 
 def test_failed_runs_are_counted_and_repaired(observations):

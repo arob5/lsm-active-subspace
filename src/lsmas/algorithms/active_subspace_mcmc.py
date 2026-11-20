@@ -119,7 +119,8 @@ def active_subspace_mcmc(
 def _independent_stage_seeds(seed: int) -> tuple[int, int, int]:
     """Independent seeds for EKI, random-walk Metropolis and the lift, spawned from one root."""
     eki_seed, rwmh_seed, lift_seed = (
-        int(child.generate_state(1)[0]) for child in np.random.SeedSequence(seed).spawn(3)
+        int(stage_sequence.generate_state(1)[0])
+        for stage_sequence in np.random.SeedSequence(seed).spawn(3)
     )
     return eki_seed, rwmh_seed, lift_seed
 

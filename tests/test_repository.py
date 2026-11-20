@@ -23,9 +23,9 @@ def test_every_stopgap_tag_names_a_registered_gap():
     registered = registered_gap_ids()
     for path in source_files():
         for tag in STOPGAP_TAG.findall(path.read_text()):
-            ids = [part.strip() for part in tag.split(",")]
-            assert ids, f"{path.name}: empty STOPGAP tag"
-            for gap_id in ids:
+            gap_ids = [gap_id_text.strip() for gap_id_text in tag.split(",")]
+            assert gap_ids, f"{path.name}: empty STOPGAP tag"
+            for gap_id in gap_ids:
                 assert GAP_ID.fullmatch(gap_id), f"{path.name}: malformed gap id {gap_id!r}"
                 assert gap_id in registered, f"{path.name}: {gap_id} is not in {REGISTRY.name}"
 
@@ -39,10 +39,10 @@ def test_every_stopgap_module_names_its_gap():
 def test_no_private_probpipe_name_is_imported():
     for path in source_files():
         for node in ast.walk(ast.parse(path.read_text())):
-            for imported in _probpipe_imports(node):
-                assert not any(part.startswith("_") for part in imported.split(".")), (
-                    f"{path.name}:{node.lineno} imports the private name {imported}"
-                )
+            for imported_name in _probpipe_imports(node):
+                assert not any(
+                    name_part.startswith("_") for name_part in imported_name.split(".")
+                ), f"{path.name}:{node.lineno} imports the private name {imported_name}"
 
 
 def test_every_probpipe_function_states_whether_it_is_traceable():

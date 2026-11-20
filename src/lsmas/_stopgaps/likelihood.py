@@ -221,12 +221,12 @@ def noise_scale_variable(noise_class: str) -> str:
 def _check_classes_have_scales(classes: np.ndarray, scales: Mapping[str, Any]) -> None:
     """Raise ``ValueError`` unless every class of observation has exactly one scale, and each
     scale is a number or ``"inferred"``."""
-    missing = sorted(set(classes.tolist()) - set(scales))
-    unused = sorted(set(scales) - set(classes.tolist()))
-    if missing or unused:
+    classes_without_scale = sorted(set(classes.tolist()) - set(scales))
+    scales_without_observations = sorted(set(scales) - set(classes.tolist()))
+    if classes_without_scale or scales_without_observations:
         raise ValueError(
-            f"every class needs one scale; classes without a scale: {missing}, "
-            f"scales without observations: {unused}"
+            f"every class needs one scale; classes without a scale: {classes_without_scale}, "
+            f"scales without observations: {scales_without_observations}"
         )
     if unknown := sorted(
         noise_class

@@ -57,6 +57,6 @@ def test_runs_on_sipnet():
 
 
 def test_independent_stage_seeds_of_different_root_seeds_never_coincide():
-    seeds = [seed for root in range(50) for seed in _independent_stage_seeds(root)]
+    seeds = [seed for root_seed in range(50) for seed in _independent_stage_seeds(root_seed)]
     assert len(set(seeds)) == len(seeds)
     assert _independent_stage_seeds(3) == _independent_stage_seeds(3)

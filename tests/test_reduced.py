@@ -32,8 +32,8 @@ def exact_plug_in_posterior(problem, subspace):
     names = problem.coordinates.names
     to_parameters = inverse(problem.coordinates.whiten).using(raw=True)
 
-    def features(x):
-        return problem.forward.using(raw=True)(to_parameters(dict(zip(names, x, strict=True))))
+    def features(z):
+        return problem.forward.using(raw=True)(to_parameters(dict(zip(names, z, strict=True))))
 
     forward_matrix = np.asarray(jax.jacfwd(features)(np.zeros(2)))
     offset = np.asarray(features(np.zeros(2)))
@@ -80,11 +80,11 @@ def test_lifted_draws_keep_the_inactive_variables_at_their_prior(problem):
 
 
 def test_subspace_of_another_problem_is_refused(problem):
-    other = Subspace.from_information(
+    other_subspace = Subspace.from_information(
         np.eye(2), parameter_names=("x", "y"), estimator="exact", rank=1
     )
     with pytest.raises(ValueError, match="not the problem's"):
-        reduced_problem(problem, other)
+        reduced_problem(problem, other_subspace)
 
 
 @pytest.mark.smoke

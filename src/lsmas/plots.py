@@ -96,23 +96,23 @@ def plot_features(
         raise ValueError(f"{len(labels)} labels for {len(predictions)} sets of predictions")
     times = data.feature_times
     classes = data.feature_classes
-    sets = [_prediction_rows(prediction, len(classes)) for prediction in predictions]
-    labelled = labels is not None or len(sets) > 1
+    prediction_sets = [_prediction_rows(prediction, len(classes)) for prediction in predictions]
+    labelled = labels is not None or len(prediction_sets) > 1
     if labelled and labels is None:
-        labels = [f"predictions {index + 1}" for index in range(len(sets))]
+        labels = [f"predictions {index + 1}" for index in range(len(prediction_sets))]
     figure, axes = plt.subplots(2, 1, figsize=(10, 5.5), sharex=True)
     for axis, feature_class in zip(axes, _CLASS_COLOURS, strict=True):
         columns = np.flatnonzero(classes == feature_class)
         columns = columns[np.argsort(times[columns])]
-        for index, rows in enumerate(sets):
+        for index, prediction_rows in enumerate(prediction_sets):
             colour = f"C{index}" if labelled else _CLASS_COLOURS[feature_class]
             label = labels[index] if labelled else None
-            _draw_bands(axis, times[columns], rows[:, columns], levels, colour, label)
+            _draw_bands(axis, times[columns], prediction_rows[:, columns], levels, colour, label)
         observed = data.observations[columns]
         axis.plot(times[columns], observed, ".", color="k", ms=3, label="observed")
         axis.axhline(0.0, color="0.3", lw=0.5)
         axis.set_ylabel(f"{feature_class} NEE (µmol m⁻² s⁻¹)")
-        columns_in_legend = len(sets) + 1 if labelled else len(levels) + 2
+        columns_in_legend = len(prediction_sets) + 1 if labelled else len(levels) + 2
         axis.legend(fontsize=7, ncol=columns_in_legend, loc="upper right")
     figure.tight_layout()
     return figure
@@ -171,8 +171,10 @@ def plot_marginals(
     paths_of_law = [_scalar_paths(law) for law in laws]
     paths = list(dict.fromkeys(path for law_paths in paths_of_law for path in law_paths))
     titles = _panel_titles(paths)
-    rows = int(np.ceil(len(paths) / columns))
-    figure, axes = plt.subplots(rows, columns, figsize=(2.2 * columns, 1.8 * rows), squeeze=False)
+    n_rows = int(np.ceil(len(paths) / columns))
+    figure, axes = plt.subplots(
+        n_rows, columns, figsize=(2.2 * columns, 1.8 * n_rows), squeeze=False
+    )
     for axis in axes.ravel()[len(paths) :]:
         axis.set_visible(False)
     for axis, path in zip(axes.ravel(), paths, strict=False):
@@ -181,9 +183,9 @@ def plot_marginals(
             for index, (law, law_paths) in enumerate(zip(laws, paths_of_law, strict=True))
             if path in law_paths
         }
-        low, high = _central_range(marginals.values())
+        lower, upper = _central_range(marginals.values())
         for index, law in marginals.items():
-            _draw_marginal(axis, law, (low, high), colour=f"C{index}", label=labels[index])
+            _draw_marginal(axis, law, (lower, upper), colour=f"C{index}", label=labels[index])
         axis.set_title(titles[path], fontsize=7)
         axis.set_yticks([])
         axis.tick_params(labelsize=6)
@@ -221,21 +223,23 @@ def plot_spectra(
     spectra = [subspace.eigenvalues for subspace in subspaces]
     if reference is not None:
         spectra.append(np.sort(np.linalg.eigvalsh(reference.information))[::-1])
-    floor = 1e-6 * max(spectrum.max() for spectrum in spectra)
+    eigenvalue_floor = 1e-6 * max(spectrum.max() for spectrum in spectra)
     for index, spectrum in enumerate(spectra[: len(subspaces)]):
         indices = np.arange(1, len(spectrum) + 1)
-        shown = np.maximum(spectrum, floor)
+        floored_spectrum = np.maximum(spectrum, eigenvalue_floor)
         if labels is None:
-            ax.semilogy(indices, shown, color="0.6", lw=0.8)
+            ax.semilogy(indices, floored_spectrum, color="0.6", lw=0.8)
         else:
             rank = subspaces[index].rank
             colour = f"C{index}"
             label = f"{labels[index]} ($r = {rank}$)"
-            ax.semilogy(indices, shown, ".-", color=colour, label=label)
-            ax.semilogy(rank, shown[rank - 1], "o", ms=10, mfc="none", color=colour)
+            ax.semilogy(indices, floored_spectrum, ".-", color=colour, label=label)
+            ax.semilogy(rank, floored_spectrum[rank - 1], "o", ms=10, mfc="none", color=colour)
     if reference is not None:
-        shown = np.maximum(spectra[-1], floor)
-        ax.semilogy(np.arange(1, len(shown) + 1), shown, "k", lw=2, label="reference")
+        floored_spectrum = np.maximum(spectra[-1], eigenvalue_floor)
+        ax.semilogy(
+            np.arange(1, len(floored_spectrum) + 1), floored_spectrum, "k", lw=2, label="reference"
+        )
     if labels is not None or reference is not None:
         ax.legend(fontsize=8)
     ax.axhline(1.0, ls=":", color="0.3")
@@ -277,21 +281,26 @@ def plot_qq(
         Panels per row.
     """
     whiten, dimension = problem.coordinates.whiten, problem.coordinates.dimension
-    approximation = np.asarray(whiten(posterior.atoms["theta"]).to_vector()).reshape(-1, dimension)
-    target = np.asarray(whiten(reference.posterior.atoms["theta"]).to_vector())
-    target = target.reshape(-1, dimension)
-    rows = int(np.ceil(dimension / columns))
-    figure, axes = plt.subplots(rows, columns, figsize=(2 * columns, 2 * rows), squeeze=False)
+    approximation_z = np.asarray(whiten(posterior.atoms["theta"]).to_vector()).reshape(
+        -1, dimension
+    )
+    reference_z = np.asarray(whiten(reference.posterior.atoms["theta"]).to_vector())
+    reference_z = reference_z.reshape(-1, dimension)
+    n_rows = int(np.ceil(dimension / columns))
+    figure, axes = plt.subplots(n_rows, columns, figsize=(2 * columns, 2 * n_rows), squeeze=False)
     levels = np.linspace(0.01, 0.99, 50)
     for j, axis in enumerate(axes.ravel()):
         if j >= dimension:
             axis.set_visible(False)
             continue
         axis.plot(
-            np.quantile(target[:, j], levels), np.quantile(approximation[:, j], levels), ".", ms=3
+            np.quantile(reference_z[:, j], levels),
+            np.quantile(approximation_z[:, j], levels),
+            ".",
+            ms=3,
         )
-        low, high = np.quantile(target[:, j], [0.01, 0.99])
-        axis.plot([low, high], [low, high], "k", lw=0.6)
+        lower, upper = np.quantile(reference_z[:, j], [0.01, 0.99])
+        axis.plot([lower, upper], [lower, upper], "k", lw=0.6)
         axis.set_title(problem.coordinates.names[j], fontsize=7)
         axis.tick_params(labelsize=6)
     figure.supxlabel("reference quantile")
@@ -357,8 +366,8 @@ def plot_sufficient_summary(
     if subspace.rank < subspace.dimension:
         panels.append((subspace.inactive_variables(z)[:, -1], "last inactive variable $b$"))
     figure, axes = plt.subplots(1, len(panels), figsize=(4 * len(panels), 3.5), squeeze=False)
-    for axis, (values, label) in zip(axes[0], panels, strict=True):
-        axis.semilogy(values, misfit, ".", ms=3, alpha=0.6)
+    for axis, (variable_values, label) in zip(axes[0], panels, strict=True):
+        axis.semilogy(variable_values, misfit, ".", ms=3, alpha=0.6)
         axis.set(xlabel=label, ylabel=r"misfit $\Phi$")
     figure.tight_layout()
     return figure
@@ -431,47 +440,47 @@ def _scalar_paths_below(spec: Any, prefix: str = "") -> list[str]:
 def _panel_titles(paths: Sequence[str]) -> dict[str, str]:
     """Each path's last segment, or the whole path when it is outside the first path's group or
     another path ends the same way."""
-    groups = [path.rpartition("/")[0] for path in paths]
+    parent_paths = [path.rpartition("/")[0] for path in paths]
     names = [path.rpartition("/")[2] for path in paths]
     return {
-        path: path if group != groups[0] or names.count(name) > 1 else name
-        for path, group, name in zip(paths, groups, names, strict=True)
+        path: path if parent_path != parent_paths[0] or names.count(name) > 1 else name
+        for path, parent_path, name in zip(paths, parent_paths, names, strict=True)
     }
 
 
 def _central_range(marginals: Iterable[Distribution]) -> tuple[float, float]:
     """The smallest interval holding the central 99% of each marginal, widened if it is a point."""
     bounds = np.array([_central_bounds(law) for law in marginals])
-    low, high = float(bounds[:, 0].min()), float(bounds[:, 1].max())
-    if high > low:
-        return low, high
-    half_width = 0.05 * abs(low) or 0.5
-    return low - half_width, high + half_width
+    lower, upper = float(bounds[:, 0].min()), float(bounds[:, 1].max())
+    if upper > lower:
+        return lower, upper
+    half_width = 0.05 * abs(lower) or 0.5
+    return lower - half_width, upper + half_width
 
 
 def _central_bounds(law: Distribution) -> tuple[float, float]:
     """The 0.5% and 99.5% quantiles of a scalar marginal: exact if it has them, else from draws."""
     levels = np.array([0.005, 0.995])
     try:
-        low, high = np.asarray(quantile.using(exact_only=True)(law, levels), dtype=float)
+        lower, upper = np.asarray(quantile.using(exact_only=True)(law, levels), dtype=float)
     except ResolutionError:
         draws, weights = _draws_and_weights(law)
-        low, high = np.quantile(draws, levels, weights=weights, method="inverted_cdf")
-    return float(low), float(high)
+        lower, upper = np.quantile(draws, levels, weights=weights, method="inverted_cdf")
+    return float(lower), float(upper)
 
 
 def _draw_marginal(
-    axis: Axes, law: Distribution, span: tuple[float, float], *, colour: str, label: str
+    axis: Axes, law: Distribution, x_range: tuple[float, float], *, colour: str, label: str
 ) -> None:
     """A scalar marginal on *axis*: its density if it has one, else a histogram of its draws."""
     if isinstance(law, SupportsLogProb):
-        grid = np.linspace(*span, 200)
+        grid = np.linspace(*x_range, 200)
         log_density = log_prob(law, NumericArrayBatch(grid, level_names="grid", label="grid"))
         axis.plot(grid, np.exp(np.asarray(log_density)), color=colour, lw=1.2, label=label)
         return
     draws, weights = _draws_and_weights(law)
-    bins = np.linspace(*span, 41)
-    # Heights are densities of all the draws, so draws outside the span are not renormalized away.
+    bins = np.linspace(*x_range, 41)
+    # Heights are densities of all the draws, so draws outside the plot are not renormalized away.
     heights = weights / (weights.sum() * (bins[1] - bins[0]))
     axis.hist(draws, bins=bins, weights=heights, color=colour, alpha=0.4, label=label)
 
