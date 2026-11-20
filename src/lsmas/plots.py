@@ -16,13 +16,13 @@ import jax
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import xarray as xr
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from probpipe import (
     Distribution,
     EmpiricalDistribution,
     NumericArrayBatch,
+    NumericRecordBatch,
     RecordBatch,
     ResolutionError,
     SupportsLogProb,
@@ -34,6 +34,7 @@ from probpipe import (
 from lsmas._stopgaps.sampling import draw_with_key
 from lsmas.data import HarvardForestData
 from lsmas.experiments.reference import Reference
+from lsmas.inference.step_record import eki_history
 from lsmas.problems.inverse_problem import InverseProblem
 from lsmas.tools.subspace import Subspace
 
@@ -255,15 +256,19 @@ def plot_metric_against_setting(
 
 
 def plot_qq(
-    theta: np.ndarray, reference: Reference, problem: InverseProblem, columns: int = 7
+    posterior: EmpiricalDistribution,
+    reference: Reference,
+    problem: InverseProblem,
+    columns: int = 7,
 ) -> Figure:
-    r"""For each parameter, the quantiles of the draws *theta* against the reference's, in whitened
-    coordinates; points on the diagonal mean the marginals agree.
+    r"""For each parameter, the quantiles of a posterior's draws against the reference's, in
+    whitened coordinates; points on the diagonal mean the marginals agree.
 
     Parameters
     ----------
-    theta : numpy.ndarray
-        Draws of the calibration parameters, shape $(N, d)$.
+    posterior : EmpiricalDistribution
+        An approximate posterior held as draws, such as an algorithm's result, with the
+        calibration parameters under ``theta``.
     reference : Reference
         The reference.
     problem : InverseProblem
@@ -271,9 +276,10 @@ def plot_qq(
     columns : int
         Panels per row.
     """
-    approximation = np.asarray(problem.coordinates._whitened(theta))
-    target = np.asarray(problem.coordinates._whitened(reference.parameter_draws()))
-    dimension = target.shape[1]
+    whiten, dimension = problem.coordinates.whiten, problem.coordinates.dimension
+    approximation = np.asarray(whiten(posterior.atoms["theta"]).to_vector()).reshape(-1, dimension)
+    target = np.asarray(whiten(reference.posterior.atoms["theta"]).to_vector())
+    target = target.reshape(-1, dimension)
     rows = int(np.ceil(dimension / columns))
     figure, axes = plt.subplots(rows, columns, figsize=(2 * columns, 2 * rows), squeeze=False)
     levels = np.linspace(0.01, 0.99, 50)
@@ -316,7 +322,7 @@ def plot_loadings(subspace: Subspace, direction: int = 1, ax: Axes | None = None
 
 
 def plot_sufficient_summary(
-    problem: InverseProblem, eki_history: xr.Dataset, subspace: Subspace
+    problem: InverseProblem, eki_posterior: EmpiricalDistribution, subspace: Subspace
 ) -> Figure:
     r"""The misfit of every particle of an EKI run against its first two active variables and its
     last inactive variable.
@@ -324,21 +330,25 @@ def plot_sufficient_summary(
     The misfit of particle $j$ is $\Phi_j = \tfrac12 \sum_i (y_i - G_i(\theta_j))^2 /
     \Gamma_{ii}$, with each step's $\Gamma$. If the subspace is good, the misfit varies with the
     active variables and shows no pattern against the inactive one. The data come from the run's
-    history, so the plot costs no forward runs.
+    history (:func:`~lsmas.inference.eki_history`), so the plot costs no forward runs.
 
     Parameters
     ----------
     problem : InverseProblem
         The problem the run conditioned.
-    eki_history : xarray.Dataset
-        The run's history, ``posterior.annotations["arviz/eki_history"]``.
+    eki_posterior : EmpiricalDistribution
+        The result of ``problem.condition(method="enskit_eki")``.
     subspace : Subspace
         The subspace whose variables to plot against.
     """
-    theta = eki_history["theta"].values.reshape(-1, problem.coordinates.dimension)
-    z = np.asarray(problem.coordinates._whitened(theta))
-    residuals = problem.data[problem.likelihood.output_name] - eki_history["predictions"].values
-    noise_variance = eki_history["noise_variance"].values[:, None, :]
+    history = eki_history(eki_posterior)
+    coordinates = problem.coordinates
+    particles = NumericRecordBatch.from_vector(
+        coordinates.spec, history["theta"].values, level_names=["step", "member"]
+    )
+    z = np.asarray(coordinates.whiten(particles).to_vector()).reshape(-1, coordinates.dimension)
+    residuals = problem.data[problem.likelihood.output_name] - history["predictions"].values
+    noise_variance = history["noise_variance"].values[:, None, :]
     misfit = (0.5 * np.sum(residuals**2 / noise_variance, axis=-1)).reshape(-1)
     active = subspace.active_variables(z)
     panels = [(active[:, 0], "$a_1$")]

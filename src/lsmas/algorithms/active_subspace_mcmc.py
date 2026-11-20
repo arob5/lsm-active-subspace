@@ -3,14 +3,15 @@ r"""Active-subspace MCMC: explore with EKI, estimate the subspace, sample the re
 The algorithm, for a problem with $d$ calibration parameters:
 
 1. **Explore.** Tempered EKI with $J$ particles conditions the problem (inferring the noise scales
-   when the problem does), and a :class:`~lsmas.tools.LadderLinearization` callback accumulates
-   $\hat H = \sum_t \Delta\beta_t\, \widehat{DG}_t^\top \Gamma_t^{-1} \widehat{DG}_t$.
-2. **Estimate.** The subspace is spanned by the leading $r$ eigenvectors of $\hat H$, with $r$ the
-   smallest rank whose discarded eigenvalues sum to at most $\varepsilon$ unless $r$ is given.
+   when the problem does).
+2. **Estimate.** From the run's history, $\hat H = \sum_t \Delta\beta_t\, \widehat{DG}_t^\top
+   \Gamma_t^{-1} \widehat{DG}_t$ (:func:`~lsmas.tools.eki_linearization_subspace`); the subspace
+   is spanned by its leading $r$ eigenvectors, with $r$ the smallest rank whose discarded
+   eigenvalues sum to at most $\varepsilon$ unless $r$ is given.
 3. **Reduce.** The plug-in reduced problem in the active variables $a = W^\top z$
    (:func:`~lsmas.tools.reduced_problem`).
 4. **Sample.** Random-walk Metropolis (ProbPipe's ``blackjax_rwmh``) on the reduced problem, its
-   chains started at the projection $W^\top \barz$ of EKI's final ensemble mean (and at the
+   chains started at the projection $W^\top \bar z$ of EKI's final ensemble mean (and at the
    ensemble's median noise scales), with ProbPipe's adaptive warmup.
 5. **Lift.** Each draw of $a$ is combined with the inactive part of an independent prior draw,
    $z = W a + W_\perp b$ (:meth:`~lsmas.tools.ReducedProblem.lift`).
@@ -21,15 +22,13 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-import jax
 import numpy as np
-from probpipe import Distribution, workflow_run
+from probpipe import EmpiricalDistribution, workflow_run
 
 from lsmas.algorithms.result import AlgorithmResult
-from lsmas.inference import StepRecord
+from lsmas.inference import eki_history
 from lsmas.problems.inverse_problem import InverseProblem
-from lsmas.tools import LadderLinearization, ReducedProblem, reduced_problem
-from lsmas.tools.estimators import Weighting
+from lsmas.tools import ReducedProblem, Weighting, eki_linearization_subspace, reduced_problem
 from lsmas.tools.subspace import DEFAULT_DISCARDED_INFORMATION
 
 __all__ = ["DEFAULT_SAMPLER_OPTIONS", "active_subspace_mcmc"]
@@ -62,8 +61,8 @@ def active_subspace_mcmc(
     discarded_information : float
         $\varepsilon$, the bound on the discarded eigenvalues when the rank is not given.
     weighting : {"increment", "uniform", "last"}
-        How the ladder's steps are weighted in $\hat H$
-        (see :class:`~lsmas.tools.LadderLinearization`).
+        How the EKI steps are weighted in $\hat H$
+        (see :func:`~lsmas.tools.eki_linearization_subspace`).
     sampler_options : Mapping, optional
         Options of ``blackjax_rwmh`` that replace :data:`DEFAULT_SAMPLER_OPTIONS` and the starting
         point, such as ``{"num_results": 2000}``.
@@ -84,10 +83,17 @@ def active_subspace_mcmc(
     (7, {'exploration': 600, 'sampling': 6004})
     """
     eki_seed, rwmh_seed, lift_seed = _independent_stage_seeds(seed)
-    eki_posterior, eki_steps, ladder_linearization = _run_eki_estimating_subspace(
-        problem, n_particles, weighting, eki_seed
+    with workflow_run(seed=eki_seed):
+        eki_posterior = problem.condition(
+            method="enskit_eki", method_options={"n_particles": n_particles}
+        )
+    subspace = eki_linearization_subspace(
+        problem,
+        eki_posterior,
+        weighting=weighting,
+        rank=rank,
+        discarded_information=discarded_information,
     )
-    subspace = ladder_linearization.subspace(rank, discarded_information)
     reduced = reduced_problem(problem, subspace)
     rwmh_options = (
         DEFAULT_SAMPLER_OPTIONS
@@ -96,11 +102,13 @@ def active_subspace_mcmc(
     )
     with workflow_run(seed=rwmh_seed):
         reduced_posterior = reduced.condition(method="blackjax_rwmh", method_options=rwmh_options)
+    with workflow_run(seed=lift_seed):
+        posterior = reduced.lift(reduced_posterior)
     return AlgorithmResult(
-        posterior=reduced.lift(reduced_posterior, key=jax.random.key(lift_seed)),
+        posterior=posterior,
         subspace=subspace,
         forward_runs={
-            "exploration": _count_eki_forward_runs(problem, eki_steps),
+            "exploration": _count_eki_forward_runs(problem, eki_posterior),
             "sampling": _count_rwmh_forward_runs(rwmh_options),
         },
         exploration_posterior=eki_posterior,
@@ -116,35 +124,15 @@ def _independent_stage_seeds(seed: int) -> tuple[int, int, int]:
     return eki_seed, rwmh_seed, lift_seed
 
 
-def _run_eki_estimating_subspace(
-    problem: InverseProblem, n_particles: int, weighting: Weighting, seed: int
-) -> tuple[Distribution, list[StepRecord], LadderLinearization]:
-    """EKI on *problem* with the ladder linearization as a callback.
-
-    Returns EKI's posterior, the record of every step, and the ladder linearization, which holds
-    the estimated information matrix.
-    """
-    ladder_linearization = LadderLinearization(problem, weighting=weighting)
-    eki_steps: list[StepRecord] = []
-    with workflow_run(seed=seed):
-        eki_posterior = problem.condition(
-            method="enskit_eki",
-            method_options={
-                "n_particles": n_particles,
-                "callbacks": [ladder_linearization, eki_steps.append],
-            },
-        )
-    return eki_posterior, eki_steps, ladder_linearization
-
-
-def _rwmh_start_at_eki_mean(reduced: ReducedProblem, eki_posterior: Distribution) -> np.ndarray:
-    r"""The chains' initial state: $W^\top \barz$ for the mean $\barz$ of EKI's final
+def _rwmh_start_at_eki_mean(
+    reduced: ReducedProblem, eki_posterior: EmpiricalDistribution
+) -> np.ndarray:
+    r"""The chains' initial state: $W^\top \bar z$ for the mean $\bar z$ of EKI's final
     ensemble, then each inferred noise scale's median over the ensemble, in the order of the
     reduced prior's event."""
     coordinates = reduced.full_problem.coordinates
-    eki_theta = np.asarray(eki_posterior.atoms[coordinates.block].to_vector())
-    eki_theta = eki_theta.reshape(-1, coordinates.dimension)
-    eki_mean_z = np.asarray(coordinates._whitened(eki_theta)).mean(axis=0)
+    eki_z = np.asarray(coordinates.whiten(eki_posterior.atoms["theta"]).to_vector())
+    eki_mean_z = eki_z.reshape(-1, coordinates.dimension).mean(axis=0)
     scale_medians = [
         np.median(draws)
         for draws in reduced.likelihood.inferred_scale_draws(eki_posterior.atoms).values()
@@ -152,11 +140,11 @@ def _rwmh_start_at_eki_mean(reduced: ReducedProblem, eki_posterior: Distribution
     return np.concatenate([reduced.subspace.active_variables(eki_mean_z), scale_medians])
 
 
-def _count_eki_forward_runs(problem: InverseProblem, eki_steps: list[StepRecord]) -> int:
+def _count_eki_forward_runs(problem: InverseProblem, eki_posterior: EmpiricalDistribution) -> int:
     """Forward runs of EKI: one ensemble per step, and a final one when scales are inferred."""
-    n_particles = eki_steps[0].theta.shape[0]
+    n_steps, n_particles, _ = eki_history(eki_posterior)["theta"].shape
     final_evaluation = 1 if problem.likelihood.inferred_scale_classes else 0
-    return n_particles * (len(eki_steps) + final_evaluation)
+    return n_particles * (n_steps + final_evaluation)
 
 
 def _count_rwmh_forward_runs(rwmh_options: Mapping[str, Any]) -> int:

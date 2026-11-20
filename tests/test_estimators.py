@@ -11,10 +11,11 @@ from conftest import (
 )
 from lsmas.problems import load_inverse_problem
 from lsmas.tools import (
-    LadderLinearization,
     covariance_subspace,
+    eki_linearization_subspace,
     exact_subspace,
     finite_difference_subspace,
+    information_matrix,
     jacobians,
     linearization_subspace,
     statistical_linearization,
@@ -58,7 +59,7 @@ def test_statistical_linearization_of_a_linear_map_is_its_matrix():
 def test_jacobians_of_a_linear_map_in_whitened_coordinates(problem):
     # theta is unconstrained here, so G(z) = F (m + L z) and DG(z) = F L at every point.
     expected = FORWARD_MATRIX @ problem.coordinates.whitening_factor
-    batch = jacobians(problem, some_draws(5, seed=2))
+    batch = jacobians(problem, some_draws(5, seed=2)["theta"])
     assert batch.shape == (5, 6, 2)
     np.testing.assert_allclose(batch, np.broadcast_to(expected, batch.shape), rtol=EXACT)
     one_setting = jacobians(problem, {"a": 0.3, "b": -1.0})
@@ -131,19 +132,36 @@ def test_a_linearization_of_a_linear_model_is_its_information(problem, exact_inf
     np.testing.assert_allclose(resampled.information, exact_information, rtol=EXACT)
 
 
-@pytest.mark.parametrize("weighting", ["increment", "uniform", "last"])
-def test_ladder_linearization_of_a_linear_model_is_its_information(
-    problem, exact_information, weighting
-):
-    ladder = LadderLinearization(problem, weighting=weighting)
+@pytest.fixture(scope="module")
+def linear_eki_posterior():
+    observations = np.array([1.2, -2.0, 1.9, -0.4, -1.3, -2.2])
     with workflow_run(seed=0):
-        problem.condition(
-            method="enskit_eki", method_options={"n_particles": 50, "callbacks": [ladder]}
+        return linear_problem(observations, SCALES, LEARNING_RATE).condition(
+            method="enskit_eki", method_options={"n_particles": 50}
         )
-    assert len(ladder.steps) > 1
-    assert sum(step.increment for step in ladder.steps) == pytest.approx(1.0)
-    np.testing.assert_allclose(ladder.information, exact_information, rtol=EXACT)
-    assert ladder.subspace().estimator == f"ladder_linearization_{weighting}"
+
+
+@pytest.mark.parametrize("weighting", ["increment", "uniform", "last"])
+def test_eki_linearization_of_a_linear_model_is_its_information(
+    problem, exact_information, linear_eki_posterior, weighting
+):
+    subspace = eki_linearization_subspace(problem, linear_eki_posterior, weighting=weighting)
+    np.testing.assert_allclose(subspace.information, exact_information, rtol=EXACT)
+    assert subspace.estimator == f"eki_linearization_{weighting}"
+
+
+def test_information_matrix_of_one_jacobian_and_of_a_weighted_batch():
+    jacobian = np.array([[1.0, 0.0], [2.0, 1.0], [0.0, 3.0]])
+    noise_variance = np.array([1.0, 2.0, 4.0])
+    single = information_matrix(jacobian, noise_variance)
+    np.testing.assert_allclose(single, jacobian.T @ np.diag(1 / noise_variance) @ jacobian)
+    batch = information_matrix(
+        np.stack([jacobian, 2 * jacobian]), np.stack([noise_variance, noise_variance]), [0.25, 0.75]
+    )
+    np.testing.assert_allclose(batch, (0.25 + 0.75 * 4) * single)
+    np.testing.assert_allclose(
+        information_matrix(np.stack([jacobian, jacobian]), noise_variance), single
+    )
 
 
 def test_covariance_subspace_recovers_the_linear_information(
@@ -157,20 +175,20 @@ def test_covariance_subspace_recovers_the_linear_information(
         covariance_subspace(problem, some_draws(2, seed=9))
 
 
-def test_an_unknown_weighting_is_refused(problem):
+def test_an_unknown_weighting_is_refused(problem, linear_eki_posterior):
     with pytest.raises(ValueError, match="unknown weighting"):
-        LadderLinearization(problem, weighting="geometric")
+        eki_linearization_subspace(problem, linear_eki_posterior, weighting="geometric")
+    with pytest.raises(ValueError, match="not the result of an EKI run"):
+        eki_linearization_subspace(problem, EmpiricalDistribution(some_draws(5, seed=1)))
 
 
 @pytest.mark.smoke
 def test_ladder_directions_capture_the_exact_ladder_information_on_the_toy():
     toy = load_inverse_problem("toy")
-    ladder = LadderLinearization(toy)
     records = []
     with workflow_run(seed=1):
-        toy.condition(
-            method="enskit_eki",
-            method_options={"n_particles": 100, "callbacks": [ladder, records.append]},
+        eki_posterior = toy.condition(
+            method="enskit_eki", method_options={"n_particles": 100, "callbacks": [records.append]}
         )
 
     def particles(record):
@@ -181,7 +199,7 @@ def test_ladder_directions_capture_the_exact_ladder_information_on_the_toy():
     exact = sum(
         record.increment * exact_subspace(toy, particles(record)).information for record in records
     )
-    basis = ladder.subspace(rank=3).basis
+    basis = eki_linearization_subspace(toy, eki_posterior, rank=3).basis
     best = np.sort(np.linalg.eigvalsh(exact))[::-1][:3].sum()
     assert np.trace(basis.T @ exact @ basis) / best > 0.95
 

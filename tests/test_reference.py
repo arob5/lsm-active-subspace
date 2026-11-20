@@ -33,7 +33,7 @@ def problem(observations):
 def test_nuts_reference_holds_draws_diagnostics_and_the_exact_information(problem):
     reference = nuts_reference(problem, seed=0)
     assert reference.theta.shape[0] == 4 and reference.theta.shape[-1] == 2
-    assert reference.parameter_draws().shape[0] <= 4000
+    assert reference.theta[..., 0].size <= 4000
     np.testing.assert_allclose(
         reference.information,
         exact_linear_information(SCALES, LEARNING_RATE, problem.coordinates.whitening_factor),

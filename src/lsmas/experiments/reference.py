@@ -44,6 +44,7 @@ from probpipe import EmpiricalDistribution, NumericRecordBatch, workflow_run
 from lsmas._stopgaps.functions import declares_traceable
 from lsmas._stopgaps.likelihood import NOISE_SCALES, noise_scale_variable
 from lsmas._stopgaps.parallel_chains import run_in_processes
+from lsmas.inference import eki_history
 from lsmas.problems import load_inverse_problem
 from lsmas.problems.inverse_problem import InverseProblem
 from lsmas.tools import exact_subspace, finite_difference_subspace
@@ -131,14 +132,6 @@ class Reference:
         draws = NumericRecordBatch(fields, ["chain", "draw"])
         return EmpiricalDistribution(draws).with_label("reference")
 
-    def parameter_draws(self) -> np.ndarray:
-        r"""Every draw of $\theta$ with the chains pooled, shape $(N, d)$."""
-        return self.theta.reshape(-1, self.theta.shape[-1])
-
-    def noise_scale_draws(self) -> dict[str, np.ndarray]:
-        """Every draw of each inferred noise scale with the chains pooled, shape $(N,)$."""
-        return {noise_class: draws.reshape(-1) for noise_class, draws in self.noise_scales.items()}
-
     def save(self, path: Path | None = None) -> Path:
         """Write the reference as netCDF, by default to its place in ``baselines/``.
 
@@ -215,7 +208,10 @@ def convergence_diagnostics(
         Draws of each inferred scale, shape (chains, draws), by class.
     """
     coordinates = problem.coordinates
-    z = np.asarray(coordinates._whitened(theta))
+    chains = NumericRecordBatch.from_vector(
+        coordinates.spec, np.asarray(theta), level_names=["chain", "draw"]
+    )
+    z = np.asarray(coordinates.whiten(chains).to_vector())
     variables = {name: z[..., j] for j, name in enumerate(coordinates.names)} | {
         f"log_{noise_scale_variable(noise_class)}": np.log(draws)
         for noise_class, draws in noise_scales.items()
@@ -297,7 +293,7 @@ def start_rwmh_reference(
     proposal *= 2.38 / np.sqrt(states.shape[1])
     chosen = np.random.default_rng(seed).choice(len(states), n_chains, replace=False)
     np.savez(run_directory / "pilot.npz", starts=states[chosen], proposal_cholesky=proposal)
-    n_steps = eki.annotations["arviz/eki_history"]["beta"].size
+    n_steps = eki_history(eki)["beta"].size
     final_evaluation = 1 if problem.likelihood.inferred_scale_classes else 0
     settings = {
         "problem_name": problem.name,
@@ -586,11 +582,14 @@ def _flat_states(problem: InverseProblem, atoms: Any) -> np.ndarray:
 
 def _unconstrained_states(problem: InverseProblem, states: np.ndarray) -> np.ndarray:
     r"""Flat states in unconstrained coordinates: $\phi = b^{-1}(\theta)$, then $\log s^2$."""
-    dimension = problem.coordinates.dimension
+    coordinates = problem.coordinates
+    parameters = NumericRecordBatch.from_vector(
+        coordinates.spec, states[:, : coordinates.dimension], level_names="draw"
+    )
     return np.concatenate(
         [
-            np.asarray(problem.coordinates._unconstrained(states[:, :dimension])),
-            np.log(states[:, dimension:]),
+            np.asarray(coordinates.unconstrain(parameters).to_vector()),
+            np.log(states[:, coordinates.dimension :]),
         ],
         axis=1,
     )

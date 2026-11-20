@@ -21,16 +21,20 @@ problem's own parameters.
   per draw;
 - :func:`linearization_subspace` fits one statistical linearization to the draws, at one forward
   run per draw;
+- :func:`eki_linearization_subspace` fits one statistical linearization to each step of an EKI
+  run and averages them over the steps, with no forward runs beyond the run's own;
 - :func:`covariance_subspace` uses the whitened covariance of a posterior's draws, with no forward
-  runs;
-- :class:`LadderLinearization`, a callback of an ensemble method, accumulates statistical
-  linearizations along the run's tempering levels, with no forward runs beyond the run's own.
+  runs.
+
+Each builds its information matrix with :func:`information_matrix`.
 
 **What they read from the problem.** At most three things: the forward map ``problem.forward``,
 the coordinates ``problem.coordinates`` (which depend on the prior), and the noise covariance
 $\Gamma$. None of them uses the observed data. Each function's description says which it reads.
 
-**The distribution $\mu$.** The first four take the problem and $\mu$, as one of:
+**The distribution $\mu$.** :func:`exact_subspace`, :func:`finite_difference_subspace`,
+:func:`linearization_subspace` and :func:`covariance_subspace` take the problem and $\mu$, as one
+of:
 
 - a distribution held as draws (an ``EmpiricalDistribution``), such as a posterior from MCMC or
   EKI, or a reference posterior: every draw is used, with its weight;
@@ -62,7 +66,7 @@ from __future__ import annotations
 import functools
 import logging
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Literal
 
 import jax
@@ -70,21 +74,22 @@ import jax.numpy as jnp
 import numpy as np
 from enskit import maps
 from enskit.distribution import Ensemble
-from probpipe import Distribution, EmpiricalDistribution, RecordBatch, sample
+from probpipe import Distribution, EmpiricalDistribution, NumericRecordBatch, RecordBatch, sample
 
 from lsmas._stopgaps.functions import declares_traceable
 from lsmas._stopgaps.likelihood import NOISE_SCALES
-from lsmas.coordinates import _parameter_vectors
-from lsmas.inference.step_record import StepRecord
+from lsmas.coordinates import inverse
+from lsmas.inference.step_record import eki_history
 from lsmas.problems.inverse_problem import InverseProblem
 from lsmas.tools.subspace import DEFAULT_DISCARDED_INFORMATION, Subspace
 
 __all__ = [
-    "LadderLinearization",
-    "LinearizedStep",
+    "Weighting",
     "covariance_subspace",
+    "eki_linearization_subspace",
     "exact_subspace",
     "finite_difference_subspace",
+    "information_matrix",
     "jacobians",
     "linearization_subspace",
     "statistical_linearization",
@@ -92,221 +97,9 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-#: How each step of a ladder is weighted: by its increment, equally, or only the last step.
+#: How :func:`eki_linearization_subspace` weights the steps of an EKI run: by their increments,
+#: equally, or only the last step.
 Weighting = Literal["increment", "uniform", "last"]
-
-
-@dataclass(eq=False)
-class LadderLinearization:
-    r"""A callback that accumulates statistical linearizations over an ensemble method's ladder.
-
-    At each step $t$ the method reports its particles $\theta_{tj}$, $j = 1, \dots, J$, the
-    predictions $G(\theta_{tj})$ and its noise covariance $\Gamma_t$ (at the ensemble's common
-    noise scales, when they are inferred). The callback whitens the particles, $z_{tj} =
-    z(\theta_{tj})$, fits the least-squares slope $\widehat{DG}_t$ of the predictions on them
-    (:func:`statistical_linearization`), and accumulates
-
-    $$
-    \hat H = \sum_t w_t\, \widehat{DG}_t^\top\, \Gamma_t^{-1}\, \widehat{DG}_t,
-    $$
-
-    with weights set by *weighting*: ``"increment"`` (the default), $w_t = \Delta\beta_t$, a
-    Riemann sum over the tempering levels in which each step is weighted by its increment;
-    ``"uniform"``, $w_t = 1/T$ for $T$ steps; or ``"last"``, only the last step.
-
-    It costs no forward runs beyond the ensemble method's own. Reads from *problem*: only
-    ``coordinates``; $\Gamma_t$ comes from the method.
-
-    Pass it to an ensemble method, then read the result::
-
-        ladder = LadderLinearization(problem)
-        problem.condition(method="enskit_eki", method_options={"callbacks": [ladder]})
-        subspace = ladder.subspace()
-
-    When the ensemble has no more particles than parameters, the slope is fitted on the span of
-    the particles and set to zero off it.
-
-    Attributes
-    ----------
-    problem : InverseProblem
-        The problem the ensemble method conditions; its coordinates whiten the particles.
-    weighting : {"increment", "uniform", "last"}
-        How the steps are weighted.
-    steps : list of LinearizedStep
-        Every step seen so far.
-    """
-
-    problem: InverseProblem
-    weighting: Weighting = "increment"
-    steps: list[LinearizedStep] = field(default_factory=list)
-
-    def __post_init__(self) -> None:
-        if self.weighting not in ("increment", "uniform", "last"):
-            raise ValueError(f"unknown weighting {self.weighting!r}")
-
-    def __call__(self, record: StepRecord) -> None:
-        z = np.asarray(self.problem.coordinates._whitened(record.theta))
-        slope = statistical_linearization(z, record.predictions)
-        self.steps.append(
-            LinearizedStep(
-                beta=record.beta,
-                increment=record.increment,
-                information=slope.T @ (slope / record.noise_variance[:, None]),
-            )
-        )
-
-    @property
-    def information(self) -> np.ndarray:
-        r"""$\hat H$, shape $(d, d)$."""
-        if not self.steps:
-            raise ValueError("no step has been seen yet")
-        if self.weighting == "last":
-            return self.steps[-1].information
-        weights = np.array(
-            [step.increment if self.weighting == "increment" else 1.0 for step in self.steps]
-        )
-        if self.weighting == "uniform":
-            weights /= len(self.steps)
-        return np.einsum("t,tij->ij", weights, np.stack([s.information for s in self.steps]))
-
-    def subspace(
-        self,
-        rank: int | None = None,
-        discarded_information: float = DEFAULT_DISCARDED_INFORMATION,
-    ) -> Subspace:
-        r"""The subspace of the leading eigenvectors of $\hat H$.
-
-        Parameters
-        ----------
-        rank, discarded_information
-            As for :meth:`Subspace.from_information`.
-        """
-        return Subspace.from_information(
-            self.information,
-            parameter_names=self.problem.coordinates.names,
-            estimator=f"ladder_linearization_{self.weighting}",
-            rank=rank,
-            discarded_information=discarded_information,
-        )
-
-
-@dataclass(frozen=True)
-class LinearizedStep:
-    r"""One step's contribution to :class:`LadderLinearization`.
-
-    Attributes
-    ----------
-    beta, increment : float
-        The step's level $\beta_t$ and increment $\Delta\beta_t$.
-    information : numpy.ndarray
-        $\widehat{DG}_t^\top \Gamma_t^{-1} \widehat{DG}_t$, shape $(d, d)$.
-    """
-
-    beta: float
-    increment: float
-    information: np.ndarray
-
-
-def statistical_linearization(z: np.ndarray, predictions: np.ndarray) -> np.ndarray:
-    r"""The least-squares slope $\widehat{DG}$ of *predictions* on *z*, shape $(n, d)$.
-
-    Fitting $G(z_j) \approx c + \widehat{DG}\, z_j$ by least squares over an ensemble gives
-
-    $$
-    \widehat{DG} = C_{Gz}\, C_{zz}^{-1},
-    $$
-
-    with $C_{Gz}$ and $C_{zz}$ the ensemble's covariances, computed by EnsKit
-    (``maps.statistical_linearization``, minimum-norm when $C_{zz}$ is singular). This is the
-    low-level regression; :func:`linearization_subspace` draws the ensemble, runs the forward
-    model and whitens the draws itself. To estimate the active subspace, *z* must be whitened
-    coordinates, since the information matrix is defined in them, and row $j$ of *predictions*
-    must be the forward map at row $j$ of *z*.
-
-    Parameters
-    ----------
-    z : numpy.ndarray
-        The ensemble in whitened coordinates, shape $(J, d)$.
-    predictions : numpy.ndarray
-        $G$ at each member of the ensemble, shape $(J, n)$.
-    """
-    ensemble = Ensemble(z=jnp.asarray(z), predictions=jnp.asarray(predictions))
-    fit = maps.statistical_linearization(ensemble, inputs="z", output="predictions", min_norm=True)
-    return np.asarray(fit.map.op.to_dense())
-
-
-def jacobians(problem: InverseProblem, theta: Any, *, chunk_size: int = 25) -> np.ndarray:
-    r"""The Jacobian $DG(z)$ of the forward map in whitened coordinates, at given parameters.
-
-    For the forward map $G$ and the whitened coordinates $z$ of the parameters (see
-    :mod:`lsmas.coordinates`), $G(z) = G(\theta(z))$ and
-
-    $$
-    DG(z)_{ij} = \frac{\partial G_i}{\partial z_j}(z), \qquad i = 1, \dots, n,\quad
-    j = 1, \dots, d,
-    $$
-
-    evaluated at $z = z(\theta)$ for each given $\theta$. Column $j$ says how the predictions
-    change as $z_j$ changes. JAX computes it exactly, so the forward map must be one JAX can
-    differentiate (``traceable=True``), as the toy problem's is; SIPNET's is not.
-
-    Reads from *problem*: ``forward`` and ``coordinates``.
-
-    Parameters
-    ----------
-    problem : InverseProblem
-        The problem whose forward map to differentiate.
-    theta : Record, RecordBatch or Mapping
-        One setting of the parameters, such as ``quantile(problem.prior, 0.5)["theta"]``, or a
-        batch of them, such as ``sample(problem.prior, 100)``. A draw of the whole prior, with the
-        parameters under ``theta``, works as well as the record ``theta`` itself.
-    chunk_size : int
-        How many Jacobians JAX computes at once; larger is faster and uses more memory.
-
-    Returns
-    -------
-    numpy.ndarray
-        Shape $(n, d)$ for one setting, or the batch's shape followed by $(n, d)$.
-
-    Raises
-    ------
-    ValueError
-        If JAX cannot differentiate the forward map.
-    """
-    coordinates = problem.coordinates
-    vectors = _parameter_vectors(theta, coordinates.block, coordinates.names)
-    result = _jacobians_at(problem, vectors.reshape(-1, coordinates.dimension), chunk_size)
-    return result.reshape(*vectors.shape[:-1], *result.shape[1:])
-
-
-def _jacobians_at(problem: InverseProblem, theta: np.ndarray, chunk_size: int) -> np.ndarray:
-    """$DG(z(\\theta))$ at each row of an array of parameters, shape $(N, n, d)$."""
-    points = np.asarray(problem.coordinates._whitened(theta))
-    jacobian = _whitened_jacobian_function(problem)
-    return np.concatenate(
-        [
-            np.asarray(jacobian(jnp.asarray(points[start : start + chunk_size])))
-            for start in range(0, len(points), chunk_size)
-        ]
-    )
-
-
-@functools.lru_cache(maxsize=8)
-def _whitened_jacobian_function(problem: InverseProblem) -> Callable[[jax.Array], jax.Array]:
-    r"""$z \mapsto DG(z)$ for a batch of points, compiled once per problem."""
-    if not declares_traceable(problem.forward):
-        raise ValueError(
-            f"{problem.name}'s forward map cannot be differentiated by JAX; "
-            "use finite_difference_subspace or linearization_subspace"
-        )
-    forward = problem.forward.using(raw=True)
-    coordinates = problem.coordinates
-
-    def features_at_whitened(x: jax.Array) -> jax.Array:
-        parameters = coordinates._from_whitened(x)
-        return forward({name: parameters[j] for j, name in enumerate(coordinates.names)})
-
-    return jax.jit(jax.vmap(jax.jacfwd(features_at_whitened)))
 
 
 def exact_subspace(
@@ -369,17 +162,14 @@ def exact_subspace(
     >>> exact_subspace(toy, reference.posterior)                  # doctest: +SKIP
     """
     draws = _averaging_draws(problem, distribution, num_samples, noise_scales)
-    information = np.zeros((problem.coordinates.dimension,) * 2)
-    for start in range(0, draws.count, chunk_size):
-        chunk = slice(start, start + chunk_size)
-        chunk_jacobians = _jacobians_at(problem, draws.theta[chunk], chunk_size)
-        information += np.einsum(
-            "m,mni,mn,mnj->ij",
+    information = sum(
+        information_matrix(
+            _whitened_jacobians(problem, draws.z[chunk]),
+            draws.noise_variance[chunk],
             draws.weights[chunk],
-            chunk_jacobians,
-            draws.precisions[chunk],
-            chunk_jacobians,
         )
+        for chunk in _chunks(draws.count, chunk_size)
+    )
     return Subspace.from_information(
         information,
         parameter_names=problem.coordinates.names,
@@ -436,29 +226,26 @@ def finite_difference_subspace(
     ValueError
         If the forward map fails near every draw.
     """
-    coordinates = problem.coordinates
     draws = _averaging_draws(problem, distribution, num_samples, noise_scales)
-    dimension = coordinates.dimension
+    dimension = problem.coordinates.dimension
     shifts = step * np.concatenate([np.eye(dimension), -np.eye(dimension)])
     perturbed = (draws.z[:, None, :] + shifts[None, :, :]).reshape(-1, dimension)
-    perturbed_theta = coordinates._records(coordinates._from_whitened(perturbed))
-    predictions = np.asarray(problem.forward(perturbed_theta).raw)
+    predictions = _predictions_at_whitened(problem, perturbed)
     predictions = predictions.reshape(draws.count, 2 * dimension, -1)
-    total, total_weight = np.zeros((dimension, dimension)), 0.0
-    for point_predictions, precision, weight in zip(
-        predictions, draws.precisions, draws.weights, strict=True
-    ):
-        if not np.all(np.isfinite(point_predictions)):
-            logger.warning("the forward map failed near a draw; it is left out")
-            continue
-        jacobian = (point_predictions[:dimension] - point_predictions[dimension:]).T / (2 * step)
-        total += weight * jacobian.T @ (precision[:, None] * jacobian)
-        total_weight += weight
-    if total_weight == 0.0:
+    differences = (predictions[:, :dimension] - predictions[:, dimension:]) / (2 * step)
+    succeeded = np.all(np.isfinite(predictions), axis=(1, 2))
+    if not succeeded.any():
         raise ValueError("the forward map failed near every draw")
+    if not succeeded.all():
+        logger.warning(
+            "the forward map failed near %d draws; they are left out", (~succeeded).sum()
+        )
+    weights = draws.weights[succeeded] / draws.weights[succeeded].sum()
     return Subspace.from_information(
-        total / total_weight,
-        parameter_names=coordinates.names,
+        information_matrix(
+            np.swapaxes(differences[succeeded], 1, 2), draws.noise_variance[succeeded], weights
+        ),
+        parameter_names=problem.coordinates.names,
         estimator="finite_differences",
         rank=rank,
         discarded_information=discarded_information,
@@ -483,16 +270,16 @@ def linearization_subspace(
     eigenvectors of
 
     $$
-    \hat H = \widehat{DG}^\top\, \overline{\Gamma^{-1}}\, \widehat{DG},
+    \hat H = \widehat{DG}^\top\, \bar\Gamma^{-1}\, \widehat{DG},
     $$
 
-    with $\overline{\Gamma^{-1}}$ the average of the draws' noise precisions. For draws from a
-    Gaussian, $\widehat{DG}$ estimates the average Jacobian $\mathbb E_\mu[DG]$, so $\hat H$
-    estimates $\mathbb E_\mu[DG]^\top \Gamma^{-1} \mathbb E_\mu[DG]$, which is smaller than
-    $H(\mu)$: its eigenvalues are biased low, while its leading directions are usually close to
-    those of $H(\mu)$. Each draw costs one forward run, all evaluated as one batch; draws at which
-    the forward map fails are left out, with a warning. The predictions are paired with the draws
-    they came from, which is why this function, rather than its caller, runs the forward model.
+    with $\bar\Gamma^{-1}$ the average of the draws' noise precisions. For draws from a Gaussian,
+    $\widehat{DG}$ estimates the average Jacobian $\mathbb E_\mu[DG]$, so $\hat H$ estimates
+    $\mathbb E_\mu[DG]^\top \Gamma^{-1} \mathbb E_\mu[DG]$, which is smaller than $H(\mu)$: its
+    eigenvalues are biased low, while its leading directions are usually close to those of
+    $H(\mu)$. Each draw costs one forward run, all evaluated as one batch; draws at which the
+    forward map fails are left out, with a warning. The predictions are paired with the draws they
+    came from, which is why this function, rather than its caller, runs the forward model.
 
     Reads from *problem*: ``forward``, ``coordinates`` and the noise covariance $\Gamma$. The
     observed data are not used.
@@ -513,25 +300,109 @@ def linearization_subspace(
     ValueError
         If the held draws have unequal weights, or fewer than two draws remain.
     """
-    coordinates = problem.coordinates
     draws = _averaging_draws(problem, distribution, num_samples, noise_scales)
     if not np.allclose(draws.weights, draws.weights[0]):
         raise ValueError(
             "a statistical linearization needs equally weighted draws; give num_samples to "
             "resample the distribution"
         )
-    predictions = np.asarray(problem.forward(coordinates._records(draws.theta)).raw)
+    predictions = np.asarray(problem.forward(draws.parameters).raw)
+    predictions = predictions.reshape(draws.count, -1)
     succeeded = np.all(np.isfinite(predictions), axis=1)
     if not succeeded.all():
         logger.warning("the forward map failed at %d draws; they are left out", (~succeeded).sum())
     if succeeded.sum() < 2:
         raise ValueError("a statistical linearization needs at least two draws")
     slope = statistical_linearization(draws.z[succeeded], predictions[succeeded])
-    precision = draws.precisions[succeeded].mean(axis=0)
     return Subspace.from_information(
-        slope.T @ (precision[:, None] * slope),
-        parameter_names=coordinates.names,
+        information_matrix(slope, _average_noise_variance(draws.noise_variance[succeeded])),
+        parameter_names=problem.coordinates.names,
         estimator="statistical_linearization",
+        rank=rank,
+        discarded_information=discarded_information,
+    )
+
+
+def eki_linearization_subspace(
+    problem: InverseProblem,
+    eki_posterior: EmpiricalDistribution,
+    *,
+    weighting: Weighting = "increment",
+    rank: int | None = None,
+    discarded_information: float = DEFAULT_DISCARDED_INFORMATION,
+) -> Subspace:
+    r"""The active subspace of the statistical linearizations along an EKI run, averaged over its
+    steps.
+
+    At step $t$ of the run, the particles $\theta_{t1}, \dots, \theta_{tJ}$ approximate the
+    tempered distribution $\pi_{\beta_t}$, and EKI has run the forward model at each of them. This
+    function reads those particles and predictions from the run's history
+    (:func:`~lsmas.inference.eki_history`), fits the statistical linearization $\widehat{DG}_t$ of
+    each step's predictions on its whitened particles (:func:`statistical_linearization`), and
+    returns the subspace of the leading eigenvectors of
+
+    $$
+    \hat H = \sum_{t=0}^{T-1} w_t\, \widehat{DG}_t^\top\, \Gamma_t^{-1}\, \widehat{DG}_t,
+    $$
+
+    with $\Gamma_t$ the noise covariance step $t$ used (at the ensemble's common noise scales,
+    when they are inferred) and weights set by *weighting*:
+
+    - ``"increment"`` (the default): $w_t = \Delta\beta_t$, the step's increment. The increments
+      sum to 1, so $\hat H$ is a Riemann sum over the tempering levels of the linearized
+      information, $\int_0^1 \mathbb E_{\pi_\beta}[DG]^\top \Gamma^{-1}
+      \mathbb E_{\pi_\beta}[DG]\, d\beta$;
+    - ``"uniform"``: $w_t = 1/T$ for $T$ steps;
+    - ``"last"``: only the last step, the ensemble closest to the posterior.
+
+    It runs no forward model evaluations, and it does not change the EKI run, which it only reads.
+
+    Reads from *problem*: ``coordinates``.
+
+    Parameters
+    ----------
+    problem : InverseProblem
+        The problem the EKI run conditioned.
+    eki_posterior : EmpiricalDistribution
+        The result of ``problem.condition(method="enskit_eki")``.
+    weighting : {"increment", "uniform", "last"}
+        How the steps are weighted.
+    rank, discarded_information
+        As for :meth:`Subspace.from_information`.
+
+    Returns
+    -------
+    Subspace
+        With ``estimator="eki_linearization_<weighting>"``.
+
+    Raises
+    ------
+    ValueError
+        If *eki_posterior* is not the result of an EKI run, or *weighting* is unknown.
+
+    Examples
+    --------
+    >>> eki_posterior = toy.condition(method="enskit_eki")                  # doctest: +SKIP
+    >>> eki_linearization_subspace(toy, eki_posterior)                       # doctest: +SKIP
+    """
+    history = eki_history(eki_posterior)
+    coordinates = problem.coordinates
+    particles = NumericRecordBatch.from_vector(
+        coordinates.spec, history["theta"].values, level_names=["step", "member"]
+    )
+    z = np.asarray(coordinates.whiten(particles).to_vector())
+    predictions = history["predictions"].values
+    slopes = np.stack(
+        [
+            statistical_linearization(step_z, step)
+            for step_z, step in zip(z, predictions, strict=True)
+        ]
+    )
+    weights = _step_weights(history["increment"].values, weighting)
+    return Subspace.from_information(
+        information_matrix(slopes, history["noise_variance"].values, weights),
+        parameter_names=coordinates.names,
+        estimator=f"eki_linearization_{weighting}",
         rank=rank,
         discarded_information=discarded_information,
     )
@@ -585,29 +456,146 @@ def covariance_subspace(
     )
 
 
+def jacobians(problem: InverseProblem, theta: Any, *, chunk_size: int = 25) -> np.ndarray:
+    r"""The Jacobian $DG(z)$ of the forward map in whitened coordinates, at given parameters.
+
+    For the forward map $G$ and the whitened coordinates $z$ of the parameters (see
+    :mod:`lsmas.coordinates`), $G(z) = G(\theta(z))$ and
+
+    $$
+    DG(z)_{ij} = \frac{\partial G_i}{\partial z_j}(z), \qquad i = 1, \dots, n,\quad
+    j = 1, \dots, d,
+    $$
+
+    evaluated at $z = z(\theta)$ for each given $\theta$. Column $j$ says how the predictions
+    change as $z_j$ changes. JAX computes it exactly, so the forward map must be one JAX can
+    differentiate (``traceable=True``), as the toy problem's is; SIPNET's is not.
+
+    Reads from *problem*: ``forward`` and ``coordinates``.
+
+    Parameters
+    ----------
+    problem : InverseProblem
+        The problem whose forward map to differentiate.
+    theta : Record, RecordBatch or Mapping
+        Values of the parameter record ``theta``: one, such as
+        ``quantile(problem.prior, 0.5)["theta"]``, or a batch, such as
+        ``sample(problem.prior, 100)["theta"]``.
+    chunk_size : int
+        How many Jacobians JAX computes at once; larger is faster and uses more memory.
+
+    Returns
+    -------
+    numpy.ndarray
+        Shape $(n, d)$ for one setting, or the batch's shape followed by $(n, d)$.
+
+    Raises
+    ------
+    ValueError
+        If JAX cannot differentiate the forward map.
+    """
+    z = np.asarray(problem.coordinates.whiten(theta).to_vector())
+    points = z.reshape(-1, problem.coordinates.dimension)
+    result = np.concatenate(
+        [_whitened_jacobians(problem, points[chunk]) for chunk in _chunks(len(points), chunk_size)]
+    )
+    return result.reshape(*z.shape[:-1], *result.shape[1:])
+
+
+def statistical_linearization(z: np.ndarray, predictions: np.ndarray) -> np.ndarray:
+    r"""The least-squares slope $\widehat{DG}$ of *predictions* on *z*, shape $(n, d)$.
+
+    Fitting $G(z_j) \approx c + \widehat{DG}\, z_j$ by least squares over an ensemble gives
+
+    $$
+    \widehat{DG} = C_{Gz}\, C_{zz}^{-1},
+    $$
+
+    with $C_{Gz}$ and $C_{zz}$ the ensemble's covariances, computed by EnsKit
+    (``maps.statistical_linearization``, minimum-norm when $C_{zz}$ is singular, which happens
+    when the ensemble has no more members than parameters). This is the low-level regression;
+    :func:`linearization_subspace` draws the ensemble, runs the forward model and whitens the
+    draws itself. To estimate the active subspace, *z* must be whitened coordinates, since the
+    information matrix is defined in them, and row $j$ of *predictions* must be the forward map at
+    row $j$ of *z*.
+
+    Parameters
+    ----------
+    z : numpy.ndarray
+        The ensemble in whitened coordinates, shape $(J, d)$.
+    predictions : numpy.ndarray
+        $G$ at each member of the ensemble, shape $(J, n)$.
+    """
+    ensemble = Ensemble(z=jnp.asarray(z), predictions=jnp.asarray(predictions))
+    fit = maps.statistical_linearization(ensemble, inputs="z", output="predictions", min_norm=True)
+    return np.asarray(fit.map.op.to_dense())
+
+
+def information_matrix(
+    jacobian: np.ndarray, noise_variance: np.ndarray, weights: np.ndarray | None = None
+) -> np.ndarray:
+    r"""The information matrix of one Jacobian, or the weighted sum over several.
+
+    For Jacobians $J_m$ ($n \times d$), noise covariances $\Gamma_m = \operatorname{diag}(\gamma_m)$
+    and weights $w_m$,
+
+    $$
+    \sum_{m} w_m\, J_m^\top\, \Gamma_m^{-1}\, J_m,
+    $$
+
+    a $d \times d$ matrix. For one Jacobian, this is $J^\top \Gamma^{-1} J$, the curvature of the
+    data misfit $\tfrac12 (y - G)^\top \Gamma^{-1} (y - G)$ when $G$ is replaced by its
+    linearization.
+
+    Parameters
+    ----------
+    jacobian : array_like
+        One Jacobian, shape $(n, d)$, or several, shape $(N, n, d)$: exact (:func:`jacobians`),
+        by finite differences, or a statistical linearization (:func:`statistical_linearization`).
+    noise_variance : array_like
+        The diagonal of $\Gamma$: shape $(n,)$, shared by every Jacobian, or $(N, n)$, one per
+        Jacobian, such as ``problem.noise_variance()``.
+    weights : array_like, optional
+        $w_m$, shape $(N,)$; by default $1/N$ each, an average.
+
+    Returns
+    -------
+    numpy.ndarray
+        Shape $(d, d)$.
+    """
+    jacobian = np.asarray(jacobian, dtype=float)
+    stacked = jacobian[None] if jacobian.ndim == 2 else jacobian
+    variances = np.broadcast_to(np.asarray(noise_variance, dtype=float), stacked.shape[:2])
+    if weights is None:
+        weights = np.full(len(stacked), 1.0 / len(stacked))
+    return np.einsum("m,mni,mn,mnj->ij", np.asarray(weights), stacked, 1.0 / variances, stacked)
+
+
 @dataclass(frozen=True)
 class _AveragingDraws:
     """Draws of the distribution an estimator averages over, ready for the estimators.
 
     Attributes
     ----------
-    theta, z : numpy.ndarray
-        The parameters and their whitened coordinates, shape $(N, d)$.
+    parameters : RecordBatch
+        The draws of the parameter record ``theta``.
+    z : numpy.ndarray
+        Their whitened coordinates, shape $(N, d)$.
     weights : numpy.ndarray
         The draws' weights, summing to 1, shape $(N,)$.
-    precisions : numpy.ndarray or None
-        The diagonal of $\\Gamma^{-1}$ at each draw, shape $(N, n)$; None when not asked for.
+    noise_variance : numpy.ndarray or None
+        The diagonal of $\\Gamma$ at each draw, shape $(N, n)$; None when not asked for.
     """
 
-    theta: np.ndarray
+    parameters: RecordBatch
     z: np.ndarray
     weights: np.ndarray
-    precisions: np.ndarray | None
+    noise_variance: np.ndarray | None
 
     @property
     def count(self) -> int:
         """$N$, the number of draws."""
-        return len(self.theta)
+        return len(self.z)
 
 
 def _averaging_draws(
@@ -618,7 +606,7 @@ def _averaging_draws(
     *,
     scales: bool = True,
 ) -> _AveragingDraws:
-    """The draws, weights and noise precisions an estimator averages over (see the module's
+    """The draws, weights and noise variances an estimator averages over (see the module's
     description)."""
     if isinstance(distribution, RecordBatch):
         distribution = EmpiricalDistribution(distribution)
@@ -632,25 +620,34 @@ def _averaging_draws(
         raise ValueError(
             f"{distribution.label!r} is not held as draws; give num_samples to draw from it"
         )
-    coordinates = problem.coordinates
-    theta = _parameter_vectors(held, coordinates.block, coordinates.names)
-    theta = theta.reshape(-1, coordinates.dimension)
-    precisions = None
+    parameters = _parameter_draws(held)
+    z = np.asarray(problem.coordinates.whiten(parameters).to_vector())
+    z = z.reshape(-1, problem.coordinates.dimension)
+    noise_variance = None
     if scales:
         drawn_scales = _drawn_noise_scales(problem, held) if noise_scales is None else noise_scales
-        precisions = _point_precisions(problem, drawn_scales, len(theta))
+        noise_variance = _point_noise_variances(problem, drawn_scales, len(z))
     return _AveragingDraws(
-        theta=theta,
-        z=np.asarray(coordinates._whitened(theta)),
-        weights=weights / weights.sum(),
-        precisions=precisions,
+        parameters=parameters, z=z, weights=weights / weights.sum(), noise_variance=noise_variance
     )
 
 
-def _drawn_noise_scales(problem: InverseProblem, held: Any) -> dict[str, np.ndarray] | None:
+def _parameter_draws(draws: RecordBatch) -> RecordBatch:
+    """The draws of the parameter record ``theta``: a field of draws of a whole prior or posterior,
+    or the draws themselves when they are draws of ``theta`` alone."""
+    try:
+        return draws["theta"]
+    except KeyError:
+        return draws
+
+
+def _drawn_noise_scales(problem: InverseProblem, held: RecordBatch) -> dict[str, np.ndarray] | None:
     """Each inferred noise scale's value at each draw, when the draws hold the record ``s2``."""
-    raw = held.raw if hasattr(held, "raw") else held
-    if not problem.likelihood.inferred_scale_classes or NOISE_SCALES not in raw:
+    if not problem.likelihood.inferred_scale_classes:
+        return None
+    try:
+        held[NOISE_SCALES]
+    except KeyError:
         return None
     return {
         noise_class: values.reshape(-1)
@@ -658,18 +655,16 @@ def _drawn_noise_scales(problem: InverseProblem, held: Any) -> dict[str, np.ndar
     }
 
 
-def _point_precisions(
+def _point_noise_variances(
     problem: InverseProblem,
     noise_scales: Mapping[str, float | np.ndarray] | None,
     n_points: int,
 ) -> np.ndarray:
-    r"""The diagonal of $\Gamma^{-1}$ at each point, shape $(N, n)$, from each inferred scale's
-    value: one number, or one value per point."""
+    r"""The diagonal of $\Gamma$ at each point, shape $(N, n)$, from each inferred scale's value:
+    one number, or one value per point."""
     inferred = problem.likelihood.inferred_scale_classes
     if not inferred:
-        return np.broadcast_to(
-            1.0 / problem.noise_variance(), (n_points, len(problem.noise_variance()))
-        )
+        return np.broadcast_to(problem.noise_variance(), (n_points, len(problem.noise_variance())))
     if missing := sorted(set(inferred) - set(noise_scales or {})):
         raise ValueError(
             f"the noise scales are inferred; give values for {missing} as noise_scales, or a "
@@ -683,7 +678,61 @@ def _point_precisions(
     }
     return np.stack(
         [
-            1.0 / problem.noise_variance({c: values[m] for c, values in per_point.items()})
+            problem.noise_variance({c: values[m] for c, values in per_point.items()})
             for m in range(n_points)
         ]
     )
+
+
+def _average_noise_variance(noise_variance: np.ndarray) -> np.ndarray:
+    r"""The noise variance whose precision is the draws' average precision,
+    $\bar\Gamma = (\frac1N \sum_m \Gamma_m^{-1})^{-1}$, shape $(n,)$."""
+    return 1.0 / np.mean(1.0 / noise_variance, axis=0)
+
+
+def _step_weights(increments: np.ndarray, weighting: Weighting) -> np.ndarray:
+    """The weight of each step of an EKI run, as :func:`eki_linearization_subspace` describes."""
+    if weighting == "increment":
+        return np.asarray(increments, dtype=float)
+    if weighting == "uniform":
+        return np.full(len(increments), 1.0 / len(increments))
+    if weighting == "last":
+        return np.eye(len(increments))[-1]
+    raise ValueError(f"unknown weighting {weighting!r}")
+
+
+def _predictions_at_whitened(problem: InverseProblem, z: np.ndarray) -> np.ndarray:
+    """The forward map at each row of whitened coordinates *z*, shape $(N, n)$."""
+    to_parameters = inverse(problem.coordinates.whiten)
+    whitened = NumericRecordBatch.from_vector(
+        to_parameters.input_spec["z"], jnp.asarray(z), level_names="point"
+    )
+    return np.asarray(problem.forward(to_parameters(whitened)).raw)
+
+
+def _whitened_jacobians(problem: InverseProblem, z: np.ndarray) -> np.ndarray:
+    """$DG(z)$ at each row of whitened coordinates *z*, shape $(N, n, d)$."""
+    return np.asarray(_whitened_jacobian_function(problem)(jnp.asarray(z)))
+
+
+@functools.lru_cache(maxsize=8)
+def _whitened_jacobian_function(problem: InverseProblem) -> Callable[[jax.Array], jax.Array]:
+    r"""$z \mapsto DG(z)$ for a batch of points, compiled once per problem."""
+    if not declares_traceable(problem.forward):
+        raise ValueError(
+            f"{problem.name}'s forward map cannot be differentiated by JAX; "
+            "use finite_difference_subspace or linearization_subspace"
+        )
+    forward = problem.forward.using(raw=True)
+    to_parameters = inverse(problem.coordinates.whiten).using(raw=True)
+    names = problem.coordinates.names
+
+    def features_at_whitened(z: jax.Array) -> jax.Array:
+        return forward(to_parameters(dict(zip(names, z, strict=True))))
+
+    return jax.jit(jax.vmap(jax.jacfwd(features_at_whitened)))
+
+
+def _chunks(length: int, size: int) -> list[slice]:
+    """Consecutive slices of at most *size* covering ``range(length)``."""
+    return [slice(start, start + size) for start in range(0, length, size)]

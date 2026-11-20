@@ -139,17 +139,16 @@ class GaussianSimulatorLikelihood(ConditionalDistribution):
 
         Parameters
         ----------
-        draws : Record, RecordBatch or Mapping
-            Draws that hold the record ``s2``, such as a posterior's atoms, tracked or raw.
+        draws : Record or RecordBatch
+            Draws that hold the record ``s2``, such as a posterior's atoms.
 
         Returns
         -------
         dict of str to numpy.ndarray
-            Each with the leading shape of *draws*; empty when every scale is fixed.
+            Each with the batch shape of *draws*; empty when every scale is fixed.
         """
-        raw = draws.raw if hasattr(draws, "raw") else draws
         return {
-            noise_class: np.asarray(raw[NOISE_SCALES][noise_class], dtype=float)
+            noise_class: np.asarray(draws[f"{NOISE_SCALES}/{noise_class}"].raw, dtype=float)
             for noise_class in self.inferred_scale_classes
         }
 

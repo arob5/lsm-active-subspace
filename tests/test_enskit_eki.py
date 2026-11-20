@@ -24,7 +24,7 @@ from conftest import (
 )
 from lsmas._stopgaps.likelihood import GaussianSimulatorLikelihood
 from lsmas._stopgaps.tempering import tempered_condition_on
-from lsmas.inference import EnsKitEKI
+from lsmas.inference import EnsKitEKI, eki_history
 from lsmas.priors import independent_prior
 
 FIXED_SCALES = {"day": 1.5, "night": 0.7}
@@ -66,7 +66,7 @@ def test_callbacks_see_every_step_up_the_ladder(observations):
     assert records[0].theta.shape == (50, 2)
     assert records[0].predictions.shape == (50, 6)
     assert isinstance(records[0].noise_variance, np.ndarray)
-    history = posterior.annotations["arviz/eki_history"]
+    history = eki_history(posterior)
     np.testing.assert_allclose(history["beta"].values, betas)
 
 

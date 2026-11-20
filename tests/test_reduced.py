@@ -68,7 +68,8 @@ def test_lifted_draws_keep_the_inactive_variables_at_their_prior(problem):
     reduced = reduced_problem(problem, subspace)
     with workflow_run(seed=1):
         posterior = reduced.condition(method="blackjax_nuts")
-    lifted = reduced.lift(posterior, key=jax.random.key(0))
+    with workflow_run(seed=2):
+        lifted = reduced.lift(posterior)
     z = np.asarray(problem.coordinates.whiten(lifted.atoms["theta"]).to_vector())
     inactive = subspace.inactive_variables(z)
     assert inactive.shape == (z.shape[0], 1)

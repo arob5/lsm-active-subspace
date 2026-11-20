@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import functools
 import inspect
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -36,7 +36,6 @@ from probpipe import (
     Distribution,
     Function,
     NumericArraySpec,
-    NumericRecordBatch,
     NumericRecordSpec,
     SupportsInverse,
     SupportsLogDetJacobian,
@@ -296,12 +295,6 @@ class Coordinates:
         mean, factor, _ = self._moments
         return self._constrained(mean + jnp.asarray(z) @ factor.T)
 
-    def _records(self, theta: Any, level: str = "member") -> NumericRecordBatch:
-        """Constrained parameters *theta*, shape $(n, d)$, as a batch of records ``theta``."""
-        return NumericRecordBatch.from_vector(
-            self.spec, jnp.asarray(theta, dtype=float), level_names=level
-        )
-
     def _unconstrain_log_det(self, theta: Any) -> jax.Array:
         r"""$\log \lvert \det \partial \phi / \partial \theta \rvert
         = -\sum_j \log b_j'(\phi_j)$."""
@@ -324,11 +317,12 @@ class Coordinates:
         return phi.mean(axis=0), factor, np.linalg.inv(factor)
 
 
-def _parameter_vectors(draws: Any, block: str, names: tuple[str, ...]) -> np.ndarray:
-    """The values of the parameters *names* of *block* in raw or tracked *draws*, shape $(n, d)$."""
-    raw = draws.raw if hasattr(draws, "raw") else draws
+def _parameter_vectors(
+    raw_draws: Mapping[str, Any], block: str, names: tuple[str, ...]
+) -> np.ndarray:
+    """The values of the parameters *names* of *block* in raw prior draws, shape $(n, d)$."""
     # STOPGAP(PG-13): a prior taken back out of a joint may draw its block's fields ungrouped.
-    block_draws = raw.get(block, raw)
+    block_draws = raw_draws.get(block, raw_draws)
     return np.stack([np.asarray(block_draws[name], dtype=float) for name in names], axis=-1)
 
 

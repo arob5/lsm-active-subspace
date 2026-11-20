@@ -21,6 +21,7 @@ log-normal, logit-normal and normal priors, and an approximation otherwise.
 
 from __future__ import annotations
 
+import functools
 from dataclasses import dataclass
 from typing import Any
 
@@ -32,12 +33,12 @@ from probpipe import (
     Function,
     Normal,
     NumericRecordBatch,
+    sample,
 )
 
 from lsmas._stopgaps.functions import declares_traceable
 from lsmas._stopgaps.likelihood import NOISE_SCALES, GaussianSimulatorLikelihood
-from lsmas._stopgaps.sampling import draw_with_key
-from lsmas.coordinates import Coordinates, _parameter_vectors
+from lsmas.coordinates import Coordinates, inverse
 from lsmas.parameters import parameter_record_spec
 from lsmas.priors import factors_over, independent_prior
 from lsmas.problems.inverse_problem import InverseProblem
@@ -68,7 +69,7 @@ def reduced_problem(problem: InverseProblem, subspace: Subspace) -> ReducedProbl
     >>> reduced = reduced_problem(problem, subspace)                      # doctest: +SKIP
     >>> with workflow_run(seed=1):                                          # doctest: +SKIP
     ...     posterior = reduced.condition(method="blackjax_rwmh")
-    >>> approximation = reduced.lift(posterior, key=jax.random.key(2))     # doctest: +SKIP
+    >>> approximation = reduced.lift(posterior)                            # doctest: +SKIP
     """
     if subspace.parameter_names != problem.coordinates.names:
         raise ValueError("the subspace's parameters are not the problem's")
@@ -108,49 +109,44 @@ class ReducedProblem(InverseProblem):
     full_problem: InverseProblem
     subspace: Subspace
 
-    def lift(self, posterior: Any, *, key: Any) -> EmpiricalDistribution:
+    def lift(self, posterior: EmpiricalDistribution) -> EmpiricalDistribution:
         r"""The approximation of the full posterior from draws of this problem's posterior.
 
-        Each draw of the active variables $a$ is combined with the inactive part
-        $b = W_\perp^\top z$ of an independent prior draw $z$, and mapped to the calibration
-        parameters $\theta(W a + W_\perp b)$. Drawn noise scales are carried over unchanged.
+        Each draw of the active variables $a$ is paired with an independent draw $z$ of the full
+        problem's prior, in whitened coordinates, whose inactive part $b = W_\perp^\top z$ it
+        keeps, and mapped to the calibration parameters $\theta(W a + W_\perp b)$. Drawn noise
+        scales are carried over unchanged, and the draws keep *posterior*'s weights. The prior
+        draws come from the current ``workflow_run``'s random stream.
 
         Parameters
         ----------
-        posterior : Distribution
-            A posterior of this problem with draws (``posterior.atoms``), such as the result of
-            :meth:`condition`.
-        key : jax.Array
-            The random key of the prior draws.
+        posterior : EmpiricalDistribution
+            A posterior of this problem held as draws, such as the result of :meth:`condition`.
 
         Returns
         -------
         EmpiricalDistribution
             Draws of the full problem's parameter record ``theta`` and of any inferred noise scales.
         """
-        atoms = posterior.atoms
-        active = _parameter_vectors(atoms, _PARAMETER_BLOCK, self.coordinates.names).reshape(
-            -1, self.subspace.rank
-        )
+        reduced_draws = posterior.atoms
+        active = np.asarray(reduced_draws[_PARAMETER_BLOCK].to_vector())
+        active = active.reshape(-1, self.subspace.rank)
         full = self.full_problem.coordinates
-        prior_draws = draw_with_key(self.full_problem.prior, key, (active.shape[0],))
-        prior_z = np.asarray(
-            full._whitened(_parameter_vectors(prior_draws, _PARAMETER_BLOCK, full.names))
-        )
+        prior_draws = sample(self.full_problem.prior, len(active))
+        prior_z = np.asarray(full.whiten(prior_draws[_PARAMETER_BLOCK]).to_vector())
         z = self.subspace.whitened_from_active_and_inactive(
             active, self.subspace.inactive_variables(prior_z)
         )
-        theta = np.asarray(full._from_whitened(z))
-        fields: dict[str, Any] = {
-            _PARAMETER_BLOCK: {
-                name: jnp.asarray(theta[:, index]) for index, name in enumerate(full.names)
-            }
-        }
-        if scales := self.likelihood.inferred_scale_draws(atoms):
-            fields[NOISE_SCALES] = {
-                noise_class: jnp.asarray(draws.reshape(-1)) for noise_class, draws in scales.items()
-            }
-        return EmpiricalDistribution(NumericRecordBatch(fields, "draw"))
+        to_parameters = inverse(full.whiten)
+        whitened = NumericRecordBatch.from_vector(
+            to_parameters.input_spec["z"], z, level_names=prior_draws.level_names
+        )
+        theta = to_parameters(whitened)
+        lifted = {f"{_PARAMETER_BLOCK}/{name}": theta[name] for name in full.names}
+        for noise_class, draws in self.likelihood.inferred_scale_draws(reduced_draws).items():
+            lifted[f"{NOISE_SCALES}/{noise_class}"] = draws.reshape(-1)
+        weights = np.asarray(posterior.weights).reshape(-1)
+        return EmpiricalDistribution(prior_draws.replace(lifted), weights=weights)
 
 
 @dataclass(frozen=True, eq=False)
@@ -163,11 +159,14 @@ class _ReducedForwardMap:
 
     def features(self, theta: Any) -> Any:
         """$G(W a)$ at the record *theta* of active variables $a$."""
-        coordinates = self.problem.coordinates
         z = self.basis @ jnp.stack([jnp.asarray(theta[name]) for name in self.names])
-        parameters = coordinates._from_whitened(z)
-        record = {name: parameters[j] for j, name in enumerate(coordinates.names)}
-        return self.problem.forward.using(raw=True)(record)
+        parameters = self._to_parameters(dict(zip(self.problem.coordinates.names, z, strict=True)))
+        return self.problem.forward.using(raw=True)(parameters)
+
+    @functools.cached_property
+    def _to_parameters(self) -> Function:
+        r"""$z \mapsto \theta$ on raw records, so that it can be traced."""
+        return inverse(self.problem.coordinates.whiten).using(raw=True)
 
 
 def _reduced_likelihood(

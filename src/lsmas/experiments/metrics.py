@@ -28,6 +28,7 @@ below which differences are Monte Carlo noise.
 from __future__ import annotations
 
 import numpy as np
+from probpipe import EmpiricalDistribution
 from scipy import linalg, stats
 
 from lsmas._stopgaps.likelihood import noise_scale_variable
@@ -84,36 +85,24 @@ def score(
     problem : InverseProblem
         The problem, whose coordinates whiten the draws.
     """
-    coordinates = problem.coordinates
-    theta = np.asarray(result.posterior.atoms[coordinates.block].to_vector())
-    theta = theta.reshape(-1, coordinates.dimension)
-    noise_scales = {
-        noise_class: draws.reshape(-1)
-        for noise_class, draws in problem.likelihood.inferred_scale_draws(
-            result.posterior.atoms
-        ).items()
-    }
     return (
-        posterior_scores(theta, noise_scales, reference, problem)
+        posterior_scores(result.posterior, reference, problem)
         | subspace_scores(result.subspace, reference)
         | {"forward_runs": result.total_forward_runs}
     )
 
 
 def posterior_scores(
-    theta: np.ndarray,
-    noise_scales: dict[str, np.ndarray],
-    reference: Reference,
-    problem: InverseProblem,
+    posterior: EmpiricalDistribution, reference: Reference, problem: InverseProblem
 ) -> dict[str, float]:
-    r"""The posterior metrics of draws against a reference, summarized over coordinates.
+    r"""The posterior metrics of an approximate posterior against a reference, summarized over
+    coordinates.
 
     Parameters
     ----------
-    theta : numpy.ndarray
-        Draws of the calibration parameters, shape $(N, d)$.
-    noise_scales : dict of str to numpy.ndarray
-        Draws of each inferred noise scale, shape $(N,)$, by class; empty when the scales are fixed.
+    posterior : EmpiricalDistribution
+        The approximate posterior, held as draws: the calibration parameters under ``theta``, and
+        any inferred noise scales under ``s2``.
     reference : Reference
         The reference.
     problem : InverseProblem
@@ -127,8 +116,10 @@ def posterior_scores(
         ``coverage90_min`` over the whitened parameters, and ``marginal_w1_s2_<class>`` for each
         inferred noise scale, on the logarithm of the scale.
     """
-    approximation = np.asarray(problem.coordinates._whitened(theta))
-    target = np.asarray(problem.coordinates._whitened(reference.parameter_draws()))
+    whiten, dimension = problem.coordinates.whiten, problem.coordinates.dimension
+    approximation = np.asarray(whiten(posterior.atoms["theta"]).to_vector()).reshape(-1, dimension)
+    target = np.asarray(whiten(reference.posterior.atoms["theta"]).to_vector())
+    target = target.reshape(-1, dimension)
     distances = marginal_wasserstein(approximation, target)
     location, spread = mean_errors(approximation, target), sd_errors(approximation, target)
     coverage = interval_coverage(approximation, target)
@@ -143,10 +134,11 @@ def posterior_scores(
         "coverage90_mean": coverage.mean(),
         "coverage90_min": coverage.min(),
     }
-    reference_scales = reference.noise_scale_draws()
-    for noise_class, draws in noise_scales.items():
-        log_draws = np.log(np.asarray(draws, dtype=float))[:, None]
-        log_reference = np.log(reference_scales[noise_class])[:, None]
+    scale_draws = problem.likelihood.inferred_scale_draws
+    reference_scales = scale_draws(reference.posterior.atoms)
+    for noise_class, draws in scale_draws(posterior.atoms).items():
+        log_draws = np.log(draws.reshape(-1))[:, None]
+        log_reference = np.log(reference_scales[noise_class].reshape(-1))[:, None]
         name = f"marginal_w1_{noise_scale_variable(noise_class)}"
         scores[name] = marginal_wasserstein(log_draws, log_reference)[0]
     return {name: float(value) for name, value in scores.items()}
