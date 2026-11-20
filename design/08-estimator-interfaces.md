@@ -92,3 +92,24 @@ one yet.
 thinned draws, with any noise scales, as a batch, so the estimators read the scales from them.
 The tools notebook uses the new calls, and every docstring says what the function computes, what
 it reads from the problem, how it uses $\mu$, and what it costs in forward runs.
+
+## 5. Cleanup (2026-11-20)
+
+From review of `estimators.py`:
+
+- **ProbPipe and public interfaces first, package-wide.** No module outside `lsmas.coordinates`
+  uses its private array functions; every module works on ProbPipe records and batches with the
+  public maps, and leaves ProbPipe (`to_vector`, `.raw`) only for linear algebra, EnsKit, plotting
+  or storage. Arrays held by EnsKit, MCMC chains or stored references become records with
+  `NumericRecordBatch.from_vector`. `Reference.parameter_draws` and `noise_scale_draws` are removed
+  in favour of `Reference.posterior`; `ReducedProblem.lift` uses `NumericRecordBatch.replace` and
+  the `workflow_run` stream rather than a key.
+- **The EKI estimate reads the run's history.** `LadderLinearization` (a callback that accumulated
+  weighted matrices while EKI ran) is replaced by `eki_linearization_subspace(problem,
+  eki_posterior, weighting=...)`. EKI already stores every step's particles, predictions and noise
+  variance in its result (`lsmas.inference.eki_history`), so the weighting is chosen when the
+  estimate is computed, after the run, and costs no forward runs to change.
+- **One information matrix.** `information_matrix(jacobian, noise_variance, weights)` computes
+  $\sum_m w_m J_m^\top \Gamma_m^{-1} J_m$; every estimator, and the tutorial, uses it.
+- **`estimators.py`** puts the five `*_subspace` functions first, then the building blocks
+  (`jacobians`, `statistical_linearization`, `information_matrix`), then private helpers.
