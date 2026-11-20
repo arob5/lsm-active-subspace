@@ -110,15 +110,19 @@ InverseProblem(name, description, model, data, learning_rate)
 problem.condition(method="blackjax_rwmh")   # tempered_condition_on(model, data, learning_rate, ...), PG-03
 ```
 
-It computes nothing that involves $\eta$ outside conditioning. Two properties are kept for
-convenience, as model-level derivations:
+It computes nothing that involves $\eta$ outside conditioning. It keeps shortcuts to the model's
+parts, each one line:
 
 - `problem.prior`, the marginal of the model over its unobserved outputs,
   `marginal(model, [the outputs not in data])`. It draws without forward runs.
+- `problem.likelihood`, `factor(model, observed output)`, and `problem.forward`, its forward map.
 - `problem.coordinates`, which is `Coordinates.from_model(problem.model)`.
 
-**Removed from `InverseProblem`:** the `likelihood` and `prior` fields, `forward`,
-`noise_variance` and `misfit`.
+Signatures are written in terms of the model; the shortcuts are for reading and for the
+notebooks.
+
+**Removed from `InverseProblem`:** the stored `likelihood` and `prior` fields (they become the
+shortcuts above), `noise_variance` and `misfit`.
 
 **$\eta$ enters explicitly wherever it is used:**
 - in conditioning, through `problem.condition`;
@@ -132,7 +136,7 @@ generalized posterior, whose information is
 $H_\eta(\mu) = \mathbb E_\mu[DG^\top \operatorname{diag}(\eta)\,\Gamma^{-1} DG]$:
 
 ```python
-gradient_based_subspace(model, mu, *, learning_rate=1.0, num_samples=None, ...)
+gradient_based_subspace(model, parameter_distribution, *, learning_rate=1.0, num_samples=None, ...)
 gradient_based_subspace(problem.model, posterior, learning_rate=problem.learning_rate["nee"])
 ```
 
@@ -184,11 +188,10 @@ the model there fails on ProbPipe #716, which design 09 covers.
 
 ## 6. Decisions
 
-Agreed 2026-11-20: the model and inference are separated as above; the estimators take
-`(model, mu, learning_rate)`; `noise_variance` is removed, with $\eta$ written out where it is used.
-
-Still open:
-
-1. **`problem.prior` and `problem.coordinates`.** Keep them as model-level conveniences, or write
-   `marginal(...)` and `Coordinates.from_model(...)` at each call site?
-2. **Mixed fixed and inferred classes.** Drop support, since nothing uses it?
+Agreed 2026-11-20:
+- the model and inference are separated as above;
+- signatures are written in terms of the model, and the estimators take
+  `(model, parameter_distribution, learning_rate)`;
+- `InverseProblem` keeps shortcuts to `prior`, `likelihood`, `forward` and `coordinates`;
+- `noise_variance` is removed, with $\eta$ written out where it is used;
+- support for fixing some classes while inferring others is dropped.

@@ -49,7 +49,7 @@ Each body below is what the function would be if ProbPipe had no gaps; §4 says 
 something else today. The estimators take the model and the learning rate (design 10, §3.5).
 
 ```python
-def gradient_based_subspace(model, mu, *, learning_rate=1.0, num_samples=None, rank=None, ...):
+def gradient_based_subspace(model, parameter_distribution, *, learning_rate=1.0, num_samples=None, rank=None, ...):
     coordinates = Coordinates.from_model(model)
     to_theta = inverse(coordinates.whiten)
 
@@ -61,16 +61,16 @@ def gradient_based_subspace(model, mu, *, learning_rate=1.0, num_samples=None, r
         noise_variance = variance(condition_on(model, parameters)) / learning_rate
         return information_matrix(jacobian_at_z, noise_variance)
 
-    H = expectation.using(num_samples=num_samples)(mu, information_at)
+    H = expectation.using(num_samples=num_samples)(parameter_distribution, information_at)
     return Subspace.from_information(H, parameter_names=coordinates.names,
                                      estimator="gradient", rank=rank, ...)
 ```
 
-`finite_difference_subspace(model, mu, *, learning_rate=1.0, num_samples=None, step=0.2, ...)` is
+`finite_difference_subspace(model, parameter_distribution, *, learning_rate=1.0, num_samples=None, step=0.2, ...)` is
 the same, with `jacobian(..., method="central_differences", step=step)`.
 
 ```python
-def linearization_subspace(model, mu, *, learning_rate=1.0, num_samples=None, ...):
+def linearization_subspace(model, parameter_distribution, *, learning_rate=1.0, num_samples=None, ...):
     coordinates = Coordinates.from_model(model)
 
     def linearization_inputs(parameters):
@@ -81,16 +81,16 @@ def linearization_subspace(model, mu, *, learning_rate=1.0, num_samples=None, ..
             "noise_precision": learning_rate / variance(observations),
         }
 
-    joint = pushforward.using(num_samples=num_samples)(mu, linearization_inputs)
+    joint = pushforward.using(num_samples=num_samples)(parameter_distribution, linearization_inputs)
     slope = cov(joint["predictions"], joint["z"]) @ inv(cov(joint["z"]))
     H = information_matrix(slope, 1 / mean(joint["noise_precision"]))
     return Subspace.from_information(H, ..., estimator="statistical_linearization")
 
 
-def covariance_subspace(model, mu, *, num_samples=None, ...):
+def covariance_subspace(model, parameter_distribution, *, num_samples=None, ...):
     coordinates = Coordinates.from_model(model)
     z = pushforward.using(num_samples=num_samples)(
-        mu, lambda parameters: coordinates.whiten(parameters["theta"])
+        parameter_distribution, lambda parameters: coordinates.whiten(parameters["theta"])
     )
     H = inv(cov(z)) - eye(coordinates.dimension)
     return Subspace.from_information(H, ..., estimator="covariance")
@@ -162,7 +162,7 @@ removed.
 
 - `exact_subspace` → **`gradient_based_subspace`**, `estimator="gradient"`. The Jacobians are
   exact, but the average over $\mu$ is an estimate, so "exact" misdescribed it.
-- The estimators take `(model, mu, *, learning_rate=...)` (design 10).
+- The estimators take `(model, parameter_distribution, *, learning_rate=...)` (design 10).
 - $\mu$ is a `Distribution`. Samples in hand are passed as `EmpiricalDistribution(samples)`; a bare
   batch, and samples of `theta` alone, are no longer accepted.
 - Removed: `noise_scales=` (each value's own `s2` sets its $\Gamma$; no caller passed it) and
@@ -183,14 +183,12 @@ covariance line, instead.
 
 ## 7. Decisions
 
-Decided: C3, C4 and C5 go to ProbPipe (#716, #717, #718); C6, raise; C7, design 10.
-
-Still open:
-
-1. **C1 and C2:** the `jacobian` stopgap, compiling its autodiff Jacobian, as proposed?
-2. **Until #716, #717 and #718 land:**
-   - wait for the fixes and move the pin before implementing; or
-   - implement now with interim stopgaps that behave as the fixed ProbPipe will. That means
-     `expectation` and `pushforward` that present fields in declared order and use every held
-     sample, and a cross-covariance read from the joint's layout. They would be removed when the
-     pin moves.
+Decided 2026-11-20:
+- C1 and C2: the `jacobian` stopgap, compiling its autodiff Jacobian;
+- C3, C4 and C5 go to ProbPipe (#716, #717, #718). Until they land, interim stopgaps behave as the
+  fixed ProbPipe will: `expectation` and `pushforward` present fields in declared order and use
+  every held sample, and `cov(y, x)` gives the cross-covariance of two coupled marginals. They come
+  out when the pin moves;
+- C6: raise;
+- C7: design 10;
+- the argument $\mu$ is named `parameter_distribution`.
