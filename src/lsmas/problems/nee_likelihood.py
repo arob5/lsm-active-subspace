@@ -16,14 +16,13 @@ parameters they calibrate; :func:`nee_problem` builds one from those two.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from typing import Any, Literal
 
 import numpy as np
 from probpipe import Distribution, Function, InverseGamma
 
-from lsmas._stopgaps.likelihood import INFERRED, NOISE_SCALES, GaussianSimulatorLikelihood
-from lsmas.coordinates import Coordinates
+from lsmas._stopgaps.likelihood import NOISE_SCALES, GaussianSimulatorLikelihood
 from lsmas.data import HarvardForestData
 from lsmas.learning_rate import effective_sample_size_learning_rate
 from lsmas.priors import independent_prior
@@ -81,51 +80,38 @@ def nee_problem(
     ValueError
         If *forward* does not declare the parameters of *laws*, in their order, as its input.
     """
+    if (declared := list(forward.input_spec["theta"].fields)) != list(laws):
+        raise ValueError(
+            f"the forward map declares the parameters {declared}; the prior {list(laws)}"
+        )
     likelihood = GaussianSimulatorLikelihood(
         forward,
         output_name="nee",
         reference_variance=np.vectorize(REFERENCE_VARIANCE.get)(data.feature_classes),
         classes=data.feature_classes,
-        scales=_likelihood_scales(scales),
+        default_scales={noise_class: 1.0 for noise_class in REFERENCE_VARIANCE},
         label="nee_likelihood",
     )
-    if (declared := list(forward.input_spec["theta"].fields)) != list(laws):
-        raise ValueError(
-            f"the forward map declares the parameters {declared}; the prior {list(laws)}"
-        )
-    prior = _prior_with_noise_scales(laws, likelihood.inferred_scale_classes)
     return InverseProblem(
         name=name,
         description=description,
-        likelihood=likelihood,
-        prior=prior,
+        model=(likelihood & _prior(laws, scales)).with_label(name),
         data={"nee": data.observations},
         learning_rate={"nee": _feature_learning_rates(data)},
-        coordinates=Coordinates.from_prior(prior, "theta"),
     )
 
 
-def _prior_with_noise_scales(
-    laws: Mapping[str, Distribution], inferred_classes: Sequence[str]
-) -> Any:
-    """The prior of the calibration parameters, grouped under ``theta``, and of any inferred noise
-    scales, grouped under ``s2``."""
-    prior = independent_prior(laws)
-    if inferred_classes:
+def _prior(laws: Mapping[str, Distribution], scales: str) -> Any:
+    """The prior of the calibration parameters, grouped under ``theta``, and, when the noise
+    scales are inferred, of the scales, grouped under ``s2``."""
+    if scales == "fixed":
+        return independent_prior(laws)
+    if scales == "inferred":
         scale_laws = {
             noise_class: InverseGamma(noise_class, **NOISE_SCALE_PRIOR)
-            for noise_class in inferred_classes
+            for noise_class in REFERENCE_VARIANCE
         }
-        prior = prior & independent_prior(scale_laws, group=NOISE_SCALES)
-    return prior.with_label("prior")
-
-
-def _likelihood_scales(scales: str) -> dict[str, str | float]:
-    """The likelihood's scale for each class: ``"inferred"``, or 1 when fixed."""
-    if scales == "fixed":
-        return {"day": 1.0, "night": 1.0}
-    if scales == "inferred":
-        return {"day": INFERRED, "night": INFERRED}
+        return independent_prior(laws) & independent_prior(scale_laws, group=NOISE_SCALES)
     raise ValueError(f"scales must be 'fixed' or 'inferred', got {scales!r}")
 
 

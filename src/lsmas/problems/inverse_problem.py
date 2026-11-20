@@ -1,15 +1,15 @@
-r"""The inverse-problem class: prior, likelihood, observed data and learning rates."""
+r"""The inverse-problem class: a model, observed data, and the learning rates of conditioning."""
 
 from __future__ import annotations
 
 import functools
-from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
-from probpipe import Distribution, Function
+from probpipe import Distribution, Function, factor, marginal
 
+from lsmas._stopgaps.likelihood import NOISE_SCALES
 from lsmas._stopgaps.tempering import tempered_condition_on
 from lsmas.coordinates import Coordinates
 
@@ -18,18 +18,20 @@ __all__ = ["InverseProblem"]
 
 @dataclass(frozen=True, eq=False)
 class InverseProblem:
-    r"""An inverse problem: the prior, the likelihood and the observed data.
+    r"""An inverse problem: a model, the observed data, and the learning rates of conditioning.
 
-    The model is $p(y \mid \theta, s^2)\, \pi_0(\theta, s^2)$, a ProbPipe ``likelihood & prior``,
-    and conditioning it on the observed $y$ with learning rates $\eta$ gives the generalized
-    posterior
+    The model is the joint law $p(y \mid \theta, s^2)\, \pi_0(\theta, s^2)$ of the parameters and
+    the observations, a ProbPipe ``likelihood & prior``. Conditioning it on the observed $y$ with
+    learning rates $\eta$ gives the generalized posterior
 
     $$
     \pi_\eta(\theta, s^2 \mid y) \propto
     \pi_0(\theta, s^2) \prod_i p(y_i \mid \theta, s^2)^{\eta_i}.
     $$
 
-    With every $\eta_i = 1$ this is the ordinary posterior.
+    With every $\eta_i = 1$ this is the ordinary posterior. The model is the law; the data and
+    the learning rates are what :meth:`condition` conditions it with. The noise scales $s^2$ are
+    parameters when the prior has the output ``s2``, and fixed otherwise.
 
     Attributes
     ----------
@@ -37,42 +39,52 @@ class InverseProblem:
         A short identifier, such as ``"harvard_forest_small"``.
     description : str
         A paragraph saying what the problem is.
-    likelihood : ConditionalDistribution
-        $p(y \mid \theta, s^2)$, the law of the observations given the parameters.
-    prior : Distribution
-        $\pi_0(\theta, s^2)$, the law of the parameters, with the calibration parameters grouped
-        under ``theta``.
+    model : Distribution
+        The joint law ``likelihood & prior``.
     data : dict of str to numpy.ndarray
         The observed value of each observed output.
     learning_rate : dict of str to numpy.ndarray
         $\eta$ for each observed output, one rate per element.
-    coordinates : Coordinates
-        The changes of coordinates of ``theta``: ``coordinates.unconstrain`` and
-        ``coordinates.whiten``.
     """
 
     name: str
     description: str
-    likelihood: Any
-    prior: Distribution
+    model: Distribution
     data: dict[str, np.ndarray]
     learning_rate: dict[str, np.ndarray]
-    coordinates: Coordinates
+
+    @functools.cached_property
+    def prior(self) -> Distribution:
+        r"""$\pi_0$: the model's law of its unobserved outputs, the calibration parameters
+        ``theta`` and any inferred noise scales ``s2``. It draws without running the forward
+        map."""
+        unobserved = [name for name in self.model.event_spec.outputs if name not in self.data]
+        return marginal(self.model, unobserved).with_label("prior")
+
+    @functools.cached_property
+    def likelihood(self) -> Any:
+        r"""$p(y \mid \theta, s^2)$: the model's factor that produces the observed output."""
+        if len(self.data) != 1:
+            raise ValueError(f"defined for one observed output; this problem has {list(self.data)}")
+        (observed,) = self.data
+        return factor(self.model, observed)
 
     @property
     def forward(self) -> Function:
         """The forward map $G$ from the parameter record ``theta`` to the predicted observations."""
         return self.likelihood.forward
 
-    @functools.cached_property
-    def model(self) -> Distribution:
-        """The generative model ``likelihood & prior``.
+    @property
+    def inferred_noise_classes(self) -> tuple[str, ...]:
+        """The classes of observation whose noise scales are parameters: every class when the
+        prior has the output ``s2``, and none when the scales are fixed."""
+        inferred = NOISE_SCALES in self.prior.event_spec.outputs
+        return self.likelihood.noise_classes if inferred else ()
 
-        Its draws are prior predictive draws: ``sample(problem.model, n)`` draws the parameters
-        from the prior and then the observations from the likelihood, running the forward map
-        once per draw.
-        """
-        return (self.likelihood & self.prior).with_label(self.name)
+    @property
+    def coordinates(self) -> Coordinates:
+        """The changes of coordinates of ``theta``: ``Coordinates.from_model(model)``."""
+        return Coordinates.from_model(self.model)
 
     # STOPGAP(PG-08): automatic method selection assumes gradients, so the method is required.
     def condition(self, *, method: str, **using: Any) -> Distribution:
@@ -92,54 +104,6 @@ class InverseProblem:
             self.model, self.data, learning_rate=self.learning_rate, method=method, **using
         )
         return posterior.with_label("posterior")
-
-    def noise_variance(self, noise_scales: Mapping[str, Any] | None = None) -> np.ndarray:
-        r"""The diagonal of the tempered noise covariance,
-        $\Gamma = \operatorname{diag}\!\left(s^2_{k(i)}\, \sigma^2_i / \eta_i\right)$, shape $(n,)$.
-
-        $\Gamma^{-1}$ weights the observations in the generalized posterior and in the
-        information matrices of :mod:`lsmas.tools`.
-
-        Parameters
-        ----------
-        noise_scales : Mapping of str to float, optional
-            A value for each inferred noise scale, by class: a value of the record ``s2``, such as
-            ``{"day": 1.0, "night": 1.0}``. Not needed when every scale is fixed.
-
-        Raises
-        ------
-        ValueError
-            If an inferred scale has no value, or the problem has more than one observed output.
-        """
-        inferred = self.likelihood.inferred_scale_classes
-        if missing := sorted(set(inferred) - set(noise_scales.keys() if noise_scales else ())):
-            raise ValueError(f"the noise scales are inferred; give values for {missing}")
-        if len(self.data) != 1:
-            raise ValueError(f"defined for one observed output; this problem has {list(self.data)}")
-        (observed,) = self.data
-        variances = np.asarray(self.likelihood.noise_variances(noise_scales))
-        return variances / self.learning_rate[observed]
-
-    def misfit(self, predictions: Any, noise_scales: Mapping[str, Any] | None = None) -> np.ndarray:
-        r"""The data misfit $\Phi = \tfrac12 (y - G)^\top \Gamma^{-1} (y - G)$ of each set of
-        predictions $G$, with $\Gamma$ the tempered noise covariance (:meth:`noise_variance`).
-
-        Parameters
-        ----------
-        predictions : array_like
-            Predicted observations, shape $(N, n)$, or one set, shape $(n,)$, such as the forward
-            model applied to a batch of parameter draws.
-        noise_scales : Mapping of str to float, optional
-            As for :meth:`noise_variance`; not needed when every scale is fixed.
-
-        Returns
-        -------
-        numpy.ndarray
-            Shape $(N,)$, or a scalar for one set.
-        """
-        (observed,) = self.data
-        residuals = self.data[observed] - np.asarray(predictions, dtype=float)
-        return 0.5 * np.sum(residuals**2 / self.noise_variance(noise_scales), axis=-1)
 
     def describe(self) -> str:
         """A short readable summary: the description, the parameters and the data."""

@@ -184,11 +184,17 @@ class _GaussianInverseProblem:
             draw_with_key(self.prior, key, (n_particles,)), self.coordinates.names
         )
         conditionals = self.scale_conditionals
-        inferred = self.likelihood.inferred_scale_draws(draws)
         scales = np.stack(
             [
-                inferred[k] if k in inferred else np.full(n_particles, fixed)
-                for k, fixed in zip(conditionals.classes, conditionals.fixed_scales, strict=True)
+                np.asarray(draws[f"{NOISE_SCALES}/{k}"].raw)
+                if inferred
+                else np.full(n_particles, fixed)
+                for k, fixed, inferred in zip(
+                    conditionals.classes,
+                    conditionals.fixed_scales,
+                    conditionals.is_inferred,
+                    strict=True,
+                )
             ],
             axis=-1,
         )
@@ -401,13 +407,13 @@ def _infeasibility_reason(target: InferenceTarget) -> str | None:
     likelihood, _ = _likelihood_and_learning_rate(factors.likelihood)
     if not isinstance(likelihood, GaussianSimulatorLikelihood):
         return "the likelihood must be a Gaussian simulator likelihood"
-    inferred = set(likelihood.inferred_scale_classes)
-    records = {_PARAMETER_BLOCK} | ({NOISE_SCALES} if inferred else set())
-    if set(factors.prior.event_spec.outputs) != records:
+    records = set(factors.prior.event_spec.outputs)
+    if records not in ({_PARAMETER_BLOCK}, {_PARAMETER_BLOCK, NOISE_SCALES}):
         return (
             f"the prior must be over the parameter record {_PARAMETER_BLOCK!r} and, when scales "
             f"are inferred, the noise-scale record {NOISE_SCALES!r}, and nothing else"
         )
+    inferred = set(likelihood.noise_classes) if NOISE_SCALES in records else set()
     if missing := sorted(inferred - _inverse_gamma_scale_priors(factors.prior).keys()):
         return f"each inferred noise scale needs an inverse-gamma prior; these have none: {missing}"
     return None

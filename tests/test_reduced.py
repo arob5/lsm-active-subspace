@@ -3,7 +3,13 @@ import numpy as np
 import pytest
 from probpipe import workflow_run
 
-from conftest import CLASSES, exact_linear_information, linear_problem, posterior_moments
+from conftest import (
+    CLASSES,
+    REFERENCE_VARIANCE,
+    exact_linear_information,
+    linear_problem,
+    posterior_moments,
+)
 from lsmas.coordinates import inverse
 from lsmas.problems import load_inverse_problem
 from lsmas.tools import Subspace, reduced_problem
@@ -38,7 +44,8 @@ def exact_plug_in_posterior(problem, subspace):
     forward_matrix = np.asarray(jax.jacfwd(features)(np.zeros(2)))
     offset = np.asarray(features(np.zeros(2)))
     reduced_matrix = forward_matrix @ subspace.basis
-    precision_weights = 1.0 / problem.noise_variance()
+    noise_variance = np.where(CLASSES == "day", SCALES["day"], SCALES["night"]) * REFERENCE_VARIANCE
+    precision_weights = LEARNING_RATE / noise_variance
     precision = np.eye(subspace.rank) + reduced_matrix.T @ (
         precision_weights[:, None] * reduced_matrix
     )

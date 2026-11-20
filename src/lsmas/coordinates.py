@@ -40,6 +40,7 @@ from probpipe import (
     SupportsInverse,
     SupportsLogDetJacobian,
     bijector_for,
+    factor,
 )
 from probpipe import inverse as probpipe_inverse
 
@@ -214,6 +215,25 @@ class Coordinates:
                 raise ValueError(f"only scalar parameters are supported; {name!r} has {shape}")
         bijectors = tuple(bijector_for(spec.at_path(name).support) for name in spec.fields)
         return cls(block, spec, prior, bijectors, n_moment_draws, seed)
+
+    @classmethod
+    @functools.lru_cache(maxsize=32)
+    def from_model(cls, model: Distribution, block: str = "theta") -> Coordinates:
+        r"""The coordinates of the block *block* of the parameters of the model *model*.
+
+        They are built from the prior factor of *block*, ``factor(model, block)``, and once per
+        model: the same model always gives the same object. $m$ and $L$ are Monte Carlo estimates,
+        so coordinates built from two different objects, even of the same law, differ slightly;
+        every subspace of one model is therefore expressed in the same $z$.
+
+        Parameters
+        ----------
+        model : Distribution
+            The model, such as ``problem.model``.
+        block : str
+            The model's output that holds the parameters.
+        """
+        return cls.from_prior(factor(model, block), block)
 
     def __repr__(self) -> str:
         return f"Coordinates({self.block!r}: {self.dimension} parameters)"

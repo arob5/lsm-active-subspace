@@ -8,7 +8,7 @@ from lsmas.experiments.metrics import score_names
 from lsmas.experiments.reference import Reference, convergence_diagnostics
 from lsmas.experiments.study import Study, load_run, run_study
 from lsmas.problems import load_inverse_problem
-from lsmas.tools import exact_subspace
+from lsmas.tools import gradient_based_subspace
 
 pytestmark = pytest.mark.smoke
 
@@ -28,7 +28,9 @@ def stand_in_reference():
         parameter_names=toy.coordinates.names,
         theta=theta,
         noise_scales={},
-        information=exact_subspace(toy, eki).information,
+        information=gradient_based_subspace(
+            toy.model, eki, learning_rate=toy.learning_rate["nee"]
+        ).information,
         diagnostics=convergence_diagnostics(toy, theta, {}),
         provenance={"method": "stand-in"},
     )

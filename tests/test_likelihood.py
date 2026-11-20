@@ -2,11 +2,12 @@ import numpy as np
 import pytest
 from probpipe import (
     Function,
-    InverseGamma,
     SupportsLogProb,
     condition_on,
     log_prob,
+    mean,
     sample,
+    variance,
     workflow_run,
 )
 from scipy import stats
@@ -17,44 +18,51 @@ from conftest import (
     REFERENCE_VARIANCE,
     linear_forward,
     linear_likelihood,
+    linear_scale_prior,
     linear_theta_prior,
 )
 from lsmas._stopgaps.likelihood import GaussianSimulatorLikelihood
-from lsmas.priors import independent_prior
 
 THETA = {"a": 0.8, "b": -0.6}
 SCALES = {"day": 1.5, "night": 0.7}
-INFERRED = {"day": "inferred", "night": "inferred"}
 
 
 def expected_variances(day, night):
     return np.where(CLASSES == "day", day, night) * REFERENCE_VARIANCE
 
 
-def test_inferred_scales_are_the_fields_of_the_given_record_s2():
-    inferred = linear_likelihood({"day": "inferred", "night": 2.0})
-    fixed = linear_likelihood({"day": 1.0, "night": 2.0})
-    assert set(inferred.given_spec) == {"theta", "s2"}
-    assert list(inferred.given_spec["s2"].fields) == ["day"]
-    assert inferred.inferred_scale_classes == ("day",)
-    assert set(fixed.given_spec) == {"theta"}
-    np.testing.assert_allclose(fixed.noise_variances(), expected_variances(1.0, 2.0))
+def test_the_noise_scales_are_an_optional_input_with_default_scales():
+    likelihood = linear_likelihood({"day": 1.0, "night": 2.0})
+    assert list(likelihood.given_spec) == ["theta", "s2"]
+    assert list(likelihood.given_spec.optional) == ["s2"]
+    assert list(likelihood.given_spec["s2"].fields) == ["day", "night"]
+    at_defaults = variance(condition_on(likelihood, {"theta": THETA}))
+    np.testing.assert_allclose(at_defaults, expected_variances(1.0, 2.0))
+    at_scales = variance(condition_on(likelihood, {"theta": THETA, "s2": SCALES}))
+    np.testing.assert_allclose(at_scales, expected_variances(SCALES["day"], SCALES["night"]))
 
 
-def test_a_scale_is_a_number_or_inferred():
-    with pytest.raises(ValueError, match="the scales of \\['day'\\] are not"):
-        linear_likelihood({"day": "s2_day", "night": 1.0})
+def test_the_mean_of_the_law_at_given_values_is_the_forward_map():
+    law = condition_on(linear_likelihood(), {"theta": THETA})
+    np.testing.assert_allclose(mean(law), FORWARD_MATRIX @ np.array([THETA["a"], THETA["b"]]))
 
 
-def test_noise_variances_broadcast_over_batches_of_scales():
-    likelihood = linear_likelihood({"day": "inferred", "night": 0.5})
-    variances = likelihood.noise_variances({"day": np.array([1.0, 2.0, 3.0])})
-    assert variances.shape == (3, 6)
-    np.testing.assert_allclose(variances[1], expected_variances(2.0, 0.5))
+def test_the_noise_scales_are_parameters_exactly_when_the_prior_has_them():
+    fixed = linear_likelihood(SCALES) & linear_theta_prior()
+    inferred = linear_likelihood() & (linear_theta_prior() & linear_scale_prior())
+    with workflow_run(seed=0):
+        assert set(sample(fixed).raw) == {"y", "theta"}
+        parameters = sample(inferred)
+    assert set(parameters.raw) == {"y", "theta", "s2"}
+    scales = {noise_class: float(parameters[f"s2/{noise_class}"]) for noise_class in SCALES}
+    np.testing.assert_allclose(
+        variance(condition_on(inferred, {"theta": parameters["theta"], "s2": parameters["s2"]})),
+        expected_variances(scales["day"], scales["night"]),
+    )
 
 
 def test_density_is_the_gaussian_density(observations):
-    likelihood = linear_likelihood(INFERRED)
+    likelihood = linear_likelihood()
     law = condition_on(likelihood, {"theta": THETA, "s2": SCALES})
     assert isinstance(law, SupportsLogProb)
     mean = FORWARD_MATRIX @ np.array([THETA["a"], THETA["b"]])
@@ -64,7 +72,7 @@ def test_density_is_the_gaussian_density(observations):
 
 
 def test_draws_follow_the_same_law():
-    likelihood = linear_likelihood(INFERRED)
+    likelihood = linear_likelihood()
     with workflow_run(seed=3):
         law = condition_on(likelihood, {"theta": THETA, "s2": SCALES})
         draws = np.asarray(sample(law, 20_000).raw)
@@ -76,16 +84,14 @@ def test_draws_follow_the_same_law():
 
 
 def test_a_model_with_this_likelihood_samples_parameters_and_observations_jointly():
-    likelihood = linear_likelihood({"day": "inferred", "night": 0.5})
-    scale_prior = independent_prior({"day": InverseGamma("day", 3.0, 2.0)}, group="s2")
-    model = likelihood & (linear_theta_prior() & scale_prior)
+    model = linear_likelihood() & (linear_theta_prior() & linear_scale_prior())
     with workflow_run(seed=1):
         draws = sample(model, 4000)
     assert set(draws.raw) == {"y", "theta", "s2"}
     theta = np.column_stack([np.asarray(draws[f"theta/{name}"].raw) for name in "ab"])
-    scale = likelihood.inferred_scale_draws(draws)["day"]
+    day, night = (np.asarray(draws[f"s2/{noise_class}"].raw)[:, None] for noise_class in SCALES)
     residuals = np.asarray(draws["y"].raw) - theta @ FORWARD_MATRIX.T
-    variances = np.where(CLASSES == "day", scale[:, None], 0.5) * REFERENCE_VARIANCE
+    variances = np.where(CLASSES == "day", day, night) * REFERENCE_VARIANCE
     standardized = residuals / np.sqrt(variances)
     np.testing.assert_allclose(standardized.mean(axis=0), 0.0, atol=0.08)
     np.testing.assert_allclose(standardized.std(axis=0), 1.0, atol=0.05)
@@ -106,5 +112,5 @@ def test_the_parameter_record_is_the_forward_maps_declared_input():
             output_name="y",
             reference_variance=REFERENCE_VARIANCE,
             classes=CLASSES,
-            scales={"day": 1.0, "night": 1.0},
+            default_scales={"day": 1.0, "night": 1.0},
         )

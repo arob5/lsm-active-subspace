@@ -108,10 +108,11 @@ that step's particles and predictions.
 
 - `jacobian(f, x)`: $Df(x)$ of a function of a record, by JAX or by central differences. This is a
   stopgap (§4, C1).
-- The statistical linearization is the one line
-  $\operatorname{Cov}(G, z)\operatorname{Cov}(z)^{-1}$ above, written where it is used; the EKI
-  estimate fits each step's slope the same way, with the step's particles and predictions as an
-  empirical law. Taking the joint law of the pairs means a pair can never be split, and weighted
+- `statistical_linearization(joint, inputs="z", outputs="predictions")`: the line
+  $\operatorname{Cov}(G, z)\operatorname{Cov}(z)^{+}$ above, with the pseudo-inverse for an
+  ensemble with no more members than parameters. It is a named function because two estimators
+  use it: `linearization_subspace`, and the EKI estimate, which fits each step's slope with the
+  step's particles and predictions as an empirical law. Taking the joint law of the pairs means a pair can never be split, and weighted
   samples are handled by the weighted covariances, which removes the old equal-weights
   restriction. Verified: it matches the current estimator on 300 prior samples of the toy.
 - `information_matrix(jacobian, noise_variance)`: $J^\top \Gamma^{-1} J$ for one Jacobian. Weights
@@ -177,9 +178,15 @@ removed.
 `_drawn_noise_scales`, `_average_noise_variance`, `_predictions_at_whitened`, `_whitened_jacobians`
 and `_whitened_jacobian_function`. `_step_weights` stays inside `eki_linearization_subspace`.
 
-The public `jacobians(problem, theta)` and `statistical_linearization(z, predictions)` go too. The
-tools notebook uses them, and will use the `jacobian` stopgap with the model's mean, and the
-covariance line, instead.
+The public `jacobians(problem, theta)` goes too; `lsmas.tools` exports the `jacobian` stopgap
+instead, which the tools notebook applies to the model's mean. `statistical_linearization` now takes
+a joint law rather than two arrays.
+
+**As implemented (2026-11-20).** The stopgap operations take `num_samples` as a keyword, so the
+bodies read `expectation(parameter_distribution, information_at, num_samples=num_samples)`. Over a
+law held as samples every sample is used, by `expectation` (ProbPipe's closed form) and by the
+stopgap `pushforward` alike; `num_samples` applies only to a law that is sampled. This replaces
+design 08's resampling of held draws.
 
 ## 7. Decisions
 

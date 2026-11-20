@@ -3,7 +3,7 @@ import pytest
 from probpipe import NumericRecordBatch
 
 from conftest import CLASSES, FORWARD_MATRIX, linear_problem
-from lsmas.coordinates import inverse
+from lsmas.coordinates import Coordinates, inverse
 
 
 @pytest.fixture
@@ -26,9 +26,11 @@ def test_describe_names_the_parameters_and_observations(problem):
     assert "Calibration parameters (2): a, b" in problem.describe()
 
 
-def test_misfit_is_half_the_weighted_squared_residual(problem, observations):
-    assert problem.misfit(observations) == pytest.approx(0.0)
-    shifted_predictions = np.stack([observations + 1.0, observations - 2.0])
-    gamma = problem.noise_variance()
-    expected = [0.5 * np.sum(1.0 / gamma), 0.5 * np.sum(4.0 / gamma)]
-    np.testing.assert_allclose(problem.misfit(shifted_predictions), expected)
+def test_the_shortcuts_read_the_parts_of_the_model(problem, observations):
+    assert list(problem.prior.event_spec.outputs) == ["theta"]
+    assert problem.likelihood.forward is problem.forward
+    assert problem.coordinates is Coordinates.from_model(problem.model)
+    assert problem.inferred_noise_classes == ()
+    inferred = linear_problem(observations, "inferred", np.ones(len(CLASSES)))
+    assert list(inferred.prior.event_spec.outputs) == ["theta", "s2"]
+    assert inferred.inferred_noise_classes == ("day", "night")

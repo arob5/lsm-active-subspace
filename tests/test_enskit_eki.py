@@ -19,6 +19,7 @@ from conftest import (
     THETA_SPEC,
     exact_linear_posterior,
     linear_likelihood,
+    linear_scale_prior,
     linear_theta_prior,
     posterior_moments,
 )
@@ -81,19 +82,16 @@ def test_runs_are_reproducible_under_a_seed(observations):
     np.testing.assert_array_equal(posterior_mean(), posterior_mean())
 
 
-def mixed_scale_model():
-    """The linear model with the day scale inferred, IG(3, 2), and the night scale fixed."""
-    scale_prior = independent_prior({"day": InverseGamma("day", 3.0, 2.0)}, group="s2")
-    return linear_likelihood({"day": "inferred", "night": 0.7}) & (
-        linear_theta_prior() & scale_prior
-    )
+def inferred_scale_model():
+    """The linear model with both scales inferred, each with an IG(3, 2) prior."""
+    return linear_likelihood() & (linear_theta_prior() & linear_scale_prior())
 
 
 def test_inferred_noise_scales_match_nuts(observations):
     def tempered(method, **using):
         with workflow_run(seed=5):
             return tempered_condition_on(
-                mixed_scale_model(),
+                inferred_scale_model(),
                 {"y": observations},
                 learning_rate={"y": LEARNING_RATE},
                 method=method,
@@ -119,21 +117,16 @@ def test_records_carry_the_inferred_scales(observations):
     with workflow_run(seed=6):
         condition_on.using(
             method="enskit_eki", method_options={"n_particles": 40, "callbacks": [records.append]}
-        )(mixed_scale_model(), {"y": observations})
-    assert set(records[0].noise_scales) == {"day"}
+        )(inferred_scale_model(), {"y": observations})
+    assert set(records[0].noise_scales) == {"day", "night"}
     assert records[0].noise_scales["day"].shape == (40,)
-    night = CLASSES == "night"
-    assert all(
-        np.allclose(record.noise_variance[night] / REFERENCE_VARIANCE[night], 0.7)
-        for record in records
-    )
 
 
 def test_a_scale_without_an_inverse_gamma_prior_is_refused(observations):
-    scale_prior = independent_prior({"day": LogNormal("day", 0.0, 1.0)}, group="s2")
-    model = linear_likelihood({"day": "inferred", "night": 1.0}) & (
-        linear_theta_prior() & scale_prior
+    scale_prior = independent_prior(
+        {"day": LogNormal("day", 0.0, 1.0), "night": InverseGamma("night", 3.0, 2.0)}, group="s2"
     )
+    model = linear_likelihood() & (linear_theta_prior() & scale_prior)
     target = condition_on.using(method="unnormalized")(model, {"y": observations})
     feasibility = EnsKitEKI().check(target)
     assert not feasibility.feasible
@@ -182,7 +175,7 @@ def test_failed_runs_are_counted_and_repaired(observations):
         output_name="y",
         reference_variance=REFERENCE_VARIANCE,
         classes=CLASSES,
-        scales=FIXED_SCALES,
+        default_scales=FIXED_SCALES,
     )
     records = []
     with workflow_run(seed=7):

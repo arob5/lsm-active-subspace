@@ -33,14 +33,15 @@ from probpipe import (
     Function,
     Normal,
     NumericRecordBatch,
+    factor,
     sample,
 )
 
 from lsmas._stopgaps.functions import declares_traceable
 from lsmas._stopgaps.likelihood import NOISE_SCALES, GaussianSimulatorLikelihood
-from lsmas.coordinates import Coordinates, inverse
+from lsmas.coordinates import inverse
 from lsmas.parameters import parameter_record_spec
-from lsmas.priors import factors_over, independent_prior
+from lsmas.priors import independent_prior
 from lsmas.problems.inverse_problem import InverseProblem
 from lsmas.tools.subspace import Subspace
 
@@ -76,19 +77,18 @@ def reduced_problem(problem: InverseProblem, subspace: Subspace) -> ReducedProbl
     names = tuple(f"active_{i + 1}" for i in range(subspace.rank))
     likelihood = _reduced_likelihood(problem, subspace, names)
     prior = independent_prior({name: Normal(name, 0.0, 1.0) for name in names})
-    for scale_prior in factors_over(problem.prior, [NOISE_SCALES]).values():
-        prior = prior & scale_prior
+    if NOISE_SCALES in problem.prior.event_spec.outputs:
+        prior = prior & factor(problem.model, NOISE_SCALES)
+    name = f"{problem.name}_reduced"
     return ReducedProblem(
-        name=f"{problem.name}_reduced",
+        name=name,
         description=(
             f"{problem.name} reduced to {subspace.rank} active variables, the inactive ones at "
             "their prior mean in the likelihood."
         ),
-        likelihood=likelihood,
-        prior=prior,
+        model=(likelihood & prior).with_label(name),
         data=problem.data,
         learning_rate=problem.learning_rate,
-        coordinates=Coordinates.from_prior(prior, _PARAMETER_BLOCK),
         full_problem=problem,
         subspace=subspace,
     )
@@ -143,8 +143,10 @@ class ReducedProblem(InverseProblem):
         )
         theta = to_parameters(whitened)
         lifted = {f"{_PARAMETER_BLOCK}/{name}": theta[name] for name in full.names}
-        for noise_class, draws in self.likelihood.inferred_scale_draws(reduced_draws).items():
-            lifted[f"{NOISE_SCALES}/{noise_class}"] = draws.reshape(-1)
+        if NOISE_SCALES in self.prior.event_spec.outputs:
+            for noise_class in self.likelihood.noise_classes:
+                path = f"{NOISE_SCALES}/{noise_class}"
+                lifted[path] = reduced_draws[path].raw.reshape(-1)
         weights = np.asarray(posterior.weights).reshape(-1)
         return EmpiricalDistribution(prior_draws.replace(lifted), weights=weights)
 
@@ -189,6 +191,6 @@ def _reduced_likelihood(
         output_name=full_likelihood.output_name,
         reference_variance=full_likelihood.reference_variance,
         classes=full_likelihood.classes,
-        scales=full_likelihood.scales,
+        default_scales=full_likelihood.default_scales,
         label=f"{full_likelihood.label}_reduced",
     )

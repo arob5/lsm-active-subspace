@@ -1,6 +1,14 @@
 import numpy as np
 import pytest
-from probpipe import log_prob, quantile, sample, unnormalized_log_prob, workflow_run
+from probpipe import (
+    condition_on,
+    log_prob,
+    quantile,
+    sample,
+    unnormalized_log_prob,
+    variance,
+    workflow_run,
+)
 from scipy import stats
 
 from lsmas.data import load_harvard_forest
@@ -77,7 +85,7 @@ def test_conditioning_target_is_the_generalized_posterior(small):
 
     def expected(theta):
         predicted = np.asarray(small.forward(theta).raw)
-        variances = small.likelihood.noise_variances()
+        variances = variance(condition_on(small.model, {"theta": theta}))
         pointwise = stats.norm(predicted, np.sqrt(variances)).logpdf(small.data["nee"])
         prior = float(log_prob(small.prior, {"theta": theta}).raw)
         return np.sum(small.learning_rate["nee"] * pointwise) + prior

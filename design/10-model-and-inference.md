@@ -117,6 +117,9 @@ parts, each one line:
   `marginal(model, [the outputs not in data])`. It draws without forward runs.
 - `problem.likelihood`, `factor(model, observed output)`, and `problem.forward`, its forward map.
 - `problem.coordinates`, which is `Coordinates.from_model(problem.model)`.
+- `problem.inferred_noise_classes`, the classes whose scales the prior holds, empty when they are
+  fixed. It replaces `likelihood.inferred_scale_classes` in the code that stores and scores the
+  scales.
 
 Signatures are written in terms of the model; the shortcuts are for reading and for the
 notebooks.
@@ -150,7 +153,7 @@ The default $\eta = 1$ gives the ordinary posterior. Design 09 §3 gives the bod
 | `problems/inverse_problem.py` | the bundle of §3.4 |
 | `problems/nee_likelihood.py` | builds the likelihood once, and the prior with or without `s2` |
 | `coordinates.py` | `Coordinates.from_model`, cached per model |
-| `tools/estimators.py` | design 09, on `(model, mu, learning_rate)` |
+| `tools/estimators.py` | design 09, on `(model, parameter_distribution, learning_rate)` |
 | `tools/reduced.py` | a bundle whose model is the reduced joint; `lift` carries `s2` by path |
 | `inference/enskit_eki.py`, `inference/noise_scales.py` | fixed scales from the likelihood's `default_scales` when the prior has no `s2`; the inverse-gamma priors from the prior's `s2` factor, as now |
 | `experiments/`, `algorithms/active_subspace_mcmc.py` | `atoms["s2"]`, and whether the prior has `s2` |

@@ -24,7 +24,7 @@ LEARNING_RATE = np.where(CLASSES == "day", 0.2, 0.4)
 
 @pytest.fixture
 def model():
-    likelihood = linear_likelihood({"day": "inferred", "night": "inferred"})
+    likelihood = linear_likelihood()
     scale_laws = {name: InverseGamma(name, 2.0, 1.678) for name in ("day", "night")}
     prior = linear_theta_prior() & independent_prior(scale_laws, group="s2")
     return likelihood & prior, prior

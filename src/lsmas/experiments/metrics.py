@@ -31,7 +31,7 @@ import numpy as np
 from probpipe import EmpiricalDistribution
 from scipy import linalg, stats
 
-from lsmas._stopgaps.likelihood import noise_scale_variable
+from lsmas._stopgaps.likelihood import NOISE_SCALES, noise_scale_variable
 from lsmas.algorithms.result import AlgorithmResult
 from lsmas.experiments.reference import Reference
 from lsmas.problems.inverse_problem import InverseProblem
@@ -65,7 +65,7 @@ def score_names(problem: InverseProblem) -> list[str]:
     ] + ["gaussian_w2", "coverage90_mean", "coverage90_min"]
     scales = [
         f"marginal_w1_{noise_scale_variable(noise_class)}"
-        for noise_class in problem.likelihood.inferred_scale_classes
+        for noise_class in problem.inferred_noise_classes
     ]
     subspace = ["subspace_rank", "captured_information", "largest_principal_angle_degrees"]
     return posterior + scales + subspace + ["forward_runs"]
@@ -134,11 +134,10 @@ def posterior_scores(
         "coverage90_mean": coverage.mean(),
         "coverage90_min": coverage.min(),
     }
-    scale_draws = problem.likelihood.inferred_scale_draws
-    reference_scales = scale_draws(reference.posterior.atoms)
-    for noise_class, draws in scale_draws(posterior.atoms).items():
-        log_draws = np.log(draws.reshape(-1))[:, None]
-        log_reference = np.log(reference_scales[noise_class].reshape(-1))[:, None]
+    for noise_class in problem.inferred_noise_classes:
+        path = f"{NOISE_SCALES}/{noise_class}"
+        log_draws = np.log(np.asarray(posterior.atoms[path].raw).reshape(-1))[:, None]
+        log_reference = np.log(np.asarray(reference.posterior.atoms[path].raw).reshape(-1))[:, None]
         name = f"marginal_w1_{noise_scale_variable(noise_class)}"
         scores[name] = marginal_wasserstein(log_draws, log_reference)[0]
     return {name: float(value) for name, value in scores.items()}

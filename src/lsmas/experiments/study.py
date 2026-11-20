@@ -20,7 +20,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
-from lsmas._stopgaps.likelihood import noise_scale_variable
+from lsmas._stopgaps.likelihood import NOISE_SCALES, noise_scale_variable
 from lsmas.algorithms.result import AlgorithmResult
 from lsmas.experiments.metrics import score, score_names
 from lsmas.experiments.reference import Reference, ScaleSetting, load_reference
@@ -224,10 +224,11 @@ def _result_tree(
     posterior = xr.Dataset(
         {"theta": (("draw", "parameter"), theta)}
         | {
-            noise_scale_variable(noise_class): ("draw", draws.reshape(-1))
-            for noise_class, draws in problem.likelihood.inferred_scale_draws(
-                result.posterior.atoms
-            ).items()
+            noise_scale_variable(noise_class): (
+                "draw",
+                np.asarray(result.posterior.atoms[f"{NOISE_SCALES}/{noise_class}"].raw).reshape(-1),
+            )
+            for noise_class in problem.inferred_noise_classes
         },
         coords={"parameter": list(problem.coordinates.names)},
     )

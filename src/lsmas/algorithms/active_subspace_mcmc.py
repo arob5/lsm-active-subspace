@@ -25,6 +25,7 @@ from typing import Any
 import numpy as np
 from probpipe import EmpiricalDistribution, workflow_run
 
+from lsmas._stopgaps.likelihood import NOISE_SCALES
 from lsmas.algorithms.result import AlgorithmResult
 from lsmas.inference import eki_history
 from lsmas.problems.inverse_problem import InverseProblem
@@ -88,7 +89,7 @@ def active_subspace_mcmc(
             method="enskit_eki", method_options={"n_particles": n_particles}
         )
     subspace = eki_linearization_subspace(
-        problem,
+        problem.model,
         eki_posterior,
         weighting=weighting,
         rank=rank,
@@ -135,8 +136,8 @@ def _rwmh_start_at_eki_mean(
     eki_z = np.asarray(coordinates.whiten(eki_posterior.atoms["theta"]).to_vector())
     eki_mean_z = eki_z.reshape(-1, coordinates.dimension).mean(axis=0)
     scale_medians = [
-        np.median(draws)
-        for draws in reduced.likelihood.inferred_scale_draws(eki_posterior.atoms).values()
+        np.median(np.asarray(eki_posterior.atoms[f"{NOISE_SCALES}/{noise_class}"].raw))
+        for noise_class in reduced.inferred_noise_classes
     ]
     return np.concatenate([reduced.subspace.active_variables(eki_mean_z), scale_medians])
 
@@ -144,7 +145,7 @@ def _rwmh_start_at_eki_mean(
 def _count_eki_forward_runs(problem: InverseProblem, eki_posterior: EmpiricalDistribution) -> int:
     """Forward runs of EKI: one ensemble per step, and a final one when scales are inferred."""
     n_steps, n_particles, _ = eki_history(eki_posterior)["theta"].shape
-    final_evaluation = 1 if problem.likelihood.inferred_scale_classes else 0
+    final_evaluation = 1 if problem.inferred_noise_classes else 0
     return n_particles * (n_steps + final_evaluation)
 
 

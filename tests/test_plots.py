@@ -21,7 +21,7 @@ def toy_run():
     toy = load_inverse_problem("toy")
     with workflow_run(seed=1):
         posterior = toy.condition(method="enskit_eki", method_options={"n_particles": 40})
-    subspace = eki_linearization_subspace(toy, posterior)
+    subspace = eki_linearization_subspace(toy.model, posterior)
     theta = np.asarray(posterior.atoms["theta"].to_vector()).reshape(-1, 14)
     reference = Reference(
         problem_name="toy",

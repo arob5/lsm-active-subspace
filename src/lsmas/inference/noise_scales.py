@@ -84,24 +84,27 @@ class NoiseScaleConditionals:
         Parameters
         ----------
         likelihood : GaussianSimulatorLikelihood
-            Its classes, reference variances and scales.
+            Its classes, reference variances and default scales.
         scale_priors : Mapping of str to InverseGamma
-            The prior of each inferred scale, by class.
+            The prior of each inferred scale, by class; empty when the scales are fixed, which
+            are then the likelihood's default scales.
         observations, learning_rate : array_like
             $y$ and $\eta$, shape $(n,)$.
         """
-        classes = tuple(likelihood.scales)
-        inferred = set(likelihood.inferred_scale_classes)
+        classes = likelihood.noise_classes
         return cls(
             classes=classes,
             fixed_scales=np.array(
-                [np.nan if k in inferred else float(likelihood.scales[k]) for k in classes]
+                [np.nan if k in scale_priors else likelihood.default_scales[k] for k in classes]
             ),
             concentrations=np.array(
-                [float(scale_priors[k].concentration) if k in inferred else np.nan for k in classes]
+                [
+                    float(scale_priors[k].concentration) if k in scale_priors else np.nan
+                    for k in classes
+                ]
             ),
             prior_scales=np.array(
-                [float(scale_priors[k].scale) if k in inferred else np.nan for k in classes]
+                [float(scale_priors[k].scale) if k in scale_priors else np.nan for k in classes]
             ),
             membership=np.stack([np.asarray(likelihood.classes) == k for k in classes]),
             observations=np.asarray(observations, dtype=float),

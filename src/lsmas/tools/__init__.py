@@ -1,14 +1,14 @@
 """Building blocks for parameter-reduction algorithms: subspaces, their estimators, and reduced
 problems."""
 
+from lsmas._stopgaps.jacobian import jacobian
 from lsmas.tools.estimators import (
     Weighting,
     covariance_subspace,
     eki_linearization_subspace,
-    exact_subspace,
     finite_difference_subspace,
+    gradient_based_subspace,
     information_matrix,
-    jacobians,
     linearization_subspace,
     statistical_linearization,
 )
@@ -21,10 +21,10 @@ __all__ = [
     "Weighting",
     "covariance_subspace",
     "eki_linearization_subspace",
-    "exact_subspace",
     "finite_difference_subspace",
+    "gradient_based_subspace",
     "information_matrix",
-    "jacobians",
+    "jacobian",
     "linearization_subspace",
     "principal_angles",
     "reduced_problem",

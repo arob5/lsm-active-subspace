@@ -47,7 +47,7 @@ from lsmas._stopgaps.parallel_chains import run_in_processes
 from lsmas.inference import eki_history
 from lsmas.problems import load_inverse_problem
 from lsmas.problems.inverse_problem import InverseProblem
-from lsmas.tools import exact_subspace, finite_difference_subspace
+from lsmas.tools import finite_difference_subspace, gradient_based_subspace
 
 __all__ = [
     "BASELINE_DIRECTORY",
@@ -174,7 +174,7 @@ def reference_path(problem_name: str, scales: ScaleSetting) -> Path:
 
 def noise_scale_setting(problem: InverseProblem) -> ScaleSetting:
     """``"inferred"`` if *problem* infers its noise scales, ``"fixed"`` otherwise."""
-    return "inferred" if problem.likelihood.inferred_scale_classes else "fixed"
+    return "inferred" if problem.inferred_noise_classes else "fixed"
 
 
 def load_reference(problem: InverseProblem) -> Reference:
@@ -241,7 +241,10 @@ def nuts_reference(problem: InverseProblem, *, seed: int = 0) -> Reference:
     with workflow_run(seed=seed):
         posterior = problem.condition(method="blackjax_nuts")
     theta = np.asarray(posterior.atoms[problem.coordinates.block].to_vector())
-    noise_scales = problem.likelihood.inferred_scale_draws(posterior.atoms)
+    noise_scales = {
+        noise_class: np.asarray(posterior.atoms[f"{NOISE_SCALES}/{noise_class}"].raw)
+        for noise_class in problem.inferred_noise_classes
+    }
     return _build_reference(
         problem,
         theta,
@@ -294,7 +297,7 @@ def start_rwmh_reference(
     chosen = np.random.default_rng(seed).choice(len(states), n_chains, replace=False)
     np.savez(run_directory / "pilot.npz", starts=states[chosen], proposal_cholesky=proposal)
     n_steps = eki_history(eki)["beta"].size
-    final_evaluation = 1 if problem.likelihood.inferred_scale_classes else 0
+    final_evaluation = 1 if problem.inferred_noise_classes else 0
     settings = {
         "problem_name": problem.name,
         "scales": noise_scale_setting(problem),
@@ -513,9 +516,13 @@ def _reference_information(
             for noise_class, draws in noise_scales.items()
         }
     estimator = (
-        exact_subspace if declares_traceable(problem.forward) else finite_difference_subspace
+        gradient_based_subspace
+        if declares_traceable(problem.forward)
+        else finite_difference_subspace
     )
-    return estimator(problem, NumericRecordBatch(fields, "draw")).information
+    samples = EmpiricalDistribution(NumericRecordBatch(fields, "draw"))
+    learning_rate = problem.learning_rate[problem.likelihood.output_name]
+    return estimator(problem.model, samples, learning_rate=learning_rate).information
 
 
 def _provenance(
@@ -575,10 +582,10 @@ def _flat_states(problem: InverseProblem, atoms: Any) -> np.ndarray:
     """Draws as flat states, shape $(N, D)$: the parameters, then the inferred noise scales."""
     coordinates = problem.coordinates
     theta = np.asarray(atoms[coordinates.block].to_vector()).reshape(-1, coordinates.dimension)
-    scales = [
-        draws.reshape(-1, 1) for draws in problem.likelihood.inferred_scale_draws(atoms).values()
-    ]
-    return np.concatenate([theta, *scales], axis=1)
+    if not problem.inferred_noise_classes:
+        return theta
+    scales = np.asarray(atoms[NOISE_SCALES].to_vector()).reshape(len(theta), -1)
+    return np.concatenate([theta, scales], axis=1)
 
 
 def _unconstrained_states(problem: InverseProblem, states: np.ndarray) -> np.ndarray:
@@ -614,7 +621,7 @@ def _completed_chains(
     dimension = problem.coordinates.dimension
     noise_scales = {
         noise_class: states[..., dimension + k]
-        for k, noise_class in enumerate(problem.likelihood.inferred_scale_classes)
+        for k, noise_class in enumerate(problem.inferred_noise_classes)
     }
     return problem, states[..., :dimension], noise_scales
 

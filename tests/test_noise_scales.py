@@ -13,13 +13,13 @@ PREDICTIONS = np.array([[1.0, -1.5, 2.5, 0.0, -1.0, -2.0], [0.0, 0.0, 0.0, 0.0, 
 
 
 def conditionals(night_scale):
-    """Day scale inferred with an IG(3, 2) prior; night scale fixed at *night_scale*, or inferred
-    with an IG(2, 1) prior when it is None."""
-    night = "inferred" if night_scale is None else night_scale
-    priors = {"day": InverseGamma("day", 3.0, 2.0), "night": InverseGamma("night", 2.0, 1.0)}
-    return NoiseScaleConditionals.from_problem(
-        linear_likelihood({"day": "inferred", "night": night}), priors, OBSERVATIONS, LEARNING_RATE
-    )
+    """Day scale inferred with an IG(3, 2) prior; night scale fixed at *night_scale*, the
+    likelihood's default, or inferred with an IG(2, 1) prior when it is None."""
+    priors = {"day": InverseGamma("day", 3.0, 2.0)}
+    if night_scale is None:
+        priors["night"] = InverseGamma("night", 2.0, 1.0)
+    likelihood = linear_likelihood({"day": 1.0, "night": night_scale or 1.0})
+    return NoiseScaleConditionals.from_problem(likelihood, priors, OBSERVATIONS, LEARNING_RATE)
 
 
 def test_draws_follow_the_conjugate_inverse_gamma_law():
@@ -50,7 +50,7 @@ def test_fixed_scales_give_the_usual_tempering_weights():
     np.testing.assert_allclose(weights, -increment * misfits)
 
 
-def test_only_scales_given_as_slots_are_inferred():
+def test_scales_without_a_prior_are_fixed_at_the_likelihoods_defaults():
     assert conditionals(0.7).is_inferred.tolist() == [True, False]
     assert conditionals(None).is_inferred.tolist() == [True, True]
 
