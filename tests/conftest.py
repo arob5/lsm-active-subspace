@@ -3,11 +3,11 @@
 import jax.numpy as jnp
 import numpy as np
 import pytest
-from probpipe import Normal, NumericArraySpec, NumericRecordSpec, cov, function, mean
+from probpipe import InverseGamma, Normal, NumericArraySpec, NumericRecordSpec, cov, function, mean
 
 import lsmas  # noqa: F401  (sets JAX's precision before any test builds an array)
 from lsmas._stopgaps.likelihood import GaussianSimulatorLikelihood
-from lsmas.coordinates import Coordinates
+from lsmas.priors import independent_prior
 from lsmas.problems.inverse_problem import InverseProblem
 
 #: The forward map G(θ) = F θ of the linear model, for θ = (a, b) and six observations.
@@ -26,13 +26,14 @@ def linear_forward(theta):
     return jnp.asarray(FORWARD_MATRIX @ jnp.stack([theta["a"], theta["b"]]))
 
 
-def linear_likelihood(scales):
+def linear_likelihood(default_scales=None):
+    """The linear model's likelihood, with scales 1 unless *default_scales* gives others."""
     return GaussianSimulatorLikelihood(
         linear_forward,
         output_name="y",
         reference_variance=REFERENCE_VARIANCE,
         classes=CLASSES,
-        scales=scales,
+        default_scales=default_scales or {"day": 1.0, "night": 1.0},
     )
 
 
@@ -41,17 +42,25 @@ def linear_theta_prior():
     return theta.rename({"a": "theta/a", "b": "theta/b"})
 
 
+def linear_scale_prior():
+    """Independent IG(3, 2) priors on the day and night scales, grouped under ``s2``."""
+    laws = {noise_class: InverseGamma(noise_class, 3.0, 2.0) for noise_class in ("day", "night")}
+    return independent_prior(laws, group="s2")
+
+
 def linear_problem(observations, scales, learning_rate):
-    """The linear model as an InverseProblem, with fixed scales."""
-    prior = linear_theta_prior()
+    """The linear model as an InverseProblem: *scales* is the fixed scale of each class, or
+    ``"inferred"`` for the IG(3, 2) priors of :func:`linear_scale_prior`."""
+    if scales == "inferred":
+        model = linear_likelihood() & (linear_theta_prior() & linear_scale_prior())
+    else:
+        model = linear_likelihood(scales) & linear_theta_prior()
     return InverseProblem(
         name="linear",
         description="the linear-Gaussian test model",
-        likelihood=linear_likelihood(scales),
-        prior=prior,
+        model=model.with_label("linear"),
         data={"y": np.asarray(observations)},
         learning_rate={"y": np.asarray(learning_rate)},
-        coordinates=Coordinates.from_prior(prior, "theta"),
     )
 
 

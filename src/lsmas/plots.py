@@ -16,13 +16,13 @@ import jax
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import xarray as xr
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from probpipe import (
     Distribution,
     EmpiricalDistribution,
     NumericArrayBatch,
+    NumericRecordBatch,
     RecordBatch,
     ResolutionError,
     SupportsLogProb,
@@ -34,6 +34,7 @@ from probpipe import (
 from lsmas._stopgaps.sampling import draw_with_key
 from lsmas.data import HarvardForestData
 from lsmas.experiments.reference import Reference
+from lsmas.inference.step_record import eki_history
 from lsmas.problems.inverse_problem import InverseProblem
 from lsmas.tools.subspace import Subspace
 
@@ -57,50 +58,73 @@ _CLASS_COLOURS = {"day": "tab:orange", "night": "tab:blue"}
 
 def plot_features(
     data: HarvardForestData,
-    predictions: np.ndarray | None = None,
-    *,
+    *predictions: np.ndarray | EmpiricalDistribution,
+    labels: Sequence[str] | None = None,
     levels: Sequence[float] = (0.5, 0.9),
 ) -> Figure:
     r"""The observed features $y$ over time, one panel per class, with optional bands of
     predicted or replicated features.
 
-    Each feature is plotted at the middle of its half-month. With *predictions*, each panel also
-    shows, for every feature, the median of the predictions and their central intervals at each
-    of *levels*: for level $\ell$, the band between the quantiles $(1 - \ell)/2$ and
-    $(1 + \ell)/2$. Rows with a NaN, from failed forward runs, are left out of the bands.
+    Each feature is plotted at the middle of its half-month. Each set of *predictions* adds, for
+    every feature, the median of the predictions and their central intervals at each of *levels*:
+    for level $\ell$, the band between the quantiles $(1 - \ell)/2$ and $(1 + \ell)/2$. Rows with a
+    NaN, from failed forward runs, are left out of the bands. One set is drawn in the colour of
+    each panel's class, with its levels in the legend; several sets, such as prior and posterior
+    predictions, are drawn in turn in their own colours, with their labels in the legend.
 
     Parameters
     ----------
     data : HarvardForestData
         The features and their observed values.
-    predictions : numpy.ndarray, optional
-        Predicted or replicated features, shape $(N, n)$, such as prior predictive draws.
+    *predictions : numpy.ndarray or EmpiricalDistribution
+        Sets of predicted or replicated features, each of shape $(N, n)$, such as prior
+        predictive draws, or a distribution of them held as draws, such as the forward model
+        applied to a posterior.
+    labels : sequence of str, optional
+        A legend label for each set; by default ``"predictions 1"``, ``"predictions 2"``, and so
+        on. Only used for several sets, or when given.
     levels : sequence of float
         The probabilities of the central intervals, each in $(0, 1)$.
 
     Raises
     ------
     ValueError
-        If *predictions* does not have $n$ columns or has no row without a NaN.
+        If a set does not have $n$ columns or has no row without a NaN, or *labels* has the wrong
+        length.
     """
+    if labels is not None and len(labels) != len(predictions):
+        raise ValueError(f"{len(labels)} labels for {len(predictions)} sets of predictions")
     times = data.feature_times
     classes = data.feature_classes
-    if predictions is not None:
-        predictions = _finite_rows(predictions, len(classes))
+    prediction_sets = [_prediction_rows(prediction, len(classes)) for prediction in predictions]
+    labelled = labels is not None or len(prediction_sets) > 1
+    if labelled and labels is None:
+        labels = [f"predictions {index + 1}" for index in range(len(prediction_sets))]
     figure, axes = plt.subplots(2, 1, figsize=(10, 5.5), sharex=True)
     for axis, feature_class in zip(axes, _CLASS_COLOURS, strict=True):
         columns = np.flatnonzero(classes == feature_class)
         columns = columns[np.argsort(times[columns])]
-        colour = _CLASS_COLOURS[feature_class]
-        if predictions is not None:
-            _draw_bands(axis, times[columns], predictions[:, columns], levels, colour)
+        for index, prediction_rows in enumerate(prediction_sets):
+            colour = f"C{index}" if labelled else _CLASS_COLOURS[feature_class]
+            label = labels[index] if labelled else None
+            _draw_bands(axis, times[columns], prediction_rows[:, columns], levels, colour, label)
         observed = data.observations[columns]
         axis.plot(times[columns], observed, ".", color="k", ms=3, label="observed")
         axis.axhline(0.0, color="0.3", lw=0.5)
         axis.set_ylabel(f"{feature_class} NEE (µmol m⁻² s⁻¹)")
-        axis.legend(fontsize=7, ncol=len(levels) + 2, loc="upper right")
+        columns_in_legend = len(prediction_sets) + 1 if labelled else len(levels) + 2
+        axis.legend(fontsize=7, ncol=columns_in_legend, loc="upper right")
     figure.tight_layout()
     return figure
+
+
+def _prediction_rows(
+    predictions: np.ndarray | EmpiricalDistribution, n_features: int
+) -> np.ndarray:
+    """A set of predictions as the rows of an array, without the rows that have a NaN."""
+    if isinstance(predictions, EmpiricalDistribution):
+        predictions = np.asarray(predictions.atoms).reshape(-1, n_features)
+    return _finite_rows(predictions, n_features)
 
 
 def plot_marginals(
@@ -147,8 +171,10 @@ def plot_marginals(
     paths_of_law = [_scalar_paths(law) for law in laws]
     paths = list(dict.fromkeys(path for law_paths in paths_of_law for path in law_paths))
     titles = _panel_titles(paths)
-    rows = int(np.ceil(len(paths) / columns))
-    figure, axes = plt.subplots(rows, columns, figsize=(2.2 * columns, 1.8 * rows), squeeze=False)
+    n_rows = int(np.ceil(len(paths) / columns))
+    figure, axes = plt.subplots(
+        n_rows, columns, figsize=(2.2 * columns, 1.8 * n_rows), squeeze=False
+    )
     for axis in axes.ravel()[len(paths) :]:
         axis.set_visible(False)
     for axis, path in zip(axes.ravel(), paths, strict=False):
@@ -157,9 +183,9 @@ def plot_marginals(
             for index, (law, law_paths) in enumerate(zip(laws, paths_of_law, strict=True))
             if path in law_paths
         }
-        low, high = _central_range(marginals.values())
+        lower, upper = _central_range(marginals.values())
         for index, law in marginals.items():
-            _draw_marginal(axis, law, (low, high), colour=f"C{index}", label=labels[index])
+            _draw_marginal(axis, law, (lower, upper), colour=f"C{index}", label=labels[index])
         axis.set_title(titles[path], fontsize=7)
         axis.set_yticks([])
         axis.tick_params(labelsize=6)
@@ -170,21 +196,52 @@ def plot_marginals(
 
 
 def plot_spectra(
-    subspaces: Sequence[Subspace], reference: Reference | None = None, ax: Axes | None = None
+    subspaces: Sequence[Subspace],
+    reference: Reference | None = None,
+    ax: Axes | None = None,
+    *,
+    labels: Sequence[str] | None = None,
 ) -> Axes:
     r"""The eigenvalues $\lambda_i$ of each subspace's information matrix, on a log scale.
 
-    Each estimate is a thin grey line; the reference information matrix, if given, is a thick black
-    line. The dotted line $\lambda = 1$ separates directions the data inform more than the prior
-    does from the rest.
+    Without *labels*, each estimate is a thin grey line, as for many runs of one estimator; with
+    them, each is a coloured line with its label in the legend, as for a few estimators side by
+    side. The reference information matrix, if given, is a thick black line. The dotted line
+    $\lambda = 1$ separates directions the data inform more than the prior does from the rest.
+    With *labels*, each subspace's rank $r$ is in its label and marked by a ring on its line.
+    Eigenvalues below $10^{-6}$ of the largest, such as that of a direction the data do not inform
+    at all, are drawn at that floor.
+
+    Raises
+    ------
+    ValueError
+        If *labels* has the wrong length.
     """
+    if labels is not None and len(labels) != len(subspaces):
+        raise ValueError(f"{len(labels)} labels for {len(subspaces)} subspaces")
     ax = plt.subplots(figsize=(5, 3.5))[1] if ax is None else ax
-    for subspace in subspaces:
-        ax.semilogy(np.arange(1, subspace.dimension + 1), subspace.eigenvalues, color="0.6", lw=0.8)
+    spectra = [subspace.eigenvalues for subspace in subspaces]
     if reference is not None:
-        eigenvalues = np.sort(np.linalg.eigvalsh(reference.information))[::-1]
-        ax.semilogy(np.arange(1, len(eigenvalues) + 1), eigenvalues, "k", lw=2, label="reference")
-        ax.legend()
+        spectra.append(np.sort(np.linalg.eigvalsh(reference.information))[::-1])
+    eigenvalue_floor = 1e-6 * max(spectrum.max() for spectrum in spectra)
+    for index, spectrum in enumerate(spectra[: len(subspaces)]):
+        indices = np.arange(1, len(spectrum) + 1)
+        floored_spectrum = np.maximum(spectrum, eigenvalue_floor)
+        if labels is None:
+            ax.semilogy(indices, floored_spectrum, color="0.6", lw=0.8)
+        else:
+            rank = subspaces[index].rank
+            colour = f"C{index}"
+            label = f"{labels[index]} ($r = {rank}$)"
+            ax.semilogy(indices, floored_spectrum, ".-", color=colour, label=label)
+            ax.semilogy(rank, floored_spectrum[rank - 1], "o", ms=10, mfc="none", color=colour)
+    if reference is not None:
+        floored_spectrum = np.maximum(spectra[-1], eigenvalue_floor)
+        ax.semilogy(
+            np.arange(1, len(floored_spectrum) + 1), floored_spectrum, "k", lw=2, label="reference"
+        )
+    if labels is not None or reference is not None:
+        ax.legend(fontsize=8)
     ax.axhline(1.0, ls=":", color="0.3")
     ax.set(xlabel="index $i$", ylabel=r"eigenvalue $\lambda_i$")
     return ax
@@ -203,15 +260,19 @@ def plot_metric_against_setting(
 
 
 def plot_qq(
-    theta: np.ndarray, reference: Reference, problem: InverseProblem, columns: int = 7
+    posterior: EmpiricalDistribution,
+    reference: Reference,
+    problem: InverseProblem,
+    columns: int = 7,
 ) -> Figure:
-    r"""For each parameter, the quantiles of the draws *theta* against the reference's, in whitened
-    coordinates; points on the diagonal mean the marginals agree.
+    r"""For each parameter, the quantiles of a posterior's draws against the reference's, in
+    whitened coordinates; points on the diagonal mean the marginals agree.
 
     Parameters
     ----------
-    theta : numpy.ndarray
-        Draws of the calibration parameters, shape $(N, d)$.
+    posterior : EmpiricalDistribution
+        An approximate posterior held as draws, such as an algorithm's result, with the
+        calibration parameters under ``theta``.
     reference : Reference
         The reference.
     problem : InverseProblem
@@ -219,21 +280,27 @@ def plot_qq(
     columns : int
         Panels per row.
     """
-    approximation = np.asarray(problem.coordinates._whitened(theta))
-    target = np.asarray(problem.coordinates._whitened(reference.parameter_draws()))
-    dimension = target.shape[1]
-    rows = int(np.ceil(dimension / columns))
-    figure, axes = plt.subplots(rows, columns, figsize=(2 * columns, 2 * rows), squeeze=False)
+    whiten, dimension = problem.coordinates.whiten, problem.coordinates.dimension
+    approximation_z = np.asarray(whiten(posterior.atoms["theta"]).to_vector()).reshape(
+        -1, dimension
+    )
+    reference_z = np.asarray(whiten(reference.posterior.atoms["theta"]).to_vector())
+    reference_z = reference_z.reshape(-1, dimension)
+    n_rows = int(np.ceil(dimension / columns))
+    figure, axes = plt.subplots(n_rows, columns, figsize=(2 * columns, 2 * n_rows), squeeze=False)
     levels = np.linspace(0.01, 0.99, 50)
     for j, axis in enumerate(axes.ravel()):
         if j >= dimension:
             axis.set_visible(False)
             continue
         axis.plot(
-            np.quantile(target[:, j], levels), np.quantile(approximation[:, j], levels), ".", ms=3
+            np.quantile(reference_z[:, j], levels),
+            np.quantile(approximation_z[:, j], levels),
+            ".",
+            ms=3,
         )
-        low, high = np.quantile(target[:, j], [0.01, 0.99])
-        axis.plot([low, high], [low, high], "k", lw=0.6)
+        lower, upper = np.quantile(reference_z[:, j], [0.01, 0.99])
+        axis.plot([lower, upper], [lower, upper], "k", lw=0.6)
         axis.set_title(problem.coordinates.names[j], fontsize=7)
         axis.tick_params(labelsize=6)
     figure.supxlabel("reference quantile")
@@ -264,7 +331,7 @@ def plot_loadings(subspace: Subspace, direction: int = 1, ax: Axes | None = None
 
 
 def plot_sufficient_summary(
-    problem: InverseProblem, eki_history: xr.Dataset, subspace: Subspace
+    problem: InverseProblem, eki_posterior: EmpiricalDistribution, subspace: Subspace
 ) -> Figure:
     r"""The misfit of every particle of an EKI run against its first two active variables and its
     last inactive variable.
@@ -272,21 +339,25 @@ def plot_sufficient_summary(
     The misfit of particle $j$ is $\Phi_j = \tfrac12 \sum_i (y_i - G_i(\theta_j))^2 /
     \Gamma_{ii}$, with each step's $\Gamma$. If the subspace is good, the misfit varies with the
     active variables and shows no pattern against the inactive one. The data come from the run's
-    history, so the plot costs no forward runs.
+    history (:func:`~lsmas.inference.eki_history`), so the plot costs no forward runs.
 
     Parameters
     ----------
     problem : InverseProblem
         The problem the run conditioned.
-    eki_history : xarray.Dataset
-        The run's history, ``posterior.annotations["arviz/eki_history"]``.
+    eki_posterior : EmpiricalDistribution
+        The result of ``problem.condition(method="enskit_eki")``.
     subspace : Subspace
         The subspace whose variables to plot against.
     """
-    theta = eki_history["theta"].values.reshape(-1, problem.coordinates.dimension)
-    z = np.asarray(problem.coordinates._whitened(theta))
-    residuals = problem.data[problem.likelihood.output_name] - eki_history["predictions"].values
-    noise_variance = eki_history["noise_variance"].values[:, None, :]
+    history = eki_history(eki_posterior)
+    coordinates = problem.coordinates
+    particles = NumericRecordBatch.from_vector(
+        coordinates.spec, history["theta"].values, level_names=["step", "member"]
+    )
+    z = np.asarray(coordinates.whiten(particles).to_vector()).reshape(-1, coordinates.dimension)
+    residuals = problem.data[problem.likelihood.output_name] - history["predictions"].values
+    noise_variance = history["noise_variance"].values[:, None, :]
     misfit = (0.5 * np.sum(residuals**2 / noise_variance, axis=-1)).reshape(-1)
     active = subspace.active_variables(z)
     panels = [(active[:, 0], "$a_1$")]
@@ -295,8 +366,8 @@ def plot_sufficient_summary(
     if subspace.rank < subspace.dimension:
         panels.append((subspace.inactive_variables(z)[:, -1], "last inactive variable $b$"))
     figure, axes = plt.subplots(1, len(panels), figsize=(4 * len(panels), 3.5), squeeze=False)
-    for axis, (values, label) in zip(axes[0], panels, strict=True):
-        axis.semilogy(values, misfit, ".", ms=3, alpha=0.6)
+    for axis, (variable_values, label) in zip(axes[0], panels, strict=True):
+        axis.semilogy(variable_values, misfit, ".", ms=3, alpha=0.6)
         axis.set(xlabel=label, ylabel=r"misfit $\Phi$")
     figure.tight_layout()
     return figure
@@ -319,18 +390,21 @@ def _draw_bands(
     predictions: np.ndarray,
     levels: Sequence[float],
     colour: str,
+    label: str | None = None,
 ) -> None:
     """The median of *predictions* over its rows, and its central intervals at each level.
 
-    The intervals are shaded from light (the widest) to dark (the narrowest).
+    The intervals are shaded from light (the widest) to dark (the narrowest). Without *label*,
+    each interval and the median get their own legend entry; with it, the median carries the
+    label and the intervals none.
     """
     for index, level in enumerate(sorted(levels, reverse=True)):
         lower, upper = np.quantile(predictions, [(1 - level) / 2, (1 + level) / 2], axis=0)
         shade = 0.15 + 0.15 * index / max(len(levels) - 1, 1)
-        axis.fill_between(
-            times, lower, upper, color=colour, alpha=shade, lw=0, label=f"{level:.0%}"
-        )
-    axis.plot(times, np.median(predictions, axis=0), color=colour, lw=0.8, label="median")
+        band_label = f"{level:.0%}" if label is None else None
+        axis.fill_between(times, lower, upper, color=colour, alpha=shade, lw=0, label=band_label)
+    median_label = "median" if label is None else label
+    axis.plot(times, np.median(predictions, axis=0), color=colour, lw=0.8, label=median_label)
 
 
 def _as_distribution(argument: Distribution | RecordBatch) -> Distribution:
@@ -366,47 +440,47 @@ def _scalar_paths_below(spec: Any, prefix: str = "") -> list[str]:
 def _panel_titles(paths: Sequence[str]) -> dict[str, str]:
     """Each path's last segment, or the whole path when it is outside the first path's group or
     another path ends the same way."""
-    groups = [path.rpartition("/")[0] for path in paths]
+    parent_paths = [path.rpartition("/")[0] for path in paths]
     names = [path.rpartition("/")[2] for path in paths]
     return {
-        path: path if group != groups[0] or names.count(name) > 1 else name
-        for path, group, name in zip(paths, groups, names, strict=True)
+        path: path if parent_path != parent_paths[0] or names.count(name) > 1 else name
+        for path, parent_path, name in zip(paths, parent_paths, names, strict=True)
     }
 
 
 def _central_range(marginals: Iterable[Distribution]) -> tuple[float, float]:
     """The smallest interval holding the central 99% of each marginal, widened if it is a point."""
     bounds = np.array([_central_bounds(law) for law in marginals])
-    low, high = float(bounds[:, 0].min()), float(bounds[:, 1].max())
-    if high > low:
-        return low, high
-    half_width = 0.05 * abs(low) or 0.5
-    return low - half_width, high + half_width
+    lower, upper = float(bounds[:, 0].min()), float(bounds[:, 1].max())
+    if upper > lower:
+        return lower, upper
+    half_width = 0.05 * abs(lower) or 0.5
+    return lower - half_width, upper + half_width
 
 
 def _central_bounds(law: Distribution) -> tuple[float, float]:
     """The 0.5% and 99.5% quantiles of a scalar marginal: exact if it has them, else from draws."""
     levels = np.array([0.005, 0.995])
     try:
-        low, high = np.asarray(quantile.using(exact_only=True)(law, levels), dtype=float)
+        lower, upper = np.asarray(quantile.using(exact_only=True)(law, levels), dtype=float)
     except ResolutionError:
         draws, weights = _draws_and_weights(law)
-        low, high = np.quantile(draws, levels, weights=weights, method="inverted_cdf")
-    return float(low), float(high)
+        lower, upper = np.quantile(draws, levels, weights=weights, method="inverted_cdf")
+    return float(lower), float(upper)
 
 
 def _draw_marginal(
-    axis: Axes, law: Distribution, span: tuple[float, float], *, colour: str, label: str
+    axis: Axes, law: Distribution, x_range: tuple[float, float], *, colour: str, label: str
 ) -> None:
     """A scalar marginal on *axis*: its density if it has one, else a histogram of its draws."""
     if isinstance(law, SupportsLogProb):
-        grid = np.linspace(*span, 200)
+        grid = np.linspace(*x_range, 200)
         log_density = log_prob(law, NumericArrayBatch(grid, level_names="grid", label="grid"))
         axis.plot(grid, np.exp(np.asarray(log_density)), color=colour, lw=1.2, label=label)
         return
     draws, weights = _draws_and_weights(law)
-    bins = np.linspace(*span, 41)
-    # Heights are densities of all the draws, so draws outside the span are not renormalized away.
+    bins = np.linspace(*x_range, 41)
+    # Heights are densities of all the draws, so draws outside the plot are not renormalized away.
     heights = weights / (weights.sum() * (bins[1] - bins[0]))
     axis.hist(draws, bins=bins, weights=heights, color=colour, alpha=0.4, label=label)
 

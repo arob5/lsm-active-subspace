@@ -1,4 +1,7 @@
-r"""The record an ensemble method passes to its callbacks at each step, and the run history."""
+r"""The record an ensemble method passes to its callbacks at each step, and the run history.
+
+An EKI result keeps its run's history; :func:`eki_history` reads it.
+"""
 
 from __future__ import annotations
 
@@ -7,10 +10,14 @@ from dataclasses import dataclass
 
 import numpy as np
 import xarray as xr
+from probpipe import Distribution
 
 from lsmas._stopgaps.likelihood import noise_scale_variable
 
-__all__ = ["StepCallback", "StepRecord", "history_dataset"]
+__all__ = ["StepCallback", "StepRecord", "eki_history", "history_dataset"]
+
+#: Where an EKI result keeps its run's history, among its annotations.
+_HISTORY_ANNOTATION = "arviz/eki_history"
 
 
 @dataclass(frozen=True)
@@ -102,3 +109,28 @@ def history_dataset(records: Sequence[StepRecord]) -> xr.Dataset:
         },
         coords={"step": [record.step for record in records], "parameter": names},
     )
+
+
+def eki_history(posterior: Distribution) -> xr.DataTree:
+    r"""The history of the EKI run that produced *posterior*, one entry per step.
+
+    Its variables are those of :func:`history_dataset`: each step's level ``beta`` and
+    ``increment``, its particles ``theta`` (shape ``(step, member, parameter)``), the forward
+    map's ``predictions`` at them (``(step, member, observation)``), the ``noise_variance`` the
+    step used (``(step, observation)``), ``n_failed``, and each inferred noise scale. The final
+    particles, at $\beta = 1$, are the result itself and appear in no step.
+
+    Parameters
+    ----------
+    posterior : Distribution
+        The result of ``condition(method="enskit_eki")``.
+
+    Raises
+    ------
+    ValueError
+        If *posterior* is not the result of an EKI run.
+    """
+    try:
+        return posterior.annotations[_HISTORY_ANNOTATION]
+    except (AttributeError, KeyError, TypeError):
+        raise ValueError(f"{posterior.label!r} is not the result of an EKI run") from None

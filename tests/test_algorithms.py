@@ -3,6 +3,7 @@ import pytest
 
 from lsmas.algorithms import AlgorithmResult, active_subspace_mcmc
 from lsmas.algorithms.active_subspace_mcmc import _independent_stage_seeds
+from lsmas.inference import eki_history
 from lsmas.problems import load_inverse_problem
 
 pytestmark = pytest.mark.smoke
@@ -29,7 +30,7 @@ def test_rank_follows_the_rule_and_counts_follow_the_stages(toy_result):
     subspace = toy_result.subspace
     discarded = subspace.eigenvalues[subspace.rank :].sum()
     assert discarded <= 0.5 < subspace.eigenvalues[subspace.rank - 1 :].sum()
-    n_steps = toy_result.exploration_posterior.annotations["arviz/eki_history"]["beta"].size
+    n_steps = eki_history(toy_result.exploration_posterior)["beta"].size
     assert toy_result.forward_runs == {"exploration": 100 * (n_steps + 1), "sampling": 2 * 301}
     assert toy_result.total_forward_runs == sum(toy_result.forward_runs.values())
 
@@ -56,6 +57,6 @@ def test_runs_on_sipnet():
 
 
 def test_independent_stage_seeds_of_different_root_seeds_never_coincide():
-    seeds = [seed for root in range(50) for seed in _independent_stage_seeds(root)]
+    seeds = [seed for root_seed in range(50) for seed in _independent_stage_seeds(root_seed)]
     assert len(set(seeds)) == len(seeds)
     assert _independent_stage_seeds(3) == _independent_stage_seeds(3)

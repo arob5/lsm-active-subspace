@@ -8,6 +8,7 @@ Registered under the name ``"enskit_eki"``; it runs only when a call names it::
 
 from __future__ import annotations
 
+import functools
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -19,13 +20,13 @@ import xarray as xr
 from enskit import kalman, linalg
 from enskit.algorithms import eki
 from enskit.distribution import Ensemble
-from probpipe import Distribution, InverseGamma, NumericRecordBatch
+from probpipe import Distribution, Function, InverseGamma, NumericRecordBatch
 from probpipe.inference import Feasibility, InferenceMethod, InferenceTarget, make_posterior
 
 from lsmas._stopgaps.likelihood import NOISE_SCALES, GaussianSimulatorLikelihood
 from lsmas._stopgaps.sampling import draw_with_key
 from lsmas._stopgaps.tempering import TemperedLikelihood
-from lsmas.coordinates import Coordinates, _parameter_vectors
+from lsmas.coordinates import Coordinates, inverse
 from lsmas.inference.noise_scales import NoiseScaleConditionals
 from lsmas.inference.step_record import StepCallback, StepRecord, history_dataset
 from lsmas.priors import factors_over
@@ -179,25 +180,56 @@ class _GaussianInverseProblem:
 
     def draw_initial_particles(self, key: Any, n_particles: int) -> _ParticlesWithScales:
         """*n_particles* prior draws: parameters in unconstrained coordinates, and class scales."""
-        draws = draw_with_key(self.prior, key, (n_particles,))
-        theta = _parameter_vectors(draws, _PARAMETER_BLOCK, self.coordinates.names)
+        draws = _grouped_prior_draws(
+            draw_with_key(self.prior, key, (n_particles,)), self.coordinates.names
+        )
         conditionals = self.scale_conditionals
-        inferred = self.likelihood.inferred_scale_draws(draws)
         scales = np.stack(
             [
-                inferred[k] if k in inferred else np.full(n_particles, fixed)
-                for k, fixed in zip(conditionals.classes, conditionals.fixed_scales, strict=True)
+                np.asarray(draws[f"{NOISE_SCALES}/{k}"].raw)
+                if inferred
+                else np.full(n_particles, fixed)
+                for k, fixed, inferred in zip(
+                    conditionals.classes,
+                    conditionals.fixed_scales,
+                    conditionals.is_inferred,
+                    strict=True,
+                )
             ],
             axis=-1,
         )
-        phi = np.asarray(self.coordinates._unconstrained(theta))
+        phi = np.asarray(self.coordinates.unconstrain(draws[_PARAMETER_BLOCK]).to_vector())
         return _ParticlesWithScales(phi=phi, scales=scales)
+
+    def parameters(self, phi: Any) -> NumericRecordBatch:
+        r"""The parameter records $\theta = b(\phi)$ at each row of unconstrained coordinates
+        *phi*, shape $(J, d)$."""
+        unconstrained = NumericRecordBatch.from_vector(
+            self._to_parameters.input_spec["phi"], jnp.asarray(phi), level_names="particle"
+        )
+        return self._to_parameters(unconstrained)
 
     def forward_in_unconstrained_coordinates(self, phi: Any) -> np.ndarray:
         """$G$ at each row of unconstrained coordinates *phi*, shape $(J, n)$: EnsKit's
         simulator."""
-        theta = self.coordinates._constrained(np.asarray(phi))
-        return np.asarray(self.likelihood.forward(self.coordinates._records(theta)).raw)
+        return np.asarray(self.likelihood.forward(self.parameters(phi)).raw)
+
+    @functools.cached_property
+    def _to_parameters(self) -> Function:
+        r"""$\phi \mapsto \theta$."""
+        return inverse(self.coordinates.unconstrain)
+
+
+# STOPGAP(PG-13): a prior taken back out of a joint may draw theta's fields ungrouped; read draws
+# in the grouped layout only once that is fixed.
+def _grouped_prior_draws(raw_draws: Mapping[str, Any], names: Sequence[str]) -> NumericRecordBatch:
+    """Raw prior draws as a batch of records with the parameters grouped under ``theta``, and any
+    noise scales under ``s2``."""
+    parameters = raw_draws.get(_PARAMETER_BLOCK, raw_draws)
+    fields: dict[str, Any] = {_PARAMETER_BLOCK: {name: parameters[name] for name in names}}
+    if NOISE_SCALES in raw_draws:
+        fields[NOISE_SCALES] = raw_draws[NOISE_SCALES]
+    return NumericRecordBatch(fields, "particle")
 
 
 def _run_tempered_eki(
@@ -318,7 +350,7 @@ def _build_step_record(
         beta=beta,
         increment=float(increment),
         parameter_names=problem.coordinates.names,
-        theta=np.asarray(problem.coordinates._constrained(unconstrained)),
+        theta=np.asarray(problem.parameters(unconstrained).to_vector()),
         predictions=np.asarray(evaluation.ensemble[eki.PREDICTION]),
         noise_variance=noise_variance,
         noise_scales={
@@ -355,12 +387,7 @@ def _particles_as_target_vectors(
     target: InferenceTarget, problem: _GaussianInverseProblem, particles: _ParticlesWithScales
 ) -> jnp.ndarray:
     """The final particles, with their inferred scales, as vectors of the target's event."""
-    theta = problem.coordinates._constrained(particles.phi)
-    fields: dict[str, Any] = {
-        _PARAMETER_BLOCK: {
-            name: theta[:, index] for index, name in enumerate(problem.coordinates.names)
-        }
-    }
+    fields: dict[str, Any] = {_PARAMETER_BLOCK: problem.parameters(particles.phi).raw}
     conditionals = problem.scale_conditionals
     if conditionals.is_inferred.any():
         fields[NOISE_SCALES] = {
@@ -380,13 +407,13 @@ def _infeasibility_reason(target: InferenceTarget) -> str | None:
     likelihood, _ = _likelihood_and_learning_rate(factors.likelihood)
     if not isinstance(likelihood, GaussianSimulatorLikelihood):
         return "the likelihood must be a Gaussian simulator likelihood"
-    inferred = set(likelihood.inferred_scale_classes)
-    records = {_PARAMETER_BLOCK} | ({NOISE_SCALES} if inferred else set())
-    if set(factors.prior.event_spec.outputs) != records:
+    records = set(factors.prior.event_spec.outputs)
+    if records not in ({_PARAMETER_BLOCK}, {_PARAMETER_BLOCK, NOISE_SCALES}):
         return (
             f"the prior must be over the parameter record {_PARAMETER_BLOCK!r} and, when scales "
             f"are inferred, the noise-scale record {NOISE_SCALES!r}, and nothing else"
         )
+    inferred = set(likelihood.noise_classes) if NOISE_SCALES in records else set()
     if missing := sorted(inferred - _inverse_gamma_scale_priors(factors.prior).keys()):
         return f"each inferred noise scale needs an inverse-gamma prior; these have none: {missing}"
     return None

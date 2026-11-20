@@ -128,10 +128,10 @@ class SIPNETSimulator:
     def _outputs(self, parameters: Mapping[str, float]) -> SIPNETOutput:
         """Run SIPNET with the fixed values overridden by *parameters*, after checking that every
         SIPNET parameter is set."""
-        complete = self.fixed_parameters | dict(parameters)
-        if missing := sorted(SIPNET_PARAMETERS - complete.keys()):
+        all_parameters = self.fixed_parameters | dict(parameters)
+        if missing := sorted(SIPNET_PARAMETERS - all_parameters.keys()):
             raise ValueError(f"these SIPNET parameters are not set: {missing}")
-        return self._model(**complete).outputs
+        return self._model(**all_parameters).outputs
 
 
 def feature_map(

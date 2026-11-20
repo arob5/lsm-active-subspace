@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import functools
 import inspect
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -36,11 +36,11 @@ from probpipe import (
     Distribution,
     Function,
     NumericArraySpec,
-    NumericRecordBatch,
     NumericRecordSpec,
     SupportsInverse,
     SupportsLogDetJacobian,
     bijector_for,
+    factor,
 )
 from probpipe import inverse as probpipe_inverse
 
@@ -88,16 +88,16 @@ class CoordinateMap(Function, SupportsInverse, SupportsLogDetJacobian):
     ) -> None:
         names = tuple(input_spec.fields)
 
-        def apply(record: Any) -> dict[str, Any]:
+        def forward_on_record(record: Any) -> dict[str, Any]:
             return _as_record(names, forward(_as_vector(names, record)))
 
         # ProbPipe binds a Function's input by its parameter's name.
-        apply.__signature__ = inspect.Signature(
+        forward_on_record.__signature__ = inspect.Signature(
             [inspect.Parameter(input_name, inspect.Parameter.POSITIONAL_OR_KEYWORD)]
         )
 
         super().__init__(
-            apply,
+            forward_on_record,
             label=label,
             input_spec={input_name: input_spec},
             output_spec=output_spec,
@@ -216,6 +216,25 @@ class Coordinates:
         bijectors = tuple(bijector_for(spec.at_path(name).support) for name in spec.fields)
         return cls(block, spec, prior, bijectors, n_moment_draws, seed)
 
+    @classmethod
+    @functools.lru_cache(maxsize=32)
+    def from_model(cls, model: Distribution, block: str = "theta") -> Coordinates:
+        r"""The coordinates of the block *block* of the parameters of the model *model*.
+
+        They are built from the prior factor of *block*, ``factor(model, block)``, and once per
+        model: the same model always gives the same object. $m$ and $L$ are Monte Carlo estimates,
+        so coordinates built from two different objects, even of the same law, differ slightly;
+        every subspace of one model is therefore expressed in the same $z$.
+
+        Parameters
+        ----------
+        model : Distribution
+            The model, such as ``problem.model``.
+        block : str
+            The model's output that holds the parameters.
+        """
+        return cls.from_prior(factor(model, block), block)
+
     def __repr__(self) -> str:
         return f"Coordinates({self.block!r}: {self.dimension} parameters)"
 
@@ -296,12 +315,6 @@ class Coordinates:
         mean, factor, _ = self._moments
         return self._constrained(mean + jnp.asarray(z) @ factor.T)
 
-    def _records(self, theta: Any, level: str = "member") -> NumericRecordBatch:
-        """Constrained parameters *theta*, shape $(n, d)$, as a batch of records ``theta``."""
-        return NumericRecordBatch.from_vector(
-            self.spec, jnp.asarray(theta, dtype=float), level_names=level
-        )
-
     def _unconstrain_log_det(self, theta: Any) -> jax.Array:
         r"""$\log \lvert \det \partial \phi / \partial \theta \rvert
         = -\sum_j \log b_j'(\phi_j)$."""
@@ -310,18 +323,26 @@ class Coordinates:
 
     @functools.cached_property
     def _moments(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """$m$, $L$ and $L^{-1}$, from prior draws made with a fixed key."""
-        draws = draw_with_key(self._prior, jax.random.key(self._seed), (self._n_moment_draws,))
-        phi = np.asarray(self._unconstrained(_parameter_vectors(draws, self.block, self.names)))
+        """$m$, $L$ and $L^{-1}$, from prior draws made with a fixed key.
+
+        Computed eagerly even when first needed inside a JAX trace, such as a Jacobian of the
+        forward map in whitened coordinates.
+        """
+        with jax.ensure_compile_time_eval():
+            key = jax.random.key(self._seed)
+            draws = draw_with_key(self._prior, key, (self._n_moment_draws,))
+            prior_parameters = _parameter_vectors(draws, self.block, self.names)
+            phi = np.asarray(self._unconstrained(prior_parameters))
         factor = np.linalg.cholesky(np.atleast_2d(np.cov(phi, rowvar=False)))
         return phi.mean(axis=0), factor, np.linalg.inv(factor)
 
 
-def _parameter_vectors(draws: Any, block: str, names: tuple[str, ...]) -> np.ndarray:
-    """The values of the parameters *names* of *block* in raw or tracked *draws*, shape $(n, d)$."""
-    raw = draws.raw if hasattr(draws, "raw") else draws
+def _parameter_vectors(
+    raw_draws: Mapping[str, Any], block: str, names: tuple[str, ...]
+) -> np.ndarray:
+    """The values of the parameters *names* of *block* in raw prior draws, shape $(n, d)$."""
     # STOPGAP(PG-13): a prior taken back out of a joint may draw its block's fields ungrouped.
-    block_draws = raw.get(block, raw)
+    block_draws = raw_draws.get(block, raw_draws)
     return np.stack([np.asarray(block_draws[name], dtype=float) for name in names], axis=-1)
 
 
@@ -342,7 +363,7 @@ def _real_record_spec(names: tuple[str, ...]) -> NumericRecordSpec:
 
 def _block_spec(prior: Distribution, block: str) -> NumericRecordSpec:
     """The record spec of *block* in *prior*'s event declaration."""
-    outputs = prior.event_spec.outputs
-    if block not in outputs or not hasattr(outputs[block], "fields"):
+    prior_outputs = prior.event_spec.outputs
+    if block not in prior_outputs or not hasattr(prior_outputs[block], "fields"):
         raise ValueError(f"the prior has no block of named parameters called {block!r}")
-    return outputs[block]
+    return prior_outputs[block]

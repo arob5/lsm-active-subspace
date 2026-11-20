@@ -3,7 +3,7 @@ import pytest
 from probpipe import NumericRecordBatch
 
 from conftest import CLASSES, FORWARD_MATRIX, linear_problem
-from lsmas.coordinates import inverse
+from lsmas.coordinates import Coordinates, inverse
 
 
 @pytest.fixture
@@ -24,3 +24,13 @@ def test_the_forward_map_takes_parameters_mapped_back_from_whitened_coordinates(
 
 def test_describe_names_the_parameters_and_observations(problem):
     assert "Calibration parameters (2): a, b" in problem.describe()
+
+
+def test_the_shortcuts_read_the_parts_of_the_model(problem, observations):
+    assert list(problem.prior.event_spec.outputs) == ["theta"]
+    assert problem.likelihood.forward is problem.forward
+    assert problem.coordinates is Coordinates.from_model(problem.model)
+    assert problem.inferred_noise_classes == ()
+    inferred = linear_problem(observations, "inferred", np.ones(len(CLASSES)))
+    assert list(inferred.prior.event_spec.outputs) == ["theta", "s2"]
+    assert inferred.inferred_noise_classes == ("day", "night")

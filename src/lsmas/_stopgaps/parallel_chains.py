@@ -41,5 +41,5 @@ def run_in_processes(
     """
     if not chain_arguments:
         return []
-    with ProcessPoolExecutor(max_workers) as pool:
-        return list(pool.map(run_one_chain, *zip(*chain_arguments, strict=True)))
+    with ProcessPoolExecutor(max_workers) as process_pool:
+        return list(process_pool.map(run_one_chain, *zip(*chain_arguments, strict=True)))

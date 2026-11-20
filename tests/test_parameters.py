@@ -109,12 +109,14 @@ def test_allocation_map_is_valid_at_extreme_shares(shares):
 def test_initial_pools_map_reproduces_each_pool():
     wood, coarse_roots, fine_roots = 8600.0, 1700.0, 300.0
     sipnet = initial_pools_to_sipnet(wood, coarse_roots, fine_roots)
-    total = sipnet["total_wood_carbon"]
-    assert total == pytest.approx(10_600.0, rel=1e-12)
-    assert total * sipnet["coarse_root_fraction"] == pytest.approx(coarse_roots, rel=1e-12)
-    assert total * sipnet["fine_root_fraction"] == pytest.approx(fine_roots, rel=1e-12)
-    remaining = 1 - sipnet["coarse_root_fraction"] - sipnet["fine_root_fraction"]
-    assert total * remaining == pytest.approx(wood, rel=1e-12)
+    total_wood_carbon = sipnet["total_wood_carbon"]
+    assert total_wood_carbon == pytest.approx(10_600.0, rel=1e-12)
+    assert total_wood_carbon * sipnet["coarse_root_fraction"] == pytest.approx(
+        coarse_roots, rel=1e-12
+    )
+    assert total_wood_carbon * sipnet["fine_root_fraction"] == pytest.approx(fine_roots, rel=1e-12)
+    wood_fraction = 1 - sipnet["coarse_root_fraction"] - sipnet["fine_root_fraction"]
+    assert total_wood_carbon * wood_fraction == pytest.approx(wood, rel=1e-12)
 
 
 def test_the_prior_table_names_exactly_the_calibration_parameters(data, theta):

@@ -39,14 +39,15 @@ import arviz as az
 import numpy as np
 import pandas as pd
 import xarray as xr
-from probpipe import workflow_run
+from probpipe import EmpiricalDistribution, NumericRecordBatch, workflow_run
 
 from lsmas._stopgaps.functions import declares_traceable
-from lsmas._stopgaps.likelihood import noise_scale_variable
+from lsmas._stopgaps.likelihood import NOISE_SCALES, noise_scale_variable
 from lsmas._stopgaps.parallel_chains import run_in_processes
+from lsmas.inference import eki_history
 from lsmas.problems import load_inverse_problem
 from lsmas.problems.inverse_problem import InverseProblem
-from lsmas.tools import exact_subspace, finite_difference_subspace
+from lsmas.tools import finite_difference_subspace, gradient_based_subspace
 
 __all__ = [
     "BASELINE_DIRECTORY",
@@ -116,13 +117,20 @@ class Reference:
     diagnostics: pd.DataFrame
     provenance: dict[str, Any]
 
-    def parameter_draws(self) -> np.ndarray:
-        r"""Every draw of $\theta$ with the chains pooled, shape $(N, d)$."""
-        return self.theta.reshape(-1, self.theta.shape[-1])
+    @property
+    def posterior(self) -> EmpiricalDistribution:
+        """The reference posterior as a ProbPipe distribution, labelled ``"reference"``.
 
-    def noise_scale_draws(self) -> dict[str, np.ndarray]:
-        """Every draw of each inferred noise scale with the chains pooled, shape $(N,)$."""
-        return {noise_class: draws.reshape(-1) for noise_class, draws in self.noise_scales.items()}
+        Its draws are records like an inverse problem's prior draws: the parameters under
+        ``theta`` and any inferred noise scales under ``s2``, on the levels ``chain`` and ``draw``.
+        """
+        fields: dict[str, Any] = {
+            "theta": {name: self.theta[..., j] for j, name in enumerate(self.parameter_names)}
+        }
+        if self.noise_scales:
+            fields[NOISE_SCALES] = dict(self.noise_scales)
+        draws = NumericRecordBatch(fields, ["chain", "draw"])
+        return EmpiricalDistribution(draws).with_label("reference")
 
     def save(self, path: Path | None = None) -> Path:
         """Write the reference as netCDF, by default to its place in ``baselines/``.
@@ -140,9 +148,9 @@ class Reference:
     @classmethod
     def load(cls, path: Path) -> Reference:
         """Read a reference written by :meth:`save`."""
-        tree = xr.open_datatree(path, engine="h5netcdf")
-        posterior = tree["posterior"].to_dataset()
-        attributes = tree.attrs
+        stored_tree = xr.open_datatree(path, engine="h5netcdf")
+        posterior = stored_tree["posterior"].to_dataset()
+        attributes = stored_tree.attrs
         return cls(
             problem_name=str(attributes["problem_name"]),
             scales=str(attributes["scales"]),
@@ -153,8 +161,8 @@ class Reference:
                 for name in posterior.data_vars
                 if name != "theta"
             },
-            information=tree["information"]["information"].values,
-            diagnostics=tree["diagnostics"].to_dataset().to_dataframe(),
+            information=stored_tree["information"]["information"].values,
+            diagnostics=stored_tree["diagnostics"].to_dataset().to_dataframe(),
             provenance=json.loads(attributes["provenance"]),
         )
 
@@ -166,7 +174,7 @@ def reference_path(problem_name: str, scales: ScaleSetting) -> Path:
 
 def noise_scale_setting(problem: InverseProblem) -> ScaleSetting:
     """``"inferred"`` if *problem* infers its noise scales, ``"fixed"`` otherwise."""
-    return "inferred" if problem.likelihood.inferred_scale_classes else "fixed"
+    return "inferred" if problem.inferred_noise_classes else "fixed"
 
 
 def load_reference(problem: InverseProblem) -> Reference:
@@ -200,17 +208,20 @@ def convergence_diagnostics(
         Draws of each inferred scale, shape (chains, draws), by class.
     """
     coordinates = problem.coordinates
-    z = np.asarray(coordinates._whitened(theta))
+    chains = NumericRecordBatch.from_vector(
+        coordinates.spec, np.asarray(theta), level_names=["chain", "draw"]
+    )
+    z = np.asarray(coordinates.whiten(chains).to_vector())
     variables = {name: z[..., j] for j, name in enumerate(coordinates.names)} | {
         f"log_{noise_scale_variable(noise_class)}": np.log(draws)
         for noise_class, draws in noise_scales.items()
     }
-    tree = az.from_dict({"posterior": variables})
+    inference_data = az.from_dict({"posterior": variables})
     return pd.DataFrame(
         {
-            "rhat": _per_variable(az.rhat(tree), variables),
-            "ess_bulk": _per_variable(az.ess(tree, method="bulk"), variables),
-            "ess_tail": _per_variable(az.ess(tree, method="tail"), variables),
+            "rhat": _per_variable(az.rhat(inference_data), variables),
+            "ess_bulk": _per_variable(az.ess(inference_data, method="bulk"), variables),
+            "ess_tail": _per_variable(az.ess(inference_data, method="tail"), variables),
         },
         index=pd.Index(list(variables), name="coordinate"),
     )
@@ -230,7 +241,10 @@ def nuts_reference(problem: InverseProblem, *, seed: int = 0) -> Reference:
     with workflow_run(seed=seed):
         posterior = problem.condition(method="blackjax_nuts")
     theta = np.asarray(posterior.atoms[problem.coordinates.block].to_vector())
-    noise_scales = problem.likelihood.inferred_scale_draws(posterior.atoms)
+    noise_scales = {
+        noise_class: np.asarray(posterior.atoms[f"{NOISE_SCALES}/{noise_class}"].raw)
+        for noise_class in problem.inferred_noise_classes
+    }
     return _build_reference(
         problem,
         theta,
@@ -282,8 +296,8 @@ def start_rwmh_reference(
     proposal *= 2.38 / np.sqrt(states.shape[1])
     chosen = np.random.default_rng(seed).choice(len(states), n_chains, replace=False)
     np.savez(run_directory / "pilot.npz", starts=states[chosen], proposal_cholesky=proposal)
-    n_steps = eki.annotations["arviz/eki_history"]["beta"].size
-    final_evaluation = 1 if problem.likelihood.inferred_scale_classes else 0
+    n_steps = eki_history(eki)["beta"].size
+    final_evaluation = 1 if problem.inferred_noise_classes else 0
     settings = {
         "problem_name": problem.name,
         "scales": noise_scale_setting(problem),
@@ -390,8 +404,8 @@ def _slowest_chain_seconds(segment_files: list[Path]) -> float:
     """The sum over segments of the slowest chain's time; segments without a time count as 0."""
     by_segment: dict[str, float] = {}
     for path in segment_files:
-        stored = np.load(path)
-        seconds = float(stored["seconds"]) if "seconds" in stored.files else 0.0
+        segment = np.load(path)
+        seconds = float(segment["seconds"]) if "seconds" in segment.files else 0.0
         by_segment[path.name] = max(by_segment.get(path.name, 0.0), seconds)
     return sum(by_segment.values())
 
@@ -469,10 +483,10 @@ def _build_reference(
             f"most {MAX_RHAT}, {MIN_EFFECTIVE_DRAWS} effective draws); see its diagnostics",
             stacklevel=3,
         )
-    keep = _evenly_spaced(theta.shape[1], max(1, MAX_STORED_DRAWS // theta.shape[0]))
+    kept_draws = _evenly_spaced(theta.shape[1], max(1, MAX_STORED_DRAWS // theta.shape[0]))
     theta, noise_scales = (
-        theta[:, keep],
-        {noise_class: draws[:, keep] for noise_class, draws in noise_scales.items()},
+        theta[:, kept_draws],
+        {noise_class: draws[:, kept_draws] for noise_class, draws in noise_scales.items()},
     )
     return Reference(
         problem_name=problem.name,
@@ -492,15 +506,23 @@ def _reference_information(
     r"""$H_{\mathrm{ref}}$ at evenly thinned draws: exact Jacobians if the forward map can be
     differentiated, central differences otherwise."""
     pooled = theta.reshape(-1, theta.shape[-1])
-    keep = _evenly_spaced(len(pooled), INFORMATION_DRAWS)
-    z = np.asarray(problem.coordinates._whitened(pooled[keep]))
-    scale_draws = {
-        noise_class: draws.reshape(-1)[keep] for noise_class, draws in noise_scales.items()
+    kept_draws = _evenly_spaced(len(pooled), INFORMATION_DRAWS)
+    fields: dict[str, Any] = {
+        "theta": {name: pooled[kept_draws, j] for j, name in enumerate(problem.coordinates.names)}
     }
+    if noise_scales:
+        fields[NOISE_SCALES] = {
+            noise_class: draws.reshape(-1)[kept_draws]
+            for noise_class, draws in noise_scales.items()
+        }
     estimator = (
-        exact_subspace if declares_traceable(problem.forward) else finite_difference_subspace
+        gradient_based_subspace
+        if declares_traceable(problem.forward)
+        else finite_difference_subspace
     )
-    return estimator(problem, z, noise_scales=scale_draws or None).information
+    samples = EmpiricalDistribution(NumericRecordBatch(fields, "draw"))
+    learning_rate = problem.learning_rate[problem.likelihood.output_name]
+    return estimator(problem.model, samples, learning_rate=learning_rate).information
 
 
 def _provenance(
@@ -538,41 +560,44 @@ def _repository_commit() -> str | None:
     """The commit of the checkout this package runs from, marked if tracked files had changed."""
     try:
         commit = _git("rev-parse", "HEAD")
-        changed = _git("status", "--porcelain", "--untracked-files=no")
+        uncommitted_changes = _git("status", "--porcelain", "--untracked-files=no")
     except (OSError, subprocess.CalledProcessError):
         return None
-    return commit + (" with uncommitted changes" if changed else "")
+    return commit + (" with uncommitted changes" if uncommitted_changes else "")
 
 
 def _git(*arguments: str) -> str:
     """The output of a git command run in the repository."""
-    completed = subprocess.run(
+    git_process = subprocess.run(
         ["git", *arguments],
         cwd=BASELINE_DIRECTORY.parent,
         capture_output=True,
         text=True,
         check=True,
     )
-    return completed.stdout.strip()
+    return git_process.stdout.strip()
 
 
 def _flat_states(problem: InverseProblem, atoms: Any) -> np.ndarray:
     """Draws as flat states, shape $(N, D)$: the parameters, then the inferred noise scales."""
     coordinates = problem.coordinates
     theta = np.asarray(atoms[coordinates.block].to_vector()).reshape(-1, coordinates.dimension)
-    scales = [
-        draws.reshape(-1, 1) for draws in problem.likelihood.inferred_scale_draws(atoms).values()
-    ]
-    return np.concatenate([theta, *scales], axis=1)
+    if not problem.inferred_noise_classes:
+        return theta
+    scales = np.asarray(atoms[NOISE_SCALES].to_vector()).reshape(len(theta), -1)
+    return np.concatenate([theta, scales], axis=1)
 
 
 def _unconstrained_states(problem: InverseProblem, states: np.ndarray) -> np.ndarray:
     r"""Flat states in unconstrained coordinates: $\phi = b^{-1}(\theta)$, then $\log s^2$."""
-    dimension = problem.coordinates.dimension
+    coordinates = problem.coordinates
+    parameters = NumericRecordBatch.from_vector(
+        coordinates.spec, states[:, : coordinates.dimension], level_names="draw"
+    )
     return np.concatenate(
         [
-            np.asarray(problem.coordinates._unconstrained(states[:, :dimension])),
-            np.log(states[:, dimension:]),
+            np.asarray(coordinates.unconstrain(parameters).to_vector()),
+            np.log(states[:, coordinates.dimension :]),
         ],
         axis=1,
     )
@@ -596,7 +621,7 @@ def _completed_chains(
     dimension = problem.coordinates.dimension
     noise_scales = {
         noise_class: states[..., dimension + k]
-        for k, noise_class in enumerate(problem.likelihood.inferred_scale_classes)
+        for k, noise_class in enumerate(problem.inferred_noise_classes)
     }
     return problem, states[..., :dimension], noise_scales
 
@@ -619,9 +644,9 @@ def _evenly_spaced(length: int, count: int) -> np.ndarray:
     return np.unique(np.linspace(0, length - 1, min(count, length)).round().astype(int))
 
 
-def _per_variable(result: Any, variables: dict[str, Any]) -> list[float]:
+def _per_variable(diagnostic: Any, variables: dict[str, Any]) -> list[float]:
     """One diagnostic's value for each variable, in order."""
-    return [float(np.asarray(result[name])) for name in variables]
+    return [float(np.asarray(diagnostic[name])) for name in variables]
 
 
 def _reference_tree(reference: Reference) -> xr.DataTree:
@@ -643,12 +668,12 @@ def _reference_tree(reference: Reference) -> xr.DataTree:
         },
     )
     diagnostics = xr.Dataset.from_dataframe(reference.diagnostics)
-    tree = xr.DataTree.from_dict(
+    reference_tree = xr.DataTree.from_dict(
         {"posterior": posterior, "information": information, "diagnostics": diagnostics}
     )
-    tree.attrs = {
+    reference_tree.attrs = {
         "problem_name": reference.problem_name,
         "scales": reference.scales,
         "provenance": json.dumps(reference.provenance),
     }
-    return tree
+    return reference_tree

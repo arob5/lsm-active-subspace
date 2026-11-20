@@ -13,17 +13,15 @@ from lsmas import plots
 from lsmas.data import load_harvard_forest
 from lsmas.experiments.reference import Reference
 from lsmas.problems import load_inverse_problem
-from lsmas.tools import LadderLinearization, Subspace
+from lsmas.tools import Subspace, eki_linearization_subspace
 
 
 @pytest.fixture(scope="module")
 def toy_run():
     toy = load_inverse_problem("toy")
-    ladder = LadderLinearization(toy.coordinates)
     with workflow_run(seed=1):
-        posterior = toy.condition(
-            method="enskit_eki", method_options={"n_particles": 40, "callbacks": [ladder]}
-        )
+        posterior = toy.condition(method="enskit_eki", method_options={"n_particles": 40})
+    subspace = eki_linearization_subspace(toy.model, posterior)
     theta = np.asarray(posterior.atoms["theta"].to_vector()).reshape(-1, 14)
     reference = Reference(
         problem_name="toy",
@@ -31,11 +29,11 @@ def toy_run():
         parameter_names=toy.coordinates.names,
         theta=theta[None],
         noise_scales={},
-        information=ladder.information,
+        information=subspace.information,
         diagnostics=pd.DataFrame(),
         provenance={},
     )
-    return toy, posterior, ladder.subspace(), reference, theta
+    return toy, posterior, subspace, reference, theta
 
 
 def test_single_panel_plots_return_their_axes(toy_run):
@@ -43,16 +41,51 @@ def test_single_panel_plots_return_their_axes(toy_run):
     assert isinstance(plots.plot_spectra([subspace, subspace], reference), Axes)
     assert isinstance(plots.plot_activity_scores(subspace), Axes)
     assert isinstance(plots.plot_loadings(subspace, direction=2), Axes)
-    table = pd.DataFrame({"rank": [2, 2, 4, 4], "marginal_w1_mean": [0.5, 0.6, 0.3, 0.2]})
-    assert isinstance(plots.plot_metric_against_setting(table, "rank"), Axes)
+    study_table = pd.DataFrame({"rank": [2, 2, 4, 4], "marginal_w1_mean": [0.5, 0.6, 0.3, 0.2]})
+    assert isinstance(plots.plot_metric_against_setting(study_table, "rank"), Axes)
+
+
+def test_labelled_spectra_have_a_legend_and_a_floor(toy_run):
+    _, _, subspace, _, _ = toy_run
+    singular = Subspace.from_information(
+        np.diag([10.0, 1.0, 0.0]), parameter_names=("a", "b", "c"), estimator="x"
+    )
+    ax = plots.plot_spectra([subspace, singular], labels=["ladder", "singular"])
+    legend = [text.get_text() for text in ax.get_legend().get_texts()]
+    assert legend == [f"ladder ($r = {subspace.rank}$)", f"singular ($r = {singular.rank}$)"]
+    assert min(np.min(line.get_ydata()) for line in ax.get_lines()) >= 1e-6 * 10.0 * 0.999
+    rank_ring = ax.get_lines()[3]  # the ring marking the second subspace's rank
+    assert list(rank_ring.get_xdata()) == [singular.rank]
+    with pytest.raises(ValueError, match="1 labels for 2"):
+        plots.plot_spectra([subspace, singular], labels=["one"])
+
+
+def test_feature_plot_overlays_several_labelled_sets():
+    data = load_harvard_forest()
+    noise = np.random.default_rng(1).normal(size=(2, 20, 400))
+    prior, posterior = data.observations + 3 * noise[0], data.observations + noise[1]
+    figure = plots.plot_features(data, prior, posterior, labels=["prior", "posterior"])
+    labels = [text.get_text() for text in figure.axes[0].get_legend().get_texts()]
+    assert labels == ["prior", "posterior", "observed"]
+    unlabelled = plots.plot_features(data, prior, posterior)
+    labels = [text.get_text() for text in unlabelled.axes[1].get_legend().get_texts()]
+    assert labels == ["predictions 1", "predictions 2", "observed"]
+    with pytest.raises(ValueError, match="1 labels for 2 sets"):
+        plots.plot_features(data, prior, posterior, labels=["prior"])
+
+
+def test_feature_plot_takes_predictions_held_as_a_distribution(toy_run):
+    toy, posterior, _, _, _ = toy_run
+    predictions = toy.forward(posterior["theta"])
+    figure = plots.plot_features(load_harvard_forest(), predictions)
+    assert len(figure.axes) == 2
 
 
 def test_multi_panel_plots_return_a_figure(toy_run):
-    toy, posterior, subspace, reference, theta = toy_run
-    qq = plots.plot_qq(theta, reference, toy)
+    toy, posterior, subspace, reference, _ = toy_run
+    qq = plots.plot_qq(posterior, reference, toy)
     assert isinstance(qq, Figure) and len([a for a in qq.axes if a.get_visible()]) == 14
-    history = posterior.annotations["arviz/eki_history"]
-    summary = plots.plot_sufficient_summary(toy, history, subspace)
+    summary = plots.plot_sufficient_summary(toy, posterior, subspace)
     assert isinstance(summary, Figure) and len(summary.axes) == 3
 
 
@@ -61,7 +94,7 @@ def test_sufficient_summary_of_a_full_rank_subspace_has_no_inactive_panel(toy_ru
     full = Subspace.from_information(
         subspace.information, parameter_names=subspace.parameter_names, estimator="x", rank=14
     )
-    figure = plots.plot_sufficient_summary(toy, posterior.annotations["arviz/eki_history"], full)
+    figure = plots.plot_sufficient_summary(toy, posterior, full)
     assert len(figure.axes) == 2
     assert np.isfinite(full.eigenvalues).all()
 
@@ -116,5 +149,5 @@ def test_marginal_plot_of_a_constant_field_and_of_fields_sharing_a_name():
         "theta/scale",
         "noise/scale",
     ]
-    low, high = figure.axes[0].get_xlim()
-    assert low < 2.0 < high
+    lower, upper = figure.axes[0].get_xlim()
+    assert lower < 2.0 < upper
