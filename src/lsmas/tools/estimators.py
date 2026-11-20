@@ -66,7 +66,6 @@ from __future__ import annotations
 import functools
 import logging
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
 from typing import Any, Literal
 
 import jax
@@ -110,7 +109,7 @@ def exact_subspace(
     noise_scales: Mapping[str, float] | None = None,
     rank: int | None = None,
     discarded_information: float = DEFAULT_DISCARDED_INFORMATION,
-    chunk_size: int = 25,
+    batch_size: int = 25,
 ) -> Subspace:
     r"""The active subspace of the information matrix averaged over a distribution, with exact
     Jacobians.
@@ -148,8 +147,8 @@ def exact_subspace(
         them; not needed when the scales are fixed.
     rank, discarded_information
         As for :meth:`Subspace.from_information`.
-    chunk_size : int
-        How many Jacobians JAX computes at once.
+    batch_size : int
+        How many Jacobians JAX computes at once; larger is faster and uses more memory.
 
     Returns
     -------
@@ -161,17 +160,12 @@ def exact_subspace(
     >>> exact_subspace(toy, toy.prior, num_samples=500)          # doctest: +SKIP
     >>> exact_subspace(toy, reference.posterior)                  # doctest: +SKIP
     """
-    draws = _averaging_draws(problem, distribution, num_samples, noise_scales)
-    information = sum(
-        information_matrix(
-            _whitened_jacobians(problem, draws.z[chunk]),
-            draws.noise_variance[chunk],
-            draws.weights[chunk],
-        )
-        for chunk in _chunks(draws.count, chunk_size)
-    )
+    draws, weights = _draws_to_average(distribution, num_samples)
+    z = _whitened_parameters(problem, draws)
+    noise_variance = _noise_variance_at_draws(problem, draws, noise_scales)
+    jacobians_at_draws = _whitened_jacobians(problem, z, batch_size)
     return Subspace.from_information(
-        information,
+        information_matrix(jacobians_at_draws, noise_variance, weights),
         parameter_names=problem.coordinates.names,
         estimator="exact",
         rank=rank,
@@ -226,13 +220,15 @@ def finite_difference_subspace(
     ValueError
         If the forward map fails near every draw.
     """
-    draws = _averaging_draws(problem, distribution, num_samples, noise_scales)
+    draws, weights = _draws_to_average(distribution, num_samples)
+    z = _whitened_parameters(problem, draws)
+    noise_variance = _noise_variance_at_draws(problem, draws, noise_scales)
     dimension = problem.coordinates.dimension
     shifts = step * np.concatenate([np.eye(dimension), -np.eye(dimension)])
-    perturbed = (draws.z[:, None, :] + shifts[None, :, :]).reshape(-1, dimension)
-    predictions = _predictions_at_whitened(problem, perturbed)
-    predictions = predictions.reshape(draws.count, 2 * dimension, -1)
-    differences = (predictions[:, :dimension] - predictions[:, dimension:]) / (2 * step)
+    shifted_z = (z[:, None, :] + shifts[None, :, :]).reshape(-1, dimension)
+    predictions = _predictions_at_whitened(problem, shifted_z).reshape(len(z), 2 * dimension, -1)
+    central_differences = (predictions[:, :dimension] - predictions[:, dimension:]) / (2 * step)
+    jacobians_at_draws = np.swapaxes(central_differences, 1, 2)
     succeeded = np.all(np.isfinite(predictions), axis=(1, 2))
     if not succeeded.any():
         raise ValueError("the forward map failed near every draw")
@@ -240,10 +236,11 @@ def finite_difference_subspace(
         logger.warning(
             "the forward map failed near %d draws; they are left out", (~succeeded).sum()
         )
-    weights = draws.weights[succeeded] / draws.weights[succeeded].sum()
     return Subspace.from_information(
         information_matrix(
-            np.swapaxes(differences[succeeded], 1, 2), draws.noise_variance[succeeded], weights
+            jacobians_at_draws[succeeded],
+            noise_variance[succeeded],
+            weights[succeeded] / weights[succeeded].sum(),
         ),
         parameter_names=problem.coordinates.names,
         estimator="finite_differences",
@@ -300,22 +297,23 @@ def linearization_subspace(
     ValueError
         If the held draws have unequal weights, or fewer than two draws remain.
     """
-    draws = _averaging_draws(problem, distribution, num_samples, noise_scales)
-    if not np.allclose(draws.weights, draws.weights[0]):
+    draws, weights = _draws_to_average(distribution, num_samples)
+    if not np.allclose(weights, weights[0]):
         raise ValueError(
             "a statistical linearization needs equally weighted draws; give num_samples to "
             "resample the distribution"
         )
-    predictions = np.asarray(problem.forward(draws.parameters).raw)
-    predictions = predictions.reshape(draws.count, -1)
+    z = _whitened_parameters(problem, draws)
+    noise_variance = _noise_variance_at_draws(problem, draws, noise_scales)
+    predictions = np.asarray(problem.forward(_parameter_draws(draws)).raw).reshape(len(z), -1)
     succeeded = np.all(np.isfinite(predictions), axis=1)
     if not succeeded.all():
         logger.warning("the forward map failed at %d draws; they are left out", (~succeeded).sum())
     if succeeded.sum() < 2:
         raise ValueError("a statistical linearization needs at least two draws")
-    slope = statistical_linearization(draws.z[succeeded], predictions[succeeded])
+    slope = statistical_linearization(z[succeeded], predictions[succeeded])
     return Subspace.from_information(
-        information_matrix(slope, _average_noise_variance(draws.noise_variance[succeeded])),
+        information_matrix(slope, _average_noise_variance(noise_variance[succeeded])),
         parameter_names=problem.coordinates.names,
         estimator="statistical_linearization",
         rank=rank,
@@ -390,12 +388,12 @@ def eki_linearization_subspace(
     particles = NumericRecordBatch.from_vector(
         coordinates.spec, history["theta"].values, level_names=["step", "member"]
     )
-    z = np.asarray(coordinates.whiten(particles).to_vector())
-    predictions = history["predictions"].values
+    z_at_steps = np.asarray(coordinates.whiten(particles).to_vector())
+    predictions_at_steps = history["predictions"].values
     slopes = np.stack(
         [
-            statistical_linearization(step_z, step)
-            for step_z, step in zip(z, predictions, strict=True)
+            statistical_linearization(z, predictions)
+            for z, predictions in zip(z_at_steps, predictions_at_steps, strict=True)
         ]
     )
     weights = _step_weights(history["increment"].values, weighting)
@@ -442,11 +440,12 @@ def covariance_subspace(
     ValueError
         If there are no more draws than parameters.
     """
-    draws = _averaging_draws(problem, distribution, num_samples, noise_scales=None, scales=False)
+    draws, weights = _draws_to_average(distribution, num_samples)
+    z = _whitened_parameters(problem, draws)
     dimension = problem.coordinates.dimension
-    if draws.count <= dimension:
-        raise ValueError(f"need more draws than parameters, got {draws.count} for {dimension}")
-    covariance = np.cov(draws.z, rowvar=False, aweights=draws.weights)
+    if len(z) <= dimension:
+        raise ValueError(f"need more draws than parameters, got {len(z)} for {dimension}")
+    covariance = np.cov(z, rowvar=False, aweights=weights)
     return Subspace.from_information(
         np.linalg.inv(covariance) - np.eye(dimension),
         parameter_names=problem.coordinates.names,
@@ -456,7 +455,7 @@ def covariance_subspace(
     )
 
 
-def jacobians(problem: InverseProblem, theta: Any, *, chunk_size: int = 25) -> np.ndarray:
+def jacobians(problem: InverseProblem, theta: Any, *, batch_size: int = 25) -> np.ndarray:
     r"""The Jacobian $DG(z)$ of the forward map in whitened coordinates, at given parameters.
 
     For the forward map $G$ and the whitened coordinates $z$ of the parameters (see
@@ -481,7 +480,7 @@ def jacobians(problem: InverseProblem, theta: Any, *, chunk_size: int = 25) -> n
         Values of the parameter record ``theta``: one, such as
         ``quantile(problem.prior, 0.5)["theta"]``, or a batch, such as
         ``sample(problem.prior, 100)["theta"]``.
-    chunk_size : int
+    batch_size : int
         How many Jacobians JAX computes at once; larger is faster and uses more memory.
 
     Returns
@@ -495,11 +494,10 @@ def jacobians(problem: InverseProblem, theta: Any, *, chunk_size: int = 25) -> n
         If JAX cannot differentiate the forward map.
     """
     z = np.asarray(problem.coordinates.whiten(theta).to_vector())
-    points = z.reshape(-1, problem.coordinates.dimension)
-    result = np.concatenate(
-        [_whitened_jacobians(problem, points[chunk]) for chunk in _chunks(len(points), chunk_size)]
+    jacobian_rows = _whitened_jacobians(
+        problem, z.reshape(-1, problem.coordinates.dimension), batch_size
     )
-    return result.reshape(*z.shape[:-1], *result.shape[1:])
+    return jacobian_rows.reshape(*z.shape[:-1], *jacobian_rows.shape[1:])
 
 
 def statistical_linearization(z: np.ndarray, predictions: np.ndarray) -> np.ndarray:
@@ -527,8 +525,10 @@ def statistical_linearization(z: np.ndarray, predictions: np.ndarray) -> np.ndar
         $G$ at each member of the ensemble, shape $(J, n)$.
     """
     ensemble = Ensemble(z=jnp.asarray(z), predictions=jnp.asarray(predictions))
-    fit = maps.statistical_linearization(ensemble, inputs="z", output="predictions", min_norm=True)
-    return np.asarray(fit.map.op.to_dense())
+    linear_fit = maps.statistical_linearization(
+        ensemble, inputs="z", output="predictions", min_norm=True
+    )
+    return np.asarray(linear_fit.map.op.to_dense())
 
 
 def information_matrix(
@@ -564,71 +564,35 @@ def information_matrix(
         Shape $(d, d)$.
     """
     jacobian = np.asarray(jacobian, dtype=float)
-    stacked = jacobian[None] if jacobian.ndim == 2 else jacobian
-    variances = np.broadcast_to(np.asarray(noise_variance, dtype=float), stacked.shape[:2])
+    jacobian_batch = jacobian[None] if jacobian.ndim == 2 else jacobian
+    variance_batch = np.broadcast_to(
+        np.asarray(noise_variance, dtype=float), jacobian_batch.shape[:2]
+    )
     if weights is None:
-        weights = np.full(len(stacked), 1.0 / len(stacked))
-    return np.einsum("m,mni,mn,mnj->ij", np.asarray(weights), stacked, 1.0 / variances, stacked)
+        weights = np.full(len(jacobian_batch), 1.0 / len(jacobian_batch))
+    return np.einsum(
+        "m,mni,mn,mnj->ij",
+        np.asarray(weights),
+        jacobian_batch,
+        1.0 / variance_batch,
+        jacobian_batch,
+    )
 
 
-@dataclass(frozen=True)
-class _AveragingDraws:
-    """Draws of the distribution an estimator averages over, ready for the estimators.
-
-    Attributes
-    ----------
-    parameters : RecordBatch
-        The draws of the parameter record ``theta``.
-    z : numpy.ndarray
-        Their whitened coordinates, shape $(N, d)$.
-    weights : numpy.ndarray
-        The draws' weights, summing to 1, shape $(N,)$.
-    noise_variance : numpy.ndarray or None
-        The diagonal of $\\Gamma$ at each draw, shape $(N, n)$; None when not asked for.
-    """
-
-    parameters: RecordBatch
-    z: np.ndarray
-    weights: np.ndarray
-    noise_variance: np.ndarray | None
-
-    @property
-    def count(self) -> int:
-        """$N$, the number of draws."""
-        return len(self.z)
-
-
-def _averaging_draws(
-    problem: InverseProblem,
-    distribution: Distribution | RecordBatch,
-    num_samples: int | None,
-    noise_scales: Mapping[str, float] | None,
-    *,
-    scales: bool = True,
-) -> _AveragingDraws:
-    """The draws, weights and noise variances an estimator averages over (see the module's
-    description)."""
+def _draws_to_average(
+    distribution: Distribution | RecordBatch, num_samples: int | None
+) -> tuple[RecordBatch, np.ndarray]:
+    """The draws of the distribution an estimator averages over, and their weights, which sum to
+    1 (see the module's description)."""
     if isinstance(distribution, RecordBatch):
         distribution = EmpiricalDistribution(distribution)
     if num_samples is not None:
-        held = sample(distribution, num_samples)
-        weights = np.full(num_samples, 1.0 / num_samples)
-    elif isinstance(distribution, EmpiricalDistribution):
-        held = distribution.atoms
+        return sample(distribution, num_samples), np.full(num_samples, 1.0 / num_samples)
+    if isinstance(distribution, EmpiricalDistribution):
         weights = np.asarray(distribution.weights, dtype=float).reshape(-1)
-    else:
-        raise ValueError(
-            f"{distribution.label!r} is not held as draws; give num_samples to draw from it"
-        )
-    parameters = _parameter_draws(held)
-    z = np.asarray(problem.coordinates.whiten(parameters).to_vector())
-    z = z.reshape(-1, problem.coordinates.dimension)
-    noise_variance = None
-    if scales:
-        drawn_scales = _drawn_noise_scales(problem, held) if noise_scales is None else noise_scales
-        noise_variance = _point_noise_variances(problem, drawn_scales, len(z))
-    return _AveragingDraws(
-        parameters=parameters, z=z, weights=weights / weights.sum(), noise_variance=noise_variance
+        return distribution.atoms, weights / weights.sum()
+    raise ValueError(
+        f"{distribution.label!r} is not held as draws; give num_samples to draw from it"
     )
 
 
@@ -641,47 +605,54 @@ def _parameter_draws(draws: RecordBatch) -> RecordBatch:
         return draws
 
 
-def _drawn_noise_scales(problem: InverseProblem, held: RecordBatch) -> dict[str, np.ndarray] | None:
-    """Each inferred noise scale's value at each draw, when the draws hold the record ``s2``."""
-    if not problem.likelihood.inferred_scale_classes:
-        return None
-    try:
-        held[NOISE_SCALES]
-    except KeyError:
-        return None
-    return {
-        noise_class: values.reshape(-1)
-        for noise_class, values in problem.likelihood.inferred_scale_draws(held).items()
-    }
+def _whitened_parameters(problem: InverseProblem, draws: RecordBatch) -> np.ndarray:
+    """The whitened coordinates of each draw's parameters, shape $(N, d)$."""
+    z = problem.coordinates.whiten(_parameter_draws(draws)).to_vector()
+    return np.asarray(z).reshape(-1, problem.coordinates.dimension)
 
 
-def _point_noise_variances(
-    problem: InverseProblem,
-    noise_scales: Mapping[str, float | np.ndarray] | None,
-    n_points: int,
+def _noise_variance_at_draws(
+    problem: InverseProblem, draws: RecordBatch, noise_scales: Mapping[str, float] | None
 ) -> np.ndarray:
-    r"""The diagonal of $\Gamma$ at each point, shape $(N, n)$, from each inferred scale's value:
-    one number, or one value per point."""
+    r"""The diagonal of $\Gamma$ at each draw, shape $(N, n)$: at the given *noise_scales*, or at
+    each draw's own scales when they are inferred and the draws hold them."""
+    n_draws = int(np.prod(draws.batch_shape))
     inferred = problem.likelihood.inferred_scale_classes
     if not inferred:
-        return np.broadcast_to(problem.noise_variance(), (n_points, len(problem.noise_variance())))
+        return np.broadcast_to(problem.noise_variance(), (n_draws, len(problem.noise_variance())))
+    if noise_scales is None:
+        noise_scales = _drawn_noise_scales(problem, draws)
     if missing := sorted(set(inferred) - set(noise_scales or {})):
         raise ValueError(
             f"the noise scales are inferred; give values for {missing} as noise_scales, or a "
             "distribution whose draws include them"
         )
-    per_point = {
-        noise_class: np.broadcast_to(
-            np.asarray(noise_scales[noise_class], dtype=float), (n_points,)
-        )
+    scales_per_draw = {
+        noise_class: np.broadcast_to(np.asarray(noise_scales[noise_class], dtype=float), (n_draws,))
         for noise_class in inferred
     }
     return np.stack(
         [
-            problem.noise_variance({c: values[m] for c, values in per_point.items()})
-            for m in range(n_points)
+            problem.noise_variance(
+                {noise_class: scales[draw] for noise_class, scales in scales_per_draw.items()}
+            )
+            for draw in range(n_draws)
         ]
     )
+
+
+def _drawn_noise_scales(
+    problem: InverseProblem, draws: RecordBatch
+) -> dict[str, np.ndarray] | None:
+    """Each inferred noise scale's value at each draw, when the draws hold the record ``s2``."""
+    try:
+        draws[NOISE_SCALES]
+    except KeyError:
+        return None
+    return {
+        noise_class: scale_draws.reshape(-1)
+        for noise_class, scale_draws in problem.likelihood.inferred_scale_draws(draws).items()
+    }
 
 
 def _average_noise_variance(noise_variance: np.ndarray) -> np.ndarray:
@@ -704,15 +675,22 @@ def _step_weights(increments: np.ndarray, weighting: Weighting) -> np.ndarray:
 def _predictions_at_whitened(problem: InverseProblem, z: np.ndarray) -> np.ndarray:
     """The forward map at each row of whitened coordinates *z*, shape $(N, n)$."""
     to_parameters = inverse(problem.coordinates.whiten)
-    whitened = NumericRecordBatch.from_vector(
+    z_records = NumericRecordBatch.from_vector(
         to_parameters.input_spec["z"], jnp.asarray(z), level_names="point"
     )
-    return np.asarray(problem.forward(to_parameters(whitened)).raw)
+    return np.asarray(problem.forward(to_parameters(z_records)).raw)
 
 
-def _whitened_jacobians(problem: InverseProblem, z: np.ndarray) -> np.ndarray:
-    """$DG(z)$ at each row of whitened coordinates *z*, shape $(N, n, d)$."""
-    return np.asarray(_whitened_jacobian_function(problem)(jnp.asarray(z)))
+def _whitened_jacobians(problem: InverseProblem, z: np.ndarray, batch_size: int) -> np.ndarray:
+    """$DG(z)$ at each row of whitened coordinates *z*, shape $(N, n, d)$, computed *batch_size*
+    rows at a time."""
+    jacobian_function = _whitened_jacobian_function(problem)
+    return np.concatenate(
+        [
+            np.asarray(jacobian_function(jnp.asarray(z[start : start + batch_size])))
+            for start in range(0, len(z), batch_size)
+        ]
+    )
 
 
 @functools.lru_cache(maxsize=8)
@@ -731,8 +709,3 @@ def _whitened_jacobian_function(problem: InverseProblem) -> Callable[[jax.Array]
         return forward(to_parameters(dict(zip(names, z, strict=True))))
 
     return jax.jit(jax.vmap(jax.jacfwd(features_at_whitened)))
-
-
-def _chunks(length: int, size: int) -> list[slice]:
-    """Consecutive slices of at most *size* covering ``range(length)``."""
-    return [slice(start, start + size) for start in range(0, length, size)]

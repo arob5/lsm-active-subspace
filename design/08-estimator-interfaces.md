@@ -113,3 +113,8 @@ From review of `estimators.py`:
   $\sum_m w_m J_m^\top \Gamma_m^{-1} J_m$; every estimator, and the tutorial, uses it.
 - **`estimators.py`** puts the five `*_subspace` functions first, then the building blocks
   (`jacobians`, `statistical_linearization`, `information_matrix`), then private helpers.
+- **Names that say what they hold**, package-wide, in place of vague ones such as `held`,
+  `_chunks`, `first`, `row` or `result`. `_AveragingDraws`, which bundled four values of which
+  each estimator used only some, is replaced by helpers that each return one thing (the draws and
+  weights, the whitened parameters, the noise variance at each draw), and `jacobians` evaluates in
+  batches of `batch_size` draws.
