@@ -223,8 +223,8 @@ class ToyCanopyModel:
     def features(self, theta: Mapping[str, Any]) -> jax.Array:
         r"""The predicted features $G(\theta) = A\, \mathrm{NEE}(\theta)$, shape $(n,)$."""
         rate = self.fluxes(theta)["nee"] * _RATE_CONVERSION
-        contributions = self.operator_weights * rate[self.operator_columns]
-        return jax.ops.segment_sum(contributions, self.operator_rows, num_segments=self.n_features)
+        weighted_rates = self.operator_weights * rate[self.operator_columns]
+        return jax.ops.segment_sum(weighted_rates, self.operator_rows, num_segments=self.n_features)
 
     def fluxes(self, theta: Mapping[str, Any]) -> dict[str, jax.Array]:
         r"""Leaf carbon $C_L$ and the fluxes GPP, $R$ and NEE (g C m⁻² d⁻¹) at each step."""
@@ -329,9 +329,9 @@ def _growing_degree_days(
     year: np.ndarray, air_temperature: np.ndarray, step_length: np.ndarray
 ) -> np.ndarray:
     r"""$\Theta$: the year-to-date sum of $\max(T_a\, \Delta t, 0)$, as SIPNET accumulates it."""
-    contribution = np.maximum(air_temperature * step_length, 0.0)
-    total = np.zeros_like(contribution)
-    for each_year in np.unique(year):
-        in_year = year == each_year
-        total[in_year] = np.cumsum(contribution[in_year])
-    return total
+    degree_days_per_step = np.maximum(air_temperature * step_length, 0.0)
+    growing_degree_days = np.zeros_like(degree_days_per_step)
+    for calendar_year in np.unique(year):
+        in_year = year == calendar_year
+        growing_degree_days[in_year] = np.cumsum(degree_days_per_step[in_year])
+    return growing_degree_days

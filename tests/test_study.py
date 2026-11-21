@@ -8,7 +8,7 @@ from lsmas.experiments.metrics import score_names
 from lsmas.experiments.reference import Reference, convergence_diagnostics
 from lsmas.experiments.study import Study, load_run, run_study
 from lsmas.problems import load_inverse_problem
-from lsmas.tools import exact_subspace
+from lsmas.tools import gradient_based_subspace
 
 pytestmark = pytest.mark.smoke
 
@@ -22,14 +22,15 @@ def stand_in_reference():
     with workflow_run(seed=9):
         eki = toy.condition(method="enskit_eki", method_options={"n_particles": 60})
     theta = np.asarray(eki.atoms["theta"].to_vector()).reshape(2, 30, -1)
-    z = np.asarray(toy.coordinates.whiten(eki.atoms["theta"]).to_vector()).reshape(60, -1)
     return Reference(
         problem_name="toy",
         scales="fixed",
         parameter_names=toy.coordinates.names,
         theta=theta,
         noise_scales={},
-        information=exact_subspace(toy, z).information,
+        information=gradient_based_subspace(
+            toy.model, eki, learning_rate=toy.learning_rate["nee"]
+        ).information,
         diagnostics=convergence_diagnostics(toy, theta, {}),
         provenance={"method": "stand-in"},
     )
@@ -44,18 +45,18 @@ def test_study_runs_each_setting_and_seed_once_and_resumes(tmp_path, stand_in_re
         settings=[{"rank": rank, "sampler_options": SHORT_CHAINS} for rank in (2, 4)],
         seeds=[1, 2],
     )
-    table = run_study(study, tmp_path, reference=stand_in_reference)
-    assert isinstance(table, pd.DataFrame) and len(table) == 4
+    scores_table = run_study(study, tmp_path, reference=stand_in_reference)
+    assert isinstance(scores_table, pd.DataFrame) and len(scores_table) == 4
     assert {"rank", "seed", "marginal_w1_mean", "captured_information", "forward_runs"} <= set(
-        table
+        scores_table
     )
-    assert sorted(table["rank"].unique()) == [2, 4]
-    runs = sorted(tmp_path.glob("*/scores.json"))
-    assert len(runs) == 4
-    modified = [path.stat().st_mtime for path in runs]
-    again = run_study(study, tmp_path, reference=stand_in_reference)
-    assert [path.stat().st_mtime for path in runs] == modified
-    pd.testing.assert_frame_equal(again, table)
+    assert sorted(scores_table["rank"].unique()) == [2, 4]
+    score_files = sorted(tmp_path.glob("*/scores.json"))
+    assert len(score_files) == 4
+    modification_times = [path.stat().st_mtime for path in score_files]
+    rerun_table = run_study(study, tmp_path, reference=stand_in_reference)
+    assert [path.stat().st_mtime for path in score_files] == modification_times
+    pd.testing.assert_frame_equal(rerun_table, scores_table)
 
 
 def test_a_stored_run_reads_back_its_draws_and_subspace(tmp_path, stand_in_reference):
@@ -67,14 +68,14 @@ def test_a_stored_run_reads_back_its_draws_and_subspace(tmp_path, stand_in_refer
         settings=[{"rank": 3, "sampler_options": SHORT_CHAINS}],
         seeds=[5],
     )
-    table = run_study(study, tmp_path, reference=stand_in_reference)
-    stored = load_run(tmp_path / table["run"].iloc[0])
-    assert stored.setting["rank"] == 3 and stored.seed == 5
-    assert stored.theta.shape == (100, 14)
-    assert stored.subspace.rank == 3
-    assert stored.subspace.basis.shape == (14, 3)
-    assert stored.scores["run"] == table["run"].iloc[0]
-    assert np.isfinite(stored.wall_seconds)
+    scores_table = run_study(study, tmp_path, reference=stand_in_reference)
+    stored_run = load_run(tmp_path / scores_table["run"].iloc[0])
+    assert stored_run.setting["rank"] == 3 and stored_run.seed == 5
+    assert stored_run.theta.shape == (100, 14)
+    assert stored_run.subspace.rank == 3
+    assert stored_run.subspace.basis.shape == (14, 3)
+    assert stored_run.scores["run"] == scores_table["run"].iloc[0]
+    assert np.isfinite(stored_run.wall_seconds)
 
 
 def test_a_reference_of_another_problem_is_refused(tmp_path, stand_in_reference):
@@ -99,6 +100,6 @@ def test_score_names_are_the_scores_a_run_gets(tmp_path, stand_in_reference):
         [{"rank": 2, "sampler_options": SHORT_CHAINS}],
         [3],
     )
-    row = run_study(study, tmp_path, reference=stand_in_reference).iloc[0]
+    score_row = run_study(study, tmp_path, reference=stand_in_reference).iloc[0]
     expected = score_names(load_inverse_problem("toy"))
-    assert [name for name in row.index if name in expected] == expected
+    assert [name for name in score_row.index if name in expected] == expected

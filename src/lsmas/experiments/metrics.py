@@ -28,13 +28,14 @@ below which differences are Monte Carlo noise.
 from __future__ import annotations
 
 import numpy as np
+from probpipe import EmpiricalDistribution
 from scipy import linalg, stats
 
-from lsmas._stopgaps.likelihood import noise_scale_variable
+from lsmas._stopgaps.likelihood import NOISE_SCALES, noise_scale_variable
 from lsmas.algorithms.result import AlgorithmResult
 from lsmas.experiments.reference import Reference
 from lsmas.problems.inverse_problem import InverseProblem
-from lsmas.tools.subspace import Subspace
+from lsmas.tools.subspace import Subspace, principal_angles
 
 __all__ = [
     "captured_information",
@@ -64,7 +65,7 @@ def score_names(problem: InverseProblem) -> list[str]:
     ] + ["gaussian_w2", "coverage90_mean", "coverage90_min"]
     scales = [
         f"marginal_w1_{noise_scale_variable(noise_class)}"
-        for noise_class in problem.likelihood.inferred_scale_classes
+        for noise_class in problem.inferred_noise_classes
     ]
     subspace = ["subspace_rank", "captured_information", "largest_principal_angle_degrees"]
     return posterior + scales + subspace + ["forward_runs"]
@@ -84,36 +85,24 @@ def score(
     problem : InverseProblem
         The problem, whose coordinates whiten the draws.
     """
-    coordinates = problem.coordinates
-    theta = np.asarray(result.posterior.atoms[coordinates.block].to_vector())
-    theta = theta.reshape(-1, coordinates.dimension)
-    noise_scales = {
-        noise_class: draws.reshape(-1)
-        for noise_class, draws in problem.likelihood.inferred_scale_draws(
-            result.posterior.atoms
-        ).items()
-    }
     return (
-        posterior_scores(theta, noise_scales, reference, problem)
+        posterior_scores(result.posterior, reference, problem)
         | subspace_scores(result.subspace, reference)
         | {"forward_runs": result.total_forward_runs}
     )
 
 
 def posterior_scores(
-    theta: np.ndarray,
-    noise_scales: dict[str, np.ndarray],
-    reference: Reference,
-    problem: InverseProblem,
+    posterior: EmpiricalDistribution, reference: Reference, problem: InverseProblem
 ) -> dict[str, float]:
-    r"""The posterior metrics of draws against a reference, summarized over coordinates.
+    r"""The posterior metrics of an approximate posterior against a reference, summarized over
+    coordinates.
 
     Parameters
     ----------
-    theta : numpy.ndarray
-        Draws of the calibration parameters, shape $(N, d)$.
-    noise_scales : dict of str to numpy.ndarray
-        Draws of each inferred noise scale, shape $(N,)$, by class; empty when the scales are fixed.
+    posterior : EmpiricalDistribution
+        The approximate posterior, held as draws: the calibration parameters under ``theta``, and
+        any inferred noise scales under ``s2``.
     reference : Reference
         The reference.
     problem : InverseProblem
@@ -127,8 +116,10 @@ def posterior_scores(
         ``coverage90_min`` over the whitened parameters, and ``marginal_w1_s2_<class>`` for each
         inferred noise scale, on the logarithm of the scale.
     """
-    approximation = np.asarray(problem.coordinates._whitened(theta))
-    target = np.asarray(problem.coordinates._whitened(reference.parameter_draws()))
+    whiten, dimension = problem.coordinates.whiten, problem.coordinates.dimension
+    approximation = np.asarray(whiten(posterior.atoms["theta"]).to_vector()).reshape(-1, dimension)
+    target = np.asarray(whiten(reference.posterior.atoms["theta"]).to_vector())
+    target = target.reshape(-1, dimension)
     distances = marginal_wasserstein(approximation, target)
     location, spread = mean_errors(approximation, target), sd_errors(approximation, target)
     coverage = interval_coverage(approximation, target)
@@ -143,10 +134,10 @@ def posterior_scores(
         "coverage90_mean": coverage.mean(),
         "coverage90_min": coverage.min(),
     }
-    reference_scales = reference.noise_scale_draws()
-    for noise_class, draws in noise_scales.items():
-        log_draws = np.log(np.asarray(draws, dtype=float))[:, None]
-        log_reference = np.log(reference_scales[noise_class])[:, None]
+    for noise_class in problem.inferred_noise_classes:
+        path = f"{NOISE_SCALES}/{noise_class}"
+        log_draws = np.log(np.asarray(posterior.atoms[path].raw).reshape(-1))[:, None]
+        log_reference = np.log(np.asarray(reference.posterior.atoms[path].raw).reshape(-1))[:, None]
         name = f"marginal_w1_{noise_scale_variable(noise_class)}"
         scores[name] = marginal_wasserstein(log_draws, log_reference)[0]
     return {name: float(value) for name, value in scores.items()}
@@ -200,9 +191,9 @@ def interval_coverage(
 ) -> np.ndarray:
     """The share of the target's draws inside the approximation's central interval, per
     coordinate; *probability* is ideal."""
-    tail = (1 - probability) / 2
-    low, high = np.quantile(approximation, [tail, 1 - tail], axis=0)
-    return np.mean((target >= low) & (target <= high), axis=0)
+    tail_probability = (1 - probability) / 2
+    lower, upper = np.quantile(approximation, [tail_probability, 1 - tail_probability], axis=0)
+    return np.mean((target >= lower) & (target <= upper), axis=0)
 
 
 def gaussian_wasserstein(approximation: np.ndarray, target: np.ndarray) -> float:
@@ -218,9 +209,9 @@ def gaussian_wasserstein(approximation: np.ndarray, target: np.ndarray) -> float
     approximation_covariance = np.atleast_2d(np.cov(approximation, rowvar=False))
     target_covariance = np.atleast_2d(np.cov(target, rowvar=False))
     target_root = linalg.sqrtm(target_covariance)
-    cross = linalg.sqrtm(target_root @ approximation_covariance @ target_root).real
+    cross_term = linalg.sqrtm(target_root @ approximation_covariance @ target_root).real
     squared = mean_gap @ mean_gap + np.trace(
-        approximation_covariance + target_covariance - 2 * cross
+        approximation_covariance + target_covariance - 2 * cross_term
     )
     return float(np.sqrt(max(squared, 0.0)))
 
@@ -229,14 +220,13 @@ def captured_information(basis: np.ndarray, information: np.ndarray) -> float:
     r"""The captured information $\operatorname{tr}(W^\top H W) / \sum_{i \le r} \lambda_i(H)$ of a
     basis $W$ of rank $r$."""
     rank = basis.shape[1]
-    best = np.sort(np.linalg.eigvalsh(information))[::-1][:rank].sum()
-    return float(np.trace(basis.T @ information @ basis) / best)
+    largest_possible = np.sort(np.linalg.eigvalsh(information))[::-1][:rank].sum()
+    return float(np.trace(basis.T @ information @ basis) / largest_possible)
 
 
 def largest_principal_angle(basis: np.ndarray, information: np.ndarray) -> float:
     """The largest principal angle, in degrees, between the span of *basis* and that of the top
     eigenvectors of *information*, as many as *basis* has columns."""
     rank = basis.shape[1]
-    top = np.linalg.eigh(information)[1][:, ::-1][:, :rank]
-    cosines = np.linalg.svd(basis.T @ top, compute_uv=False)
-    return float(np.degrees(np.arccos(np.clip(cosines.min(), -1.0, 1.0))))
+    leading_eigenvectors = np.linalg.eigh(information)[1][:, ::-1][:, :rank]
+    return float(principal_angles(basis, leading_eigenvectors).max())

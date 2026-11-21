@@ -25,8 +25,8 @@ class AlgorithmResult:
     forward_runs : dict of str to int
         How many times each stage ran the forward map, by stage name.
     exploration_posterior : Distribution
-        The posterior of the exploration stage (for EKI, with its step history in
-        ``annotations["arviz/eki_history"]``).
+        The posterior of the exploration stage (for EKI, whose step history
+        :func:`~lsmas.inference.eki_history` reads).
     reduced_posterior : Distribution
         The posterior of the active variables, before lifting.
     """

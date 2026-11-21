@@ -33,7 +33,7 @@ def problem(observations):
 def test_nuts_reference_holds_draws_diagnostics_and_the_exact_information(problem):
     reference = nuts_reference(problem, seed=0)
     assert reference.theta.shape[0] == 4 and reference.theta.shape[-1] == 2
-    assert reference.parameter_draws().shape[0] <= 4000
+    assert reference.theta[..., 0].size <= 4000
     np.testing.assert_allclose(
         reference.information,
         exact_linear_information(SCALES, LEARNING_RATE, problem.coordinates.whitening_factor),
@@ -58,13 +58,19 @@ def test_reference_round_trips_through_netcdf(problem, tmp_path):
         ),
         provenance={"method": "test", "settings": {"seed": 3}},
     )
-    loaded = Reference.load(reference.save(tmp_path / "reference.nc"))
-    np.testing.assert_array_equal(loaded.theta, reference.theta)
-    np.testing.assert_array_equal(loaded.noise_scales["day"], reference.noise_scales["day"])
-    np.testing.assert_array_equal(loaded.information, reference.information)
-    pd.testing.assert_frame_equal(loaded.diagnostics, reference.diagnostics)
-    assert loaded.provenance == reference.provenance
-    assert (loaded.problem_name, loaded.scales, loaded.parameter_names) == (
+    loaded_reference = Reference.load(reference.save(tmp_path / "reference.nc"))
+    np.testing.assert_array_equal(loaded_reference.theta, reference.theta)
+    np.testing.assert_array_equal(
+        loaded_reference.noise_scales["day"], reference.noise_scales["day"]
+    )
+    np.testing.assert_array_equal(loaded_reference.information, reference.information)
+    pd.testing.assert_frame_equal(loaded_reference.diagnostics, reference.diagnostics)
+    assert loaded_reference.provenance == reference.provenance
+    assert (
+        loaded_reference.problem_name,
+        loaded_reference.scales,
+        loaded_reference.parameter_names,
+    ) == (
         "linear",
         "inferred",
         ("a", "b"),
@@ -72,9 +78,19 @@ def test_reference_round_trips_through_netcdf(problem, tmp_path):
 
 
 def test_a_stored_reference_reads_its_noise_scales_by_class():
-    stored = load_reference(load_inverse_problem("toy", scales="inferred"))
-    assert set(stored.noise_scales) == {"day", "night"}
-    assert stored.noise_scales["day"].shape == stored.theta.shape[:2]
+    stored_reference = load_reference(load_inverse_problem("toy", scales="inferred"))
+    assert set(stored_reference.noise_scales) == {"day", "night"}
+    assert stored_reference.noise_scales["day"].shape == stored_reference.theta.shape[:2]
+
+
+def test_the_reference_posterior_is_a_distribution_of_its_draws():
+    stored_reference = load_reference(load_inverse_problem("toy", scales="inferred"))
+    posterior = stored_reference.posterior
+    assert posterior.label == "reference"
+    draws = posterior.atoms
+    assert set(draws.raw) == {"theta", "s2"}
+    np.testing.assert_array_equal(draws["theta"].to_vector(), stored_reference.theta)
+    np.testing.assert_array_equal(draws["s2/day"].raw, stored_reference.noise_scales["day"])
 
 
 def test_independent_chains_have_rhat_near_one_and_full_effective_size(problem):
@@ -92,10 +108,12 @@ def test_independent_chains_have_rhat_near_one_and_full_effective_size(problem):
 
 
 def test_criteria_need_every_coordinate_converged():
-    good = pd.DataFrame({"rhat": [1.005, 1.0], "ess_bulk": [1200, 3000], "ess_tail": [1100, 2000]})
-    assert _meets_criteria(good)
-    assert not _meets_criteria(good.assign(rhat=[1.02, 1.0]))
-    assert not _meets_criteria(good.assign(ess_tail=[999, 2000]))
+    converged = pd.DataFrame(
+        {"rhat": [1.005, 1.0], "ess_bulk": [1200, 3000], "ess_tail": [1100, 2000]}
+    )
+    assert _meets_criteria(converged)
+    assert not _meets_criteria(converged.assign(rhat=[1.02, 1.0]))
+    assert not _meets_criteria(converged.assign(ess_tail=[999, 2000]))
 
 
 def test_scale_setting_is_read_from_the_problem():
@@ -113,9 +131,9 @@ def test_rwmh_reference_runs_segments_in_processes_and_resumes(tmp_path):
     assert set(rwmh_diagnostics(tmp_path).index) >= {"log_s2_day", "log_s2_night"}
     segments = sorted(tmp_path.glob("chain_*/segment_*.npz"))
     assert len(segments) == 4
-    modified = [path.stat().st_mtime for path in segments]
+    modification_times = [path.stat().st_mtime for path in segments]
     rwmh_reference(toy, tmp_path, n_chains=2, segment_steps=20, max_segments=2)
-    assert [path.stat().st_mtime for path in segments] == modified
+    assert [path.stat().st_mtime for path in segments] == modification_times
     pilot_runs = json.loads((tmp_path / "settings.json").read_text())["pilot_forward_runs"]
     assert reference.provenance["forward_runs"] == pilot_runs + 4 * 21
 

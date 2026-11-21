@@ -5,8 +5,8 @@ solving Bayesian inverse problems. It includes:
 - Pre-built inverse problems: one main problem using the SIPNET land surface model, plus toy problems for fast testing and benchmarking.
 - A toolkit of methods that provide a high-level interface to construct algorithms in a modular fashion.
 
-> **Status:** under construction. The tutorial on the inverse problem is ready; tutorials on
-> the algorithms are next.
+> **Status:** under construction. The tutorials on the inverse problem and on the inference tools
+> are ready; a tutorial on running experiments is next.
 
 ## Getting started
 
@@ -48,16 +48,21 @@ uv run pysipnet install-sipnet
 On an Apple Silicon Mac or on x86-64 Linux this downloads a prebuilt copy. Elsewhere it compiles
 SIPNET, which needs `make` and a C compiler (on a Mac, run `xcode-select --install` first).
 
-**4. Check the setup** (a few minutes; it runs SIPNET and the tutorial):
+**4. Check the setup** (about ten minutes; it runs SIPNET and the tutorials):
 
 ```bash
 uv run pytest -m smoke
 ```
 
-## The tutorial
+## The tutorials
 
-Start with [`notebooks/main_inverse_problem.ipynb`](notebooks/main_inverse_problem.ipynb). It
-introduces the Harvard Forest inverse problem, the main pre-built problem in this repo.
+Work through the notebooks in this order:
+
+1. [`notebooks/main_inverse_problem.ipynb`](notebooks/main_inverse_problem.ipynb) introduces the
+   Harvard Forest inverse problem, the main pre-built problem in this repo.
+2. [`notebooks/parameter_inference_tools.ipynb`](notebooks/parameter_inference_tools.ipynb)
+   introduces the tools the algorithms are built from (MCMC, ensemble Kalman inversion, active
+   subspaces and reduced problems) on a small toy problem, and ends with a complete algorithm.
 
 To run it, open it in JupyterLab:
 
@@ -68,8 +73,8 @@ uv run jupyter lab notebooks/main_inverse_problem.ipynb
 Or in VS Code: open the `lsm-active-subspace` folder, install the Python and Jupyter extensions,
 open the notebook, and choose the kernel `.venv/bin/python` (**Select Kernel** at the top right).
 
-The whole notebook runs in under a minute. To experiment, work in a copy, so that updating the
-code never conflicts with your changes:
+Each notebook runs in a few minutes or less. To experiment, work in a copy, so that updating
+the code never conflicts with your changes:
 
 ```bash
 cp notebooks/main_inverse_problem.ipynb notebooks/my_main_inverse_problem.ipynb

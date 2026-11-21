@@ -47,8 +47,12 @@ def test_temperature_effect_is_one_at_the_optimum_and_zero_one_range_away(model,
     optimum = theta["optimum_photosynthesis_temperature"]
     half_width = theta["photosynthesis_temperature_range"]
     at = {"optimum": optimum, "edge": optimum + half_width, "beyond": optimum - 2 * half_width}
-    probe = dataclasses.replace(model, air_temperature=jnp.stack(list(at.values())))
-    np.testing.assert_allclose(probe.temperature_effect(theta), [1.0, 0.0, 0.0], atol=1e-12)
+    model_at_test_temperatures = dataclasses.replace(
+        model, air_temperature=jnp.stack(list(at.values()))
+    )
+    np.testing.assert_allclose(
+        model_at_test_temperatures.temperature_effect(theta), [1.0, 0.0, 0.0], atol=1e-12
+    )
 
 
 def test_light_effect_of_a_thin_canopy_is_the_top_layers(model, theta):
@@ -70,8 +74,8 @@ def test_forward_map_is_differentiable_through_probpipe(theta):
     forward = load_inverse_problem("toy").forward.using(raw=True)
     jacobian = jax.jacfwd(forward)(theta)["soil_respiration_q10"]
     step = 1e-6
-    shifted = theta | {"soil_respiration_q10": theta["soil_respiration_q10"] + step}
-    difference = (np.asarray(forward(shifted)) - np.asarray(forward(theta))) / step
+    shifted_theta = theta | {"soil_respiration_q10": theta["soil_respiration_q10"] + step}
+    difference = (np.asarray(forward(shifted_theta)) - np.asarray(forward(theta))) / step
     np.testing.assert_allclose(jacobian, difference, rtol=1e-4, atol=1e-6)
 
 

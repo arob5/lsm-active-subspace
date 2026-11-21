@@ -129,16 +129,16 @@ def _harvard_forest_problem(
     if unknown := sorted(set(calibrated) - laws.keys()):
         raise ValueError(f"not calibration parameters: {unknown}")
     medians = quantile.using(exact_only=True)(independent_prior(laws), 0.5)["theta"]
-    held = {
+    values_at_medians = {
         parameter: float(medians[parameter]) for parameter in laws if parameter not in calibrated
     }
     forward = feature_map(
         SIPNETSimulator(data.driver_path, {}),
         data.operator,
         functools.partial(
-            _sipnet_parameters_with_held_values,
+            _sipnet_parameters_with_medians,
             calibrated=tuple(calibrated),
-            held=held,
+            values_at_medians=values_at_medians,
             fixed=data.fixed_sipnet_parameters,
         ),
         parameter_names=calibrated,
@@ -154,14 +154,15 @@ def _harvard_forest_problem(
     )
 
 
-def _sipnet_parameters_with_held_values(
+def _sipnet_parameters_with_medians(
     theta: Mapping[str, Any],
     *,
     calibrated: Sequence[str],
-    held: Mapping[str, float],
+    values_at_medians: Mapping[str, float],
     fixed: Mapping[str, float],
 ) -> dict[str, float]:
-    """All SIPNET parameters, from the calibrated values in *theta* and the held values *held*."""
+    """All SIPNET parameters, from the calibrated values in *theta* and the prior medians
+    *values_at_medians* of the other calibration parameters."""
     return calibration_to_sipnet(
-        held | {parameter: theta[parameter] for parameter in calibrated}, fixed
+        values_at_medians | {parameter: theta[parameter] for parameter in calibrated}, fixed
     )

@@ -86,8 +86,8 @@ def independent_prior(laws: Mapping[str, Distribution], group: str = "theta") ->
     """
     if not laws:
         raise ValueError("an independent prior needs at least one law")
-    product = FactoredDistribution(list(laws.values()))
-    return product.rename({name: f"{group}/{name}" for name in laws})
+    product_law = FactoredDistribution(list(laws.values()))
+    return product_law.rename({name: f"{group}/{name}" for name in laws})
 
 
 def factors_over(prior: Distribution, outputs: Iterable[str]) -> dict[str, Distribution]:
@@ -178,23 +178,23 @@ def _law_from_row(name: str, row: pd.Series) -> Distribution:
     family = row["family"]
     if family not in _FAMILY_NUMBERS:
         raise ValueError(f"{name}: unknown family {family!r}; known: {sorted(_FAMILY_NUMBERS)}")
-    numbers = _family_numbers_from_row(name, row, _FAMILY_NUMBERS[family])
+    family_numbers = _family_numbers_from_row(name, row, _FAMILY_NUMBERS[family])
     if family == "log_normal":
-        return log_normal_from_interval(name, numbers["lower"], numbers["upper"])
+        return log_normal_from_interval(name, family_numbers["lower"], family_numbers["upper"])
     if family == "logit_normal":
-        return logit_normal_from_interval(name, numbers["lower"], numbers["upper"])
+        return logit_normal_from_interval(name, family_numbers["lower"], family_numbers["upper"])
     if family == "normal":
-        if not numbers["sd"] > 0:
+        if not family_numbers["sd"] > 0:
             raise ValueError(
-                f"{name}: the standard deviation must be positive, got {numbers['sd']}"
+                f"{name}: the standard deviation must be positive, got {family_numbers['sd']}"
             )
-        return Normal(name, numbers["mean"], numbers["sd"])
-    if not numbers["lower"] < numbers["upper"]:
+        return Normal(name, family_numbers["mean"], family_numbers["sd"])
+    if not family_numbers["lower"] < family_numbers["upper"]:
         raise ValueError(
             f"{name}: the bounds must have lower < upper, "
-            f"got [{numbers['lower']}, {numbers['upper']}]"
+            f"got [{family_numbers['lower']}, {family_numbers['upper']}]"
         )
-    return Uniform(name, numbers["lower"], numbers["upper"])
+    return Uniform(name, family_numbers["lower"], family_numbers["upper"])
 
 
 def _family_numbers_from_row(
@@ -205,10 +205,10 @@ def _family_numbers_from_row(
     every_number_column = {column for columns in _FAMILY_NUMBERS.values() for column in columns}
     if missing := [column for column in used_columns if pd.isna(row[column])]:
         raise ValueError(f"{name}: family {row['family']!r} needs {missing}")
-    if extra := sorted(
+    if extra_columns := sorted(
         column for column in every_number_column - set(used_columns) if pd.notna(row[column])
     ):
-        raise ValueError(f"{name}: family {row['family']!r} does not use {extra}")
+        raise ValueError(f"{name}: family {row['family']!r} does not use {extra_columns}")
     return {column: float(row[column]) for column in used_columns}
 
 

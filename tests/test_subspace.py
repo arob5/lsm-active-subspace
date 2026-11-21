@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from lsmas.tools import Subspace, suggest_rank
+from lsmas.tools import Subspace, principal_angles, suggest_rank
 
 NAMES = ("a", "b", "c", "d")
 
@@ -22,8 +22,10 @@ def test_subspace_recovers_eigenvalues_and_spans_the_leading_eigenvectors():
     subspace = Subspace.from_information(information, parameter_names=NAMES, estimator="exact")
     np.testing.assert_allclose(subspace.eigenvalues, [5.0, 2.0, 0.3, 0.1])
     assert subspace.rank == 2
-    leading = rotation[:, [1, 3]]
-    np.testing.assert_allclose(subspace.basis @ subspace.basis.T, leading @ leading.T, atol=1e-12)
+    leading_eigenvectors = rotation[:, [1, 3]]
+    np.testing.assert_allclose(
+        subspace.basis @ subspace.basis.T, leading_eigenvectors @ leading_eigenvectors.T, atol=1e-12
+    )
 
 
 def test_active_and_inactive_variables_recompose_the_whitened_coordinates():
@@ -70,3 +72,37 @@ def test_rank_must_lie_between_one_and_the_dimension():
     with pytest.raises(ValueError, match="between 1 and 4"):
         subspace.with_rank(0)
     assert subspace.with_rank(3).basis.shape == (4, 3)
+
+
+def test_principal_angles_between_spans():
+    standard_basis = np.eye(4)
+    np.testing.assert_allclose(
+        principal_angles(standard_basis[:, :2], standard_basis[:, [1, 0]]), [0.0, 0.0]
+    )
+    np.testing.assert_allclose(
+        principal_angles(standard_basis[:, :2], standard_basis[:, 2:]), [90.0, 90.0]
+    )
+    tilted_direction = np.array([[np.cos(0.3)], [np.sin(0.3)], [0.0], [0.0]])
+    np.testing.assert_allclose(
+        principal_angles(standard_basis[:, :2], tilted_direction), [0.0], atol=1e-6
+    )
+    np.testing.assert_allclose(
+        principal_angles(standard_basis[:, :1], tilted_direction), [np.degrees(0.3)]
+    )
+
+
+def test_subspaces_compare_only_over_the_same_parameters():
+    information, _ = information_with([5.0, 2.0, 0.3, 0.1])
+    subspace = Subspace.from_information(information, parameter_names=NAMES, estimator="exact")
+    np.testing.assert_allclose(subspace.principal_angles(subspace.with_rank(1)), [0.0], atol=1e-6)
+    subspace_of_other_parameters = Subspace.from_information(
+        information, parameter_names=tuple("wxyz"), estimator="x"
+    )
+    with pytest.raises(ValueError, match="different parameters"):
+        subspace.principal_angles(subspace_of_other_parameters)
+
+
+def test_repr_names_the_estimator_rank_and_leading_eigenvalues():
+    information, _ = information_with([5.0, 2.0, 0.3, 0.1])
+    subspace = Subspace.from_information(information, parameter_names=NAMES, estimator="exact")
+    assert repr(subspace) == "Subspace(estimator='exact', rank=2 of 4, leading eigenvalues [5, 2])"

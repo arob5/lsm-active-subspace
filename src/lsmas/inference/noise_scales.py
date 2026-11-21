@@ -84,24 +84,27 @@ class NoiseScaleConditionals:
         Parameters
         ----------
         likelihood : GaussianSimulatorLikelihood
-            Its classes, reference variances and scales.
+            Its classes, reference variances and default scales.
         scale_priors : Mapping of str to InverseGamma
-            The prior of each inferred scale, by class.
+            The prior of each inferred scale, by class; empty when the scales are fixed, which
+            are then the likelihood's default scales.
         observations, learning_rate : array_like
             $y$ and $\eta$, shape $(n,)$.
         """
-        classes = tuple(likelihood.scales)
-        inferred = set(likelihood.inferred_scale_classes)
+        classes = likelihood.noise_classes
         return cls(
             classes=classes,
             fixed_scales=np.array(
-                [np.nan if k in inferred else float(likelihood.scales[k]) for k in classes]
+                [np.nan if k in scale_priors else likelihood.default_scales[k] for k in classes]
             ),
             concentrations=np.array(
-                [float(scale_priors[k].concentration) if k in inferred else np.nan for k in classes]
+                [
+                    float(scale_priors[k].concentration) if k in scale_priors else np.nan
+                    for k in classes
+                ]
             ),
             prior_scales=np.array(
-                [float(scale_priors[k].scale) if k in inferred else np.nan for k in classes]
+                [float(scale_priors[k].scale) if k in scale_priors else np.nan for k in classes]
             ),
             membership=np.stack([np.asarray(likelihood.classes) == k for k in classes]),
             observations=np.asarray(observations, dtype=float),
@@ -180,18 +183,22 @@ class NoiseScaleConditionals:
         """
         n_particles = quadratic_forms.shape[0]
 
-        def keeps_enough(increment: float) -> bool:
+        def keeps_enough_effective_samples(increment: float) -> bool:
             return _effective_sample_size(
                 self.log_importance_weights(quadratic_forms, beta, increment)
             ) >= (ess_fraction * n_particles)
 
-        if keeps_enough(1.0 - beta):
+        if keeps_enough_effective_samples(1.0 - beta):
             return 1.0 - beta
-        low, high = 0.0, 1.0 - beta
+        lower_increment, upper_increment = 0.0, 1.0 - beta
         for _ in range(60):
-            middle = (low + high) / 2
-            low, high = (middle, high) if keeps_enough(middle) else (low, middle)
-        return min(max(low, min_increment), 1.0 - beta)
+            middle_increment = (lower_increment + upper_increment) / 2
+            lower_increment, upper_increment = (
+                (middle_increment, upper_increment)
+                if keeps_enough_effective_samples(middle_increment)
+                else (lower_increment, middle_increment)
+            )
+        return min(max(lower_increment, min_increment), 1.0 - beta)
 
     def noise_variance(self, class_scales: np.ndarray) -> np.ndarray:
         r"""The diagonal of $\Gamma = \operatorname{diag}(s^2_{k(i)}\, \sigma^2_i / \eta_i)$,

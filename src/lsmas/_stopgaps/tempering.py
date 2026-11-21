@@ -150,8 +150,8 @@ def _factor_produces_any_of(factor: Any, outputs: Mapping[str, Any]) -> bool:
 
 def _tempered_factor(factor: Any, learning_rate: Mapping[str, Any]) -> TemperedLikelihood:
     """*factor* tempered by the rate of the one output it produces."""
-    (output,) = factor.event_spec.outputs
-    return TemperedLikelihood(factor, learning_rate[output])
+    (observed_output,) = factor.event_spec.outputs
+    return TemperedLikelihood(factor, learning_rate[observed_output])
 
 
 def _check_can_temper(likelihood: Any, learning_rate: np.ndarray) -> None:

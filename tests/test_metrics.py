@@ -43,9 +43,11 @@ def test_coverage_of_the_same_law_is_the_interval_probability():
 
 def test_subspace_scores_of_the_top_eigenvectors_and_of_their_complement():
     information = np.diag([9.0, 4.0, 1.0])
-    top = np.eye(3)[:, :2]
-    assert captured_information(top, information) == pytest.approx(1.0)
-    assert largest_principal_angle(top, information) == pytest.approx(0.0, abs=1e-6)
-    tilted = np.eye(3)[:, [0, 2]]
-    assert captured_information(tilted, information) == pytest.approx(10.0 / 13.0)
-    assert largest_principal_angle(tilted, information) == pytest.approx(90.0)
+    leading_eigenvectors = np.eye(3)[:, :2]
+    assert captured_information(leading_eigenvectors, information) == pytest.approx(1.0)
+    assert largest_principal_angle(leading_eigenvectors, information) == pytest.approx(
+        0.0, abs=1e-6
+    )
+    tilted_basis = np.eye(3)[:, [0, 2]]
+    assert captured_information(tilted_basis, information) == pytest.approx(10.0 / 13.0)
+    assert largest_principal_angle(tilted_basis, information) == pytest.approx(90.0)

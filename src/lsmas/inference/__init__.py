@@ -7,8 +7,8 @@ Importing this package registers them. Each runs only when a call names it, as i
 from probpipe import inference_method_registry
 
 from lsmas.inference.enskit_eki import EnsKitEKI
-from lsmas.inference.step_record import StepCallback, StepRecord, history_dataset
+from lsmas.inference.step_record import StepCallback, StepRecord, eki_history, history_dataset
 
-__all__ = ["EnsKitEKI", "StepCallback", "StepRecord", "history_dataset"]
+__all__ = ["EnsKitEKI", "StepCallback", "StepRecord", "eki_history", "history_dataset"]
 
 inference_method_registry.register(EnsKitEKI())

@@ -3,7 +3,13 @@ import numpy as np
 import pytest
 from probpipe import workflow_run
 
-from conftest import CLASSES, exact_linear_information, linear_problem, posterior_moments
+from conftest import (
+    CLASSES,
+    REFERENCE_VARIANCE,
+    exact_linear_information,
+    linear_problem,
+    posterior_moments,
+)
 from lsmas.coordinates import inverse
 from lsmas.problems import load_inverse_problem
 from lsmas.tools import Subspace, reduced_problem
@@ -32,13 +38,14 @@ def exact_plug_in_posterior(problem, subspace):
     names = problem.coordinates.names
     to_parameters = inverse(problem.coordinates.whiten).using(raw=True)
 
-    def features(x):
-        return problem.forward.using(raw=True)(to_parameters(dict(zip(names, x, strict=True))))
+    def features(z):
+        return problem.forward.using(raw=True)(to_parameters(dict(zip(names, z, strict=True))))
 
     forward_matrix = np.asarray(jax.jacfwd(features)(np.zeros(2)))
     offset = np.asarray(features(np.zeros(2)))
     reduced_matrix = forward_matrix @ subspace.basis
-    precision_weights = 1.0 / problem.noise_variance()
+    noise_variance = np.where(CLASSES == "day", SCALES["day"], SCALES["night"]) * REFERENCE_VARIANCE
+    precision_weights = LEARNING_RATE / noise_variance
     precision = np.eye(subspace.rank) + reduced_matrix.T @ (
         precision_weights[:, None] * reduced_matrix
     )
@@ -68,7 +75,8 @@ def test_lifted_draws_keep_the_inactive_variables_at_their_prior(problem):
     reduced = reduced_problem(problem, subspace)
     with workflow_run(seed=1):
         posterior = reduced.condition(method="blackjax_nuts")
-    lifted = reduced.lift(posterior, key=jax.random.key(0))
+    with workflow_run(seed=2):
+        lifted = reduced.lift(posterior)
     z = np.asarray(problem.coordinates.whiten(lifted.atoms["theta"]).to_vector())
     inactive = subspace.inactive_variables(z)
     assert inactive.shape == (z.shape[0], 1)
@@ -79,11 +87,11 @@ def test_lifted_draws_keep_the_inactive_variables_at_their_prior(problem):
 
 
 def test_subspace_of_another_problem_is_refused(problem):
-    other = Subspace.from_information(
+    other_subspace = Subspace.from_information(
         np.eye(2), parameter_names=("x", "y"), estimator="exact", rank=1
     )
     with pytest.raises(ValueError, match="not the problem's"):
-        reduced_problem(problem, other)
+        reduced_problem(problem, other_subspace)
 
 
 @pytest.mark.smoke

@@ -31,7 +31,7 @@ stopgap removed).
 | [PG-07](#pg-07) | Inference loops evaluate one point at a time; no tolerant failure mode | Low today | #580 G3, G5 | partly |
 | [PG-08](#pg-08) | No differentiability claim or Jacobian operation; selection assumes gradients | Medium: toy problem, method choice | `plans/deferred/differentiability.md` | planned |
 | [PG-09](#pg-09) | No linear pushforward of a law, no `LinOp` as a `Function` | Medium: reduced models, `W` | #521, #522 | planned |
-| [PG-10](#pg-10) | An undeclared `Function` runs once more to probe; empirical lifts thin silently | Low (footguns) | #580 G2, #585 | partly |
+| [PG-10](#pg-10) | An undeclared `Function` runs once more to probe; empirical lifts thin silently, and `pushforward` ignores `num_samples` | Medium: the estimators | #580 G2, #585, #717 | partly |
 | [PG-11](#pg-11) | A normalized density needs both method names to be claimed | Low (footgun) | to file | open |
 | [PG-12](#pg-12) | "Unnormalized conditional density" does not say what may depend on the given | Medium (semantics) | to file | open |
 | [PG-13](#pg-13) | A renamed factor taken from a joint loses its path names | Medium (bug) | to file | open |
@@ -42,6 +42,9 @@ stopgap removed).
 | [PG-18](#pg-18) | A `Function`'s declared traceability cannot be read back | Low | to file | open |
 | [PG-19](#pg-19) | A product's mean is Monte Carlo when one factor's is | Low | to file | open |
 | [PG-20](#pg-20) | A `Function` called on a record never binds its fields to parameters by name | Low (ergonomics) | to file | open |
+| [PG-21](#pg-21) | Over held samples, `expectation` hands the integrand its fields in alphabetical order | Medium (bug): the estimators | #716 | open |
+| [PG-22](#pg-22) | Traceable evaluation over many points is one uncompiled `jax.vmap`, with no bound on memory | Medium: the estimators' speed | #719 | open |
+| [PG-23](#pg-23) | No cross-covariance of two coupled marginals | Medium: statistical linearization | #718 | open |
 
 Not ProbPipe, but tracked the same way (below): **EK-01**, EnsKit switches JAX to 64-bit floats on
 import; **SP-01**, SIPNET writes NEE to three decimals.
@@ -81,8 +84,12 @@ import; **SP-01**, SIPNET writes NEE to three decimals.
   conditional density, a conditional mean (G) and a conditional covariance (Γ), and exposes the
   forward `Function` so methods can evaluate it on a batch.
 - **Stopgap.** `lsmas._stopgaps.likelihood.GaussianSimulatorLikelihood`, a `ConditionalDistribution`
-  subclass with exactly that shape. It is a proper law: its draws and its density agree (tests in
-  `tests/test_likelihood.py`), and a model containing it samples jointly.
+  subclass with exactly that shape. The noise scales are its optional input `s2`, with default
+  scales, so one likelihood serves a model whose prior has `s2` and one whose prior does not
+  (design 10). Its law at given values claims its mean $G(\theta)$ and its variance, so
+  `mean(condition_on(model, parameters))` and `variance(condition_on(model, parameters))` read them.
+  It is a proper law: its draws and its density agree (tests in `tests/test_likelihood.py`), and a
+  model containing it samples jointly.
 - **Removal.** Construct the ProbPipe family instead; the methods' `check` reads its capabilities.
 
 ## PG-03
@@ -212,7 +219,9 @@ import; **SP-01**, SIPNET writes NEE to three decimals.
   without naming a method fails at once, where it used to pick RWMH.
 - **Ideal ProbPipe.** The claim and a Jacobian operation, proposed in
   `plans/deferred/differentiability.md` (not yet approved).
-- **Stopgap.** The toy problem will compute Jacobians with `jax.jacfwd` directly, in one function.
+- **Stopgap.** `lsmas._stopgaps.jacobian.jacobian(f, x, method=...)`, shaped like the planned
+  operation: the Jacobian of a function of a record, by `jax.jacfwd` or by central differences
+  (design 09). The estimators differentiate the mean of the model's law of the observations with it.
   `InverseProblem.condition` requires its `method` argument, so a forgotten method fails at the
   call with a plain `TypeError` rather than inside NUTS.
 
@@ -243,8 +252,10 @@ import; **SP-01**, SIPNET writes NEE to three decimals.
 - **Ideal ProbPipe.** #580 G2, #585.
 - **Stopgap.** Every `Function` states whether JAX can trace it (`traceable=`), so ProbPipe never
   probes it. A repository test (`tests/test_repository.py`) checks this for every `Function` built
-  in `lsmas` and in the tests. Nothing here lifts a `Function` over an empirical law yet; code
-  that does must set `max_evaluations` to the number of atoms.
+  in `lsmas` and in the tests. `pushforward` also ignores `num_samples`, the control `expectation`
+  uses for the number of draws, and counts with `max_evaluations` instead (#717; design 09's
+  `controls.py`). `lsmas._stopgaps.operations.pushforward` evaluates every held sample and reads
+  `num_samples`, as the fixed `pushforward` will.
 
 ## PG-11
 
@@ -428,6 +439,56 @@ import; **SP-01**, SIPNET writes NEE to three decimals.
   parameter names, binds those fields by name, as kernels do.
 - **Stopgap.** None.
 - **Removal.** Nothing to remove; `forward(draw)` would also work.
+
+## PG-21
+
+**Over held samples, `expectation` hands the integrand its fields in alphabetical order.**
+
+- **What happens.** `EmpiricalDistribution._expectation` evaluates the integrand with
+  `jax.vmap(f)(atoms)`, and JAX sorts a dict's keys, so each value reaches the integrand with its
+  fields in alphabetical order. A `Function` called on it refuses a record whose fields are not in
+  its declared order (`_RecordOrderMismatch`). Over a law that is sampled, and in `pushforward`, the
+  order is the declared one (verified; design 09's `choke_points.py`).
+- **Effect here.** Every estimator calls the coordinates and the model on each value, so none could
+  average over a posterior.
+- **Ideal ProbPipe.** The integrand receives each value in the law's declared order (#716).
+- **Stopgap.** `lsmas._stopgaps.operations.expectation` (and `pushforward`) rebuild each value in
+  the declared order before calling the integrand.
+- **Removal.** Import ProbPipe's `expectation` and `pushforward` once #716 is fixed.
+
+## PG-22
+
+**Traceable evaluation over many points is one uncompiled `jax.vmap`, with no bound on memory.**
+
+- **What happens.** The `jax` executor (`_mapped_outputs`) and the empirical law's closed-form
+  expectation map a traceable function over every point with one `jax.vmap`, without `jax.jit` and
+  without chunks. Memory grows with the number of points times the intermediates of one evaluation,
+  and without compilation every intermediate is materialized at full batch size. The toy model's
+  whitened Jacobian at 400 points: 335 s uncompiled, 17.6 s compiled, 1.6 s compiled in chunks of 25
+  (design 09's `vmap_memory.py`). Over 100 prior samples, the expectation took 17.6 s with an
+  uncompiled Jacobian against 3.3 s with a compiled one (design 10's
+  `model_jacobian_in_expectation.py`).
+- **Effect here.** `gradient_based_subspace` over 500 samples takes about 46 s, where the old
+  estimator, which computed Jacobians 25 at a time, took about 4 s.
+- **Ideal ProbPipe.** The `jax` executor takes `chunk_size` and compiles the mapped callable, and the
+  empirical closed forms evaluate through the evaluation layer (#719).
+- **Stopgap.** `lsmas._stopgaps.jacobian.jacobian` compiles its `jax.jacfwd` Jacobian.
+- **Removal.** Drop the `jax.jit` once ProbPipe compiles integrands.
+
+## PG-23
+
+**No cross-covariance of two coupled marginals.**
+
+- **What happens.** `cov(d)` takes one law. The covariance $\operatorname{Cov}(y, x)$ of two parts
+  of a joint law can only be read by slicing the flat covariance of the joint by its layout, though
+  a lift over the coupled marginals `joint["y"]` and `joint["x"]` samples them together and so
+  already gives it (verified at the pin).
+- **Effect here.** A statistical linearization is $\operatorname{Cov}(G, z)\operatorname{Cov}(z)^{-1}$.
+- **Ideal ProbPipe.** `cov(y, x)` for two laws: exact for siblings of a parent with a covariance,
+  through the shared root otherwise, and zero for laws with no common root (#718).
+- **Stopgap.** `lsmas._stopgaps.operations.cov(y, x)` computes
+  $\mathbb E[y x^\top] - \mathbb E[y]\,\mathbb E[x]^\top$ with a lift over the two marginals.
+- **Removal.** Import ProbPipe's `cov` once #718 is fixed.
 
 ---
 

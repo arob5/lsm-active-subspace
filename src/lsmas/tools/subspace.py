@@ -24,7 +24,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-__all__ = ["Subspace", "suggest_rank"]
+__all__ = ["Subspace", "principal_angles", "suggest_rank"]
 
 #: The default bound on the discarded eigenvalues, for :func:`suggest_rank`.
 DEFAULT_DISCARDED_INFORMATION = 0.5
@@ -57,6 +57,13 @@ class Subspace:
     parameter_names: tuple[str, ...]
     estimator: str
 
+    def __repr__(self) -> str:
+        leading_eigenvalues = ", ".join(f"{value:.3g}" for value in self.eigenvalues[: self.rank])
+        return (
+            f"Subspace(estimator={self.estimator!r}, rank={self.rank} of {self.dimension}, "
+            f"leading eigenvalues [{leading_eigenvalues}])"
+        )
+
     @classmethod
     def from_information(
         cls,
@@ -83,10 +90,10 @@ class Subspace:
             The bound on the discarded eigenvalues when the rank is not given.
         """
         eigenvalues, eigenvectors = np.linalg.eigh(np.asarray(information, dtype=float))
-        order = np.argsort(eigenvalues)[::-1]
+        descending_order = np.argsort(eigenvalues)[::-1]
         eigenvalues, eigenvectors = (
-            eigenvalues[order],
-            _sign_by_largest_entry(eigenvectors[:, order]),
+            eigenvalues[descending_order],
+            _sign_by_largest_entry(eigenvectors[:, descending_order]),
         )
         if rank is None:
             rank = suggest_rank(eigenvalues, discarded_information)
@@ -136,6 +143,20 @@ class Subspace:
             + np.asarray(inactive, dtype=float) @ self.complement.T
         )
 
+    def principal_angles(self, other: Subspace) -> np.ndarray:
+        r"""The principal angles between this subspace and *other*, in degrees, smallest first.
+
+        See :func:`principal_angles`. Both must be subspaces of the same parameters.
+
+        Raises
+        ------
+        ValueError
+            If *other* is a subspace of other parameters.
+        """
+        if other.parameter_names != self.parameter_names:
+            raise ValueError("the subspaces are of different parameters")
+        return principal_angles(self.basis, other.basis)
+
     def loadings(self) -> pd.DataFrame:
         """$W$ as a table: one row per parameter, one column per direction of the subspace."""
         return pd.DataFrame(
@@ -151,8 +172,20 @@ class Subspace:
         coordinate (Constantine & Diaz 2017); with $r = d$ it is $H_{jj}$. Sorted, largest first.
         """
         scores = (self.basis**2) @ self.eigenvalues[: self.rank]
-        series = pd.Series(scores, index=pd.Index(self.parameter_names, name="parameter"))
-        return series.sort_values(ascending=False).rename("activity_score")
+        named_scores = pd.Series(scores, index=pd.Index(self.parameter_names, name="parameter"))
+        return named_scores.sort_values(ascending=False).rename("activity_score")
+
+
+def principal_angles(basis: np.ndarray, other_basis: np.ndarray) -> np.ndarray:
+    r"""The principal angles between the spans of two orthonormal bases, in degrees, smallest
+    first.
+
+    For bases $W$ $(d \times r)$ and $V$ $(d \times r')$, the cosines of the angles are the
+    singular values of $W^\top V$; there are $\min(r, r')$ of them. An angle of 0 is a direction
+    both spans contain, and 90 one of them is orthogonal to.
+    """
+    cosines = np.linalg.svd(np.asarray(basis).T @ np.asarray(other_basis), compute_uv=False)
+    return np.degrees(np.arccos(np.clip(cosines, -1.0, 1.0)))
 
 
 def suggest_rank(

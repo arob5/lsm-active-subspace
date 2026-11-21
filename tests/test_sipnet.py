@@ -45,9 +45,11 @@ def test_a_run_holds_every_output_on_the_same_steps(data, simulator):
 
 
 def test_a_parameter_left_unset_is_refused(data):
-    partial = SIPNETSimulator(data.driver_path, data.fixed_sipnet_parameters)
+    simulator_with_fixed_values_only = SIPNETSimulator(
+        data.driver_path, data.fixed_sipnet_parameters
+    )
     with pytest.raises(ValueError, match=r"not set: .*'leaf_off_day'"):
-        partial.run_nee({})
+        simulator_with_fixed_values_only.run_nee({})
 
 
 def test_rate_is_the_step_total_per_second_in_micromoles(simulator):
@@ -80,11 +82,11 @@ def test_feature_map_runs_a_batch_in_threads_as_it_would_in_sequence(data, simul
         simulator, data.operator, _to_sipnet, parameter_names=["optimum_temperature"], max_workers=4
     )
     batch = NumericRecordBatch({"optimum_temperature": np.array([18.0, 22.0, 26.0])}, "member")
-    threaded = np.asarray(forward(batch).raw)
-    sequential = np.asarray(forward.using(executor="sequential")(batch).raw)
-    assert threaded.shape == (3, 400)
-    np.testing.assert_array_equal(threaded, sequential)
-    assert not np.allclose(threaded[0], threaded[2])
+    threaded_features = np.asarray(forward(batch).raw)
+    sequential_features = np.asarray(forward.using(executor="sequential")(batch).raw)
+    assert threaded_features.shape == (3, 400)
+    np.testing.assert_array_equal(threaded_features, sequential_features)
+    assert not np.allclose(threaded_features[0], threaded_features[2])
 
 
 def test_a_failed_run_gives_a_row_of_nan_and_a_warning(data, simulator, caplog):
