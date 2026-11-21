@@ -43,7 +43,7 @@ stopgap removed).
 | [PG-19](#pg-19) | A product's mean is Monte Carlo when one factor's is | Low | to file | open |
 | [PG-20](#pg-20) | A `Function` called on a record never binds its fields to parameters by name | Low (ergonomics) | to file | open |
 | [PG-21](#pg-21) | Over held samples, `expectation` hands the integrand its fields in alphabetical order | Medium (bug): the estimators | #716 | open |
-| [PG-22](#pg-22) | A traceable integrand is vectorized but not compiled | Medium: the estimators' speed | to file | open |
+| [PG-22](#pg-22) | Traceable evaluation over many points is one uncompiled `jax.vmap`, with no bound on memory | Medium: the estimators' speed | #719 | open |
 | [PG-23](#pg-23) | No cross-covariance of two coupled marginals | Medium: statistical linearization | #718 | open |
 
 Not ProbPipe, but tracked the same way (below): **EK-01**, EnsKit switches JAX to 64-bit floats on
@@ -458,13 +458,20 @@ import; **SP-01**, SIPNET writes NEE to three decimals.
 
 ## PG-22
 
-**A traceable integrand is vectorized but not compiled.**
+**Traceable evaluation over many points is one uncompiled `jax.vmap`, with no bound on memory.**
 
-- **What happens.** The evaluation rules `jax.vmap` a traceable integrand without `jax.jit`. An
-  integrand that differentiates the forward map is then re-traced operation by operation: over 100
-  prior samples of the toy, 17.6 s uncompiled against 3.3 s with a compiled Jacobian (design 10's
+- **What happens.** The `jax` executor (`_mapped_outputs`) and the empirical law's closed-form
+  expectation map a traceable function over every point with one `jax.vmap`, without `jax.jit` and
+  without chunks. Memory grows with the number of points times the intermediates of one evaluation,
+  and without compilation every intermediate is materialized at full batch size. The toy model's
+  whitened Jacobian at 400 points: 335 s uncompiled, 17.6 s compiled, 1.6 s compiled in chunks of 25
+  (design 09's `vmap_memory.py`). Over 100 prior samples, the expectation took 17.6 s with an
+  uncompiled Jacobian against 3.3 s with a compiled one (design 10's
   `model_jacobian_in_expectation.py`).
-- **Ideal ProbPipe.** The evaluation rules compile a traceable integrand once.
+- **Effect here.** `gradient_based_subspace` over 500 samples takes about 46 s, where the old
+  estimator, which computed Jacobians 25 at a time, took about 4 s.
+- **Ideal ProbPipe.** The `jax` executor takes `chunk_size` and compiles the mapped callable, and the
+  empirical closed forms evaluate through the evaluation layer (#719).
 - **Stopgap.** `lsmas._stopgaps.jacobian.jacobian` compiles its `jax.jacfwd` Jacobian.
 - **Removal.** Drop the `jax.jit` once ProbPipe compiles integrands.
 
